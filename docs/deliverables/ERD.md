@@ -8,9 +8,8 @@ source: MariaDB 11.4 INFORMATION_SCHEMA, after Flyway V1+V2
 # ERD
 
 > **이 문서는 실제 데이터베이스에서 생성했습니다.** 손으로 그린 것이 아닙니다.
-> Flyway 마이그레이션(`V1__init.sql`, `V2__profile_optin_and_normalisation.sql`)을 MariaDB에 적용한 뒤
-> `INFORMATION_SCHEMA`를 읽어 만들었고, 같은 스키마에 대해 JPA `ddl-auto: validate`가 통과합니다.
-> 즉 **엔티티·마이그레이션·이 그림 셋이 일치**합니다.
+> `./bin/gen-erd.py`로 재생성하세요. 같은 스키마에 대해 JPA `ddl-auto: validate`가 통과하므로
+> **엔티티·마이그레이션·이 그림 셋이 일치**합니다.
 
 ## 무엇이 여기에 없는가 (그리고 왜)
 
@@ -74,8 +73,8 @@ erDiagram
 
 ```bash
 docker compose up -d
-cd backend && ./gradlew bootRun      # Flyway가 마이그레이션을 적용하고 JPA가 검증합니다
+cd backend && ./gradlew bootRun    # Flyway가 마이그레이션을 적용하고 JPA가 검증합니다
+./bin/gen-erd.py                   # 이 문서와 테이블 명세서를 다시 씁니다
 ```
 
-스키마를 바꿨다면 새 `V{n}__*.sql`을 추가하고 이 문서를 다시 생성하세요.
 이미 적용된 마이그레이션을 수정하면 Flyway 체크섬이 어긋납니다 (`docker compose down -v`로 초기화).

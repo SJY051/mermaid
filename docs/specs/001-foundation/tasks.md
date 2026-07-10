@@ -2,6 +2,7 @@
 title: mermAid 작업 분해 · 팀원 배분 (WBS)
 status: draft
 created: 2026-07-10
+updated: 2026-07-10
 owner: ASQi
 tags: [wbs, backlog, team]
 ---
@@ -11,6 +12,54 @@ tags: [wbs, backlog, team]
 > 이 문서가 채점 산출물 **3번 WBS**의 원본입니다.
 > 각 항목은 그대로 GitHub Issue로 옮길 수 있는 크기입니다.
 > 스펙: [`spec.md`](./spec.md) · 이슈 템플릿: `.github/ISSUE_TEMPLATE/task.yml`
+
+---
+
+## 0. 지금 어디까지 왔나 (2026-07-10)
+
+**백엔드 배관과 도메인은 동작합니다. 프론트엔드는 골격만 있습니다.**
+테스트 161개, CI 3잡 초록. 실제 공공 API와 실제 MariaDB·Redis로 검증했습니다.
+
+### 실제로 돌아가는 것 (라이브 API로 확인)
+
+| | 확인한 내용 |
+|---|---|
+| **챗 프록시** | `openai` SDK가 `baseURL` 교체만으로 붙고, 스트리밍이 `[DONE]`으로 끝나고, 클라이언트 `system` 메시지가 제거되고, 인젝션이 막힙니다 |
+| **응급 선별** | "crushing chest pain"에 **모델을 부르지 않고** 31ms 만에 119 안내. 모델은 이걸 `urgency: unknown`이라 답했습니다 |
+| **후처리 불변조건** | 7개 전부 요청 경로에 연결됨. 모델이 지어낸 약 이름은 거부됩니다 |
+| **의료기관** | `fixture` 모드로 네트워크 없이 실제 약국 3곳. 반경·영업중 계산, `INFERRED` 신뢰도 |
+| **의약품** | `ITEM_SEQ`로 e약은요+허가정보+DUR 병합. 타이레놀 7종, 이트라코나졸 DUR 21건 |
+| **알레르기** | 4-state 판정. `Acetaminophen Micronized`도 차단. `no_match_found`는 "안전"이 아님 |
+| **프로필 CRUD** | MariaDB 상대로 C/R/U/D 실증. 동의 없이는 알레르기 저장 불가, 동의 끄면 삭제 |
+| **에러 계약** | 13개 코드 + `X-Request-Id` + `retryable`. 내부 정보 미노출 |
+| **산출물** | ERD·테이블 명세서를 실제 DB에서 생성. `ddl-auto: validate` 통과 |
+
+### 다음에 할 일 (BE-1, 순서대로)
+
+1. **DEV-403 — 2-패스 RAG 연결.** `DrugService.retrieve()`가 이미 `RetrievedContext(drugs, allowedProductNames)`를 반환합니다. 챗 흐름에서 이걸 호출해 DRUG_CONTEXT를 만들고, `ChatProxyController#blocking`의 `retrievedProductNames`(현재 `Set.of()`)에 넘기세요. **그래야 불변조건 6번이 살아납니다.**
+2. **DEV-102 — `response_format` 주입.** `ChatProxyService#prepare`의 TODO. `glm-5.2`는 `json_schema` strict를 정확히 지킵니다(`oneOf`/`$defs`/`const`/`format`까지 실측). 단 **검증용 스키마와 프로바이더 강제용 스키마는 별개**이고, 서버 런타임 검증기가 여전히 source of truth입니다.
+3. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9가 이미 있으니, 실제 엔드포인트와 대조만 하면 됩니다.
+
+### ASQi만 풀 수 있는 것 (막혀 있음)
+
+- **심평원 병원정보 API가 HTTP 403.** 활용신청 승인이 필요합니다. 없으면 **DEV-203 병원 검색이 통째로 막히고 FR-02의 절반이 빕니다.**
+- **네이버맵 `ncpKeyId` 미발급.** DEV-003·206·207이 대기 중입니다. NCP 콘솔에서 **대표 계정 무료량**도 함께 확인해주세요(기존 계정 이력이 있으면 첫 호출부터 과금될 수 있습니다).
+
+### 팀원이 지금 바로 시작할 수 있는 것
+
+| 레인 | 첫 작업 | 왜 지금 가능한가 |
+|---|---|---|
+| BE-2 | DEV-202 주간 시간표 | `PublicApiResponse`가 봉투 두 종류를 다 풉니다. fixture로 개발하세요 |
+| FE-1 | DEV-408 챗 UI | astryx 셋업 완료. `MermAidAnswer` 타입이 `lib/types.ts`에 있습니다 |
+| FE-2 | DEV-501/502 브라우저 저장소 | `lib/storage.ts` 골격 있음. 채팅을 `sessionStorage`로 옮기는 것부터 |
+| PM/QA | 동의어 사전 검토 | `resources/ingredients/synonyms.tsv`의 검토자 칸이 전부 `TODO`입니다 |
+
+> **`DATA_MODE=fixture ./gradlew bootRun`** — 공공 API를 한 번도 부르지 않고 개발할 수 있습니다.
+> 약국 API는 하루 1,000회뿐입니다. 그리고 조사 문서가 틀렸던 여섯 곳이
+> [`fixtures/README.md`](../../../backend/src/main/resources/fixtures/README.md)에 정리돼 있으니
+> **파서를 쓰기 전에 읽으세요.**
+
+---
 
 ## 표기
 
