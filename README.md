@@ -4,6 +4,8 @@
 
 > MINI PROJECT 1 · 1팀 · 자유주제
 
+**처음 왔다면 [AGENTS.md](AGENTS.md)를 읽으세요.** 규칙과 그 이유, 함정, 브랜치·커밋 규약이 거기 있습니다. 사람에게도 AI에게도 같은 문서입니다.
+
 ---
 
 ## 빠른 시작
@@ -55,7 +57,7 @@ DATA_MODE=fixture ./gradlew bootRun
 ```
 브라우저 ──(openai JS SDK, baseURL=/api/v1)──▶ Spring 프록시 ──▶ LLM
    │                                              │
-   │                                              └──▶ 공공 API 6종
+   │                                              └──▶ 공공 API 8종
    ├── sessionStorage: 대화 기록 (탭을 닫으면 사라짐. 서버로 절대 가지 않음)
    └── localStorage:   deviceId, 즐겨찾기 스냅샷
 ```
@@ -89,7 +91,7 @@ DATA_MODE=fixture ./gradlew bootRun
 | `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
 | `App.tsx` | UI-01 의약품 카드. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
 | `FacilityMap.tsx` | UI-03 상세 드로어(DEV-207), GPS 거부 시 **수동 위치 입력**(DEV-206) |
-| `frontend/` 전체 | **테스트가 하나도 없습니다.** `baseURL`이 상대 경로라 챗이 브라우저에서 전혀 안 되던 버그를, 브라우저를 띄울 때까지 아무도 몰랐습니다 |
+| `frontend/` 테스트 | 48개가 있습니다. 챗 화면(`App.tsx`)과 `NearbyFacilities`는 아직 안 덮였습니다 |
 
 누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
 
@@ -97,13 +99,18 @@ DATA_MODE=fixture ./gradlew bootRun
 
 ## 협업
 
-- 브랜치: `main`에 직접 푸시하지 않습니다. `feat/…`, `fix/…` 를 만들어 PR을 올립니다.
-- 커밋: [Conventional Commits](https://www.conventionalcommits.org) (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `chore:`)
-- CI가 백엔드 테스트, 프론트 타입체크·빌드, 시크릿 스캔을 돌립니다. 초록불이 아니면 머지하지 않습니다.
+규칙과 그 이유는 전부 **[AGENTS.md](AGENTS.md)** 에 있습니다. 요약하면:
+
+- 브랜치: `main`에 직접 푸시하지 않습니다. `feat/DEV-203-hospital-adapter` 꼴로 만들어 PR을 올립니다.
+- 커밋: [Conventional Commits](https://www.conventionalcommits.org), 영어로.
+- CI가 백엔드 테스트, 프론트 테스트·타입체크·빌드, 시크릿 스캔을 돌립니다. 초록불이 아니면 머지하지 않습니다.
 - 이슈와 PR을 잘게 쪼개세요. **작업 추적성 자체가 채점 항목입니다** (NFR-05).
+
+"완료"는 아래가 **지금** 통과하는 것입니다. 리포트 파일이 아니라 종료 코드를 보세요.
 
 ```bash
 cd backend  && ./gradlew test    # 275 tests
+cd frontend && pnpm test         # 48 tests
 cd frontend && pnpm build        # tsc -b 포함
 ```
 
