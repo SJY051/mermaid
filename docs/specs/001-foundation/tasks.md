@@ -18,7 +18,7 @@ tags: [wbs, backlog, team]
 ## 0. 지금 어디까지 왔나 (2026-07-10)
 
 **백엔드는 end-to-end로 동작합니다. 프론트엔드는 골격만 있습니다.**
-테스트 219개, CI 3잡 초록. 실제 공공 API·실제 LLM·실제 MariaDB·Redis로 검증했습니다.
+테스트 275개, CI 3잡 초록. 실제 공공 API·실제 LLM·실제 MariaDB·Redis로 검증했습니다.
 
 ### 실제로 돌아가는 것 (라이브 API로 확인)
 
@@ -26,7 +26,8 @@ tags: [wbs, backlog, team]
 |---|---|
 | **2-패스 RAG** | "I have a headache and a bit of fever" → 성분 추출 → 식약처 조회 → **실존 제품 3개**(삼남아세트아미노펜정·세토펜정·나르펜정)로만 답변. 출처·타임스탬프는 서버가 씁니다 |
 | **환각 차단** | 불변조건 6이 **실제로 작동**합니다. 조회되지 않은 제품명은 이름이 아무리 그럴듯해도 거부됩니다 |
-| **챗 프록시** | `openai` SDK가 `baseURL` 교체만으로 붙고, 클라이언트 `system` 메시지가 제거되고, 인젝션이 막힙니다. `stream=true`도 **검증 후** 1청크로 나갑니다 |
+| **챗 프록시** | `openai` SDK가 붙고(단 `baseURL`은 **절대 URL이어야 합니다** — 상대 경로는 SDK가 `new URL()`에서 던집니다), 클라이언트 `system` 메시지가 제거되고, 인젝션이 막힙니다. `stream=true`도 **검증 후** 1청크로 나갑니다 |
+| **지도** | 실제 브라우저에서 타일·핀 3개·InfoWindow 확인. 위치 거부 시 서울시청 폴백 + 그 사실을 표시 |
 | **응급 선별** | "crushing chest pain"에 **모델을 부르지 않고** 31ms 만에 119 안내. 모델은 이걸 `urgency: unknown`이라 답했습니다 |
 | **후처리 불변조건** | 7개 전부 요청 경로에 연결됨 |
 | **의료기관** | `fixture` 모드로 네트워크 없이 실제 약국 3곳. 반경·영업중 계산, `INFERRED` 신뢰도 |
@@ -47,9 +48,12 @@ tags: [wbs, backlog, team]
    시간표가 없는 기관은 `isOpenNow`를 `null`로 두세요. `false`로 쓰지 마세요.
 2. **문서화.** `AGENTS.md`, 직군별 브랜치 규칙, 코드 표기법, Conventional Commits 안내. 비개발자 팀원 대상.
 
-> ✅ **DEV-003·206·207 지도 완료.** 실제 브라우저에서 검증했습니다 — 타일이 그려지고, 약국 3곳에 핀이 찍히고,
-> 핀을 누르면 이름·영업여부·거리·전화가 뜹니다. 위치 권한을 거부하면 **서울시청으로 폴백하고 그렇다고 말합니다.**
-> `isOpenNow`가 `null`이면 "Hours unknown"입니다 — "Closed"가 아닙니다(§2-13).
+> ✅ **DEV-003 완료 · DEV-206 대부분 완료.** 실제 브라우저에서 검증했습니다 — 타일이 그려지고, 약국 3곳에
+> 핀이 찍히고, 핀을 누르면 이름·영업여부·거리·전화가 뜹니다. 위치 권한을 거부하면 **서울시청으로 폴백하고
+> 그렇다고 말합니다.** `isOpenNow`가 `null`이면 "Hours unknown"입니다 — "Closed"가 아닙니다(§2-13).
+>
+> **DEV-206에 남은 것: GPS 거부 시 수동 위치 입력.** 지금은 서울시청으로 떨어질 뿐, 사용자가 직접 위치를
+> 고를 방법이 없습니다. **DEV-207(상세 드로어 UI-03)은 손대지 않았습니다.**
 >
 > **네이버 키는 curl로 검증할 수 없습니다.** 틀린 키로도 `maps.js`가 200(바이트 수까지 동일)이고, `onload`가
 > 발동하고, `naver.maps`가 정의되고, `new naver.maps.Map()`이 성공합니다. **그 뒤에야** `navermap_authFailure`가
@@ -70,7 +74,7 @@ tags: [wbs, backlog, team]
 > **`AnswerValidator`는 그대로 돕니다** — 스키마를 완벽히 지키면서도 없는 약을 지어낼 수 있으니까요.
 >
 > ✅ **API 명세서 완료.** [`docs/deliverables/API_명세서.md`](../../deliverables/API_명세서.md).
-> 코드 주석이 아니라 **실행 중인 서버의 응답**에서 만들었고, `./bin/verify-api-doc.sh`가 32개 검사로 지킵니다.
+> 코드 주석이 아니라 **실행 중인 서버의 응답**에서 만들었고, `./bin/verify-api-doc.sh`가 43개 검사로 지킵니다.
 > 그 과정에서 병원 검색이 `200 []`(= "근처에 병원 없음"이라는 거짓말)을 돌려주던 것과, 미구현 스텁이
 > `500`을 내던 것을 **`501 NOT_IMPLEMENTED`**로 고쳤습니다.
 
@@ -103,7 +107,7 @@ tags: [wbs, backlog, team]
 > 임상 검토자를 확보하면 서명된 계열 표를 얹을 수 있습니다. 단 **생성기 제한을 대체하지 않고 그 위에** 얹습니다.
 
 > **`DATA_MODE=fixture ./gradlew bootRun`** — 공공 API를 한 번도 부르지 않고 개발할 수 있습니다.
-> 약국 API는 하루 1,000회뿐입니다. 그리고 조사 문서가 틀렸던 여섯 곳이
+> 약국 API는 하루 1,000회뿐입니다. 그리고 실물 응답에서 알게 된 함정 17가지가
 > [`fixtures/README.md`](../../../backend/src/main/resources/fixtures/README.md)에 정리돼 있으니
 > **파서를 쓰기 전에 읽으세요.**
 
@@ -186,12 +190,12 @@ flowchart LR
 |---|---|---|---|---|---|
 | DEV-001 | 기술 스택·저장소 구조 결정 | P0 | S | Lead | ✅ `spec.md` §1 |
 | DEV-002 | 공공 API 8종 Spike (실응답 확보) | P0 | L | BE-1, BE-2, QA | ✅ 전부 200 |
-| DEV-003 | 네이버맵 키 발급 + `localhost` allowlist | P0 | S | FE-2 | 🔧 |
+| DEV-003 | 네이버맵 키 발급 + `localhost` allowlist | P0 | S | FE-2 | ✅ 브라우저에서 확인 |
 | DEV-004 | 대표 계정 무료량 확인 (NCP 콘솔) | P0 | S | 윤서진 | 🔧 [스펙 §3 미확인 항목] |
 
 > **DEV-002는 끝났습니다.** 실제 응답 7종이 `backend/src/main/resources/fixtures/`에 있고, `data-mode: fixture`로 네트워크 없이 개발할 수 있습니다.
 > 약국 API는 **하루 1,000회**뿐이니 fixture로 개발하세요. 디버깅에 한도를 쓰면 그날 개발이 끝납니다.
-> 조사 문서가 틀렸던 여섯 곳은 `fixtures/README.md`에 정리돼 있습니다 — 파서를 쓰기 전에 읽으세요.
+> 실물 응답에서 알게 된 함정 17가지가 `fixtures/README.md`에 있습니다 — 파서를 쓰기 전에 읽으세요.
 
 ### EPIC 1 — 기반·계약
 
@@ -213,7 +217,7 @@ flowchart LR
 | DEV-203 | 병원 어댑터 (2단 호출 + `ykiho` 캐시) | P0 | L | BE-2 | ⛔ **심평원 API가 403** — 활용신청 승인 대기 |
 | DEV-204 | 거리·영업중 필터 + `is_open_now` **nullable** | P0 | M | BE-2 | ✅ (주간시간표 붙이면 `INFERRED`→`OFFICIAL_SCHEDULE`) |
 | DEV-205 | `GET /facilities` + provider namespace ID | P0 | M | BE-2 | ✅ 목록. 단건(`/{id}`)은 남음 |
-| DEV-206 | 지도·목록 UI + GPS 거부 시 수동 위치 | P0 | L | FE-2 | ⛔ DEV-205 |
+| DEV-206 | 지도·목록 UI + GPS 거부 시 수동 위치 | P0 | L | FE-2 | 🔧 지도·목록·핀·폴백 완료. **수동 위치 입력 남음** |
 | DEV-207 | 상세 드로어 (UI-03) + **바텀시트 직접 조립** | P0 | M | FE-2 | ⛔ DEV-106 |
 | DEV-208 | 공휴일 캘린더 (특일 정보 API) | P1 | M | BE-2 | 🔧 지금은 늘 평일 |
 
@@ -357,6 +361,6 @@ rg 'TODO\(team\)' backend/src frontend/src
 | `HolidayCalendar#isHoliday` | DEV-208 | BE-2 |
 | `DrugService#search`, `#detail` | DEV-301, DEV-307 | BE-1 |
 | `ChatProxyService#prepare` (response_format — glm-5.2는 지원함) | DEV-102 | BE-1 |
-| `useNaverMap.ts` 마커 렌더링 | DEV-206 | FE-2 |
+| ~~`useNaverMap.ts` 마커 렌더링~~ | DEV-206 | ✅ `FacilityMap.tsx` |
 | `App.tsx` 의약품 카드·지도 | DEV-308, DEV-408 | FE-1 |
 | `ChatProxyController#blocking` (`retrievedProductNames`) | DEV-403 | BE-1 |

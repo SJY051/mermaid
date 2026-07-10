@@ -70,7 +70,7 @@ DATA_MODE=fixture ./gradlew bootRun
 - **§3 검증된 외부 제약.** 이 표를 안 읽으면 각각 반나절씩 날립니다. 요약하면:
 
   - 약국 API는 **하루 1,000회**입니다. 다섯 명이 지도를 새로고침하면 점심 전에 소진됩니다. `DATA_MODE=fixture`로 개발하세요.
-  - 조사 문서가 틀렸던 여섯 곳은 [`fixtures/README.md`](backend/src/main/resources/fixtures/README.md)에 있습니다. 파서를 쓰기 전에 읽으세요.
+  - 실물 응답에서 알게 된 함정 17가지가 [`fixtures/README.md`](backend/src/main/resources/fixtures/README.md)에 있습니다. 파서를 쓰기 전에 읽으세요.
   - JSON을 요청하는 파라미터가 API마다 다릅니다. 약국·심평원은 `_type=json`, 식약처는 `type=json`. 언더스코어 하나 차이로 조용히 XML이 옵니다.
   - 네이버맵 키 파라미터는 `ncpKeyId`입니다. 인터넷 예제의 `ncpClientId`는 인증 실패합니다.
   - **어떤 공공 API에도 "지금 영업 중" 필터가 없습니다.** 우리가 계산합니다.
@@ -83,12 +83,13 @@ DATA_MODE=fixture ./gradlew bootRun
 
 | 파일 | 할 일 |
 |---|---|
-| `PharmacyApiClient#weeklyHours` | 주간 시간표(`getParmacyBassInfoInqire`). 이게 붙어야 영업 상태가 `INFERRED`에서 `OFFICIAL_SCHEDULE`이 됩니다 |
-| `FacilityService#hospitals` | 병원은 API 두 개를 엮습니다. **다만 심평원 API가 지금 403** — 활용신청 승인이 필요합니다 |
+| `PharmacyApiClient#weeklyHours` | 주간 시간표(`getParmacyBassInfoInqire`). 이게 붙어야 영업 상태가 `inferred`에서 `official_schedule`이 됩니다 |
+| `FacilityService#hospitals` | 병원은 API 두 개를 엮습니다. **공공 API는 승인됐고**(`./bin/check-api-access.py`), 구현이 아직입니다. 지금은 `501`. `fixtures/README.md` 12~17번을 먼저 읽으세요 |
 | `IngredientNormalizer` | 동의어 사전(`resources/ingredients/synonyms.tsv`)의 검토자 칸이 전부 `TODO`입니다. **QA가 채워야 합니다** |
 | `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
-| `App.tsx`, `useNaverMap.ts` | UI-01 의약품 카드, UI-02 지도, UI-03 상세. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
-| `ChatProxyService#prepare` | `response_format` 주입. glm-5.2는 지원하지만 `deepseek-v4-*`는 400을 냅니다 — 모델별 플래그가 필요합니다 (DEV-102) |
+| `App.tsx` | UI-01 의약품 카드. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
+| `FacilityMap.tsx` | UI-03 상세 드로어(DEV-207), GPS 거부 시 **수동 위치 입력**(DEV-206) |
+| `frontend/` 전체 | **테스트가 하나도 없습니다.** `baseURL`이 상대 경로라 챗이 브라우저에서 전혀 안 되던 버그를, 브라우저를 띄울 때까지 아무도 몰랐습니다 |
 
 누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
 
@@ -102,7 +103,7 @@ DATA_MODE=fixture ./gradlew bootRun
 - 이슈와 PR을 잘게 쪼개세요. **작업 추적성 자체가 채점 항목입니다** (NFR-05).
 
 ```bash
-cd backend  && ./gradlew test    # 219 tests
+cd backend  && ./gradlew test    # 275 tests
 cd frontend && pnpm build        # tsc -b 포함
 ```
 
