@@ -199,10 +199,21 @@ flowchart LR
 | DEV-302 | 허가정보 어댑터 (성분, `MAIN_INGR_ENG`) | P0 | M | BE-1 | ✅ 목록·상세·성분검색 |
 | DEV-303 | **DUR 어댑터** (병용·연령·임부·노인) | P1 | L | BE-1 | ✅ 4종 전부 |
 | DEV-304 | `ITEM_SEQ` 기반 3종 병합 | P0 | M | BE-1 | ✅ 실제 API로 검증 |
-| DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫** (`resources/ingredients/synonyms.tsv`) |
+| DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫**. 판정만 하면 되게 근거를 모아뒀습니다 → [검토 시트](DEV-305-synonym-review.md) |
 | DEV-306 | 알레르기 4-state 비교 서비스 | P0 | M | BE-1 | ✅ `AllergyChecker` |
 | DEV-307 | `GET /drugs`, `GET /drugs/{id}` | P0 | M | BE-1 | ✅ |
 | DEV-308 | 의약품 카드 UI + 4-state 시각 구분 | P0 | M | FE-1, PM/UX | ⛔ DEV-307 |
+| DEV-309 | **동의어 사전 서명 + 아스피린 표준명 교정** (스펙 §7-1 **AR-02**) | P1 | S | 윤서진, PM/QA, BE-1 | 📋 **백로그.** 함께 검토·결정하고 서명한다. 아래 참고 |
+
+> **DEV-309 — 무엇을 결정해야 하나.** [검토 시트](DEV-305-synonym-review.md)에 실측 근거가 다 있습니다. 세 덩어리입니다.
+>
+> 1. **경고 없이 통과하는 표기 4종** — `Dexibuprofen D.C.`(24), `Aspirin Enteric Pellets`(27), `Aspirin Enteric Granules`(2), `Aspirin Lysine For Injection 90%`(1). 알레르기가 있어도 아무 표시가 안 붙습니다.
+> 2. **경고만 뜨고 차단되지 않는 표기 4종** — `Microencapsulated Acetaminophen`(12), `Ibuprofen Piconol`(22), `Ibuprofen Sodium Dihydrate`(1), `Ibuprofen Encapsulated`(1). 이 중 `Ibuprofen Piconol`만 화학·임상 판단이 필요합니다.
+> 3. **표준명이 거꾸로 박힌 버그** — 허가정보에 `Acetylsalicylic Acid`는 **0건**, `Aspirin`은 119건. `toSearchTerm("Aspirin")`이 존재하지 않는 문자열을 내놓아 `GET /api/v1/drugs?ingredient=Aspirin`이 **빈 목록**입니다. 표기법 사실이라 확인은 쉽습니다.
+>
+> **미서명 행을 지우는 쪽이 위험한 방향입니다.** 그 행들이 없으면 알레르기가 매칭되지 않습니다. 서명 전까지 행을 **추가하지도 지우지도** 않습니다. 미서명 행은 매 부팅 WARN에 이름이 찍힙니다.
+>
+> **서명은 사람이 합니다.** 그 칸의 유일한 의미가 "사람이 확인했다"이므로, 에이전트가 채우면 그 칸은 그 순간부터 아무 뜻도 없어집니다.
 
 > **DEV-305는 QA와 함께 합니다.** LLM만으로 성분 동의어를 확정하면 안 됩니다 (스펙 §2-12). 사람이 검토한 매핑 파일에 근거 메모를 남기세요.
 
