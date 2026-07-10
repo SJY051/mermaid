@@ -59,6 +59,74 @@ class IngredientNormalizerTest {
     }
 
     @Nested
+    @DisplayName("physical-form qualifiers do not change the allergen")
+    class FormQualifiers {
+
+        @ParameterizedTest
+        @CsvSource({
+            "Acetaminophen Granules, acetaminophen",
+            "Acetaminophen Micronized, acetaminophen",
+            "Anhydrous Caffeine, caffeine",
+            "Ibuprofen Powder, ibuprofen",
+        })
+        @DisplayName("the qualifier is stripped, so the allergen still matches")
+        void stripped(String raw, String expected) {
+            assertThat(normalizer.canonicalize(raw)).isEqualTo(expected);
+        }
+
+        @Test
+        @DisplayName("'Acetaminophen Micronized' BLOCKS an acetaminophen allergy — it is the same drug")
+        void micronizedBlocks() {
+            // Found in a live 허가정보 response for 어린이타이레놀현탁액. Before the qualifier strip this
+            // came back as a mere `warning`, which is a false negative in the direction that hurts.
+            MatchConfidence c = normalizer.compare("Acetaminophen Micronized", "acetaminophen");
+
+            assertThat(c.canBlock()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a salt form is NOT stripped — that would over-block")
+        void saltsSurvive() {
+            assertThat(normalizer.canonicalize("Chlorpheniramine Maleate")).isEqualTo("chlorpheniramine maleate");
+            assertThat(normalizer.canonicalize("Benztropine Mesylate")).isEqualTo("benztropine mesylate");
+        }
+
+        @Test
+        @DisplayName("a genuinely two-word ingredient is left alone")
+        void compoundNameSurvives() {
+            assertThat(normalizer.canonicalize("Sodium Chloride")).isEqualTo("sodium chloride");
+        }
+    }
+
+    @Nested
+    @DisplayName("toSearchTerm() speaks the upstream's dialect")
+    class SearchTerm {
+
+        @Test
+        @DisplayName("lower case becomes Title Case — the upstream substring match is case-sensitive")
+        void titleCases() {
+            // `ibuprofen` finds 142 products upstream, every one of them Dexibuprofen.
+            // `Ibuprofen` finds 282, which is what an allergy question actually needs.
+            assertThat(normalizer.toSearchTerm("ibuprofen")).isEqualTo("Ibuprofen");
+            assertThat(normalizer.toSearchTerm("IBUPROFEN 200mg")).isEqualTo("Ibuprofen");
+            assertThat(normalizer.toSearchTerm("sodium chloride")).isEqualTo("Sodium Chloride");
+        }
+
+        @Test
+        @DisplayName("a synonym is resolved before capitalisation")
+        void resolvesSynonym() {
+            assertThat(normalizer.toSearchTerm("paracetamol")).isEqualTo("Acetaminophen");
+            assertThat(normalizer.toSearchTerm("Aspirin")).isEqualTo("Acetylsalicylic Acid");
+        }
+
+        @Test
+        @DisplayName("nothing usable yields an empty term, and the caller must not query")
+        void emptyTerm() {
+            assertThat(normalizer.toSearchTerm("(500mg)")).isEmpty();
+        }
+    }
+
+    @Nested
     @DisplayName("the reviewed dictionary")
     class Synonyms {
 

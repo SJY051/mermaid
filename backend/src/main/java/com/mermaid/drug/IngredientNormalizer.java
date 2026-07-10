@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -45,6 +46,38 @@ public class IngredientNormalizer {
 
     private static final Pattern MULTI_SPACE = Pattern.compile("\\s{2,}");
 
+    /**
+     * Physical-form qualifiers that do not change the allergen.
+     *
+     * <p>The MFDS writes "Acetaminophen Granules", "Acetaminophen Micronized", "Anhydrous Caffeine".
+     * These are the same substance in a different grind or hydration state. Left alone they matched
+     * only partially, and a partial match yields a warning rather than a block — so a live product
+     * containing micronized acetaminophen came back as merely "possible" for someone with an
+     * acetaminophen allergy. That is a false negative in the one direction that can hurt someone.
+     *
+     * <p><b>Salt forms are not here on purpose.</b> "Chlorpheniramine Maleate" and "Benztropine
+     * Mesylate" are the ingredient's real published name; stripping the salt would over-block. Where
+     * a salt shares the allergen (ibuprofen lysine) that belongs in the reviewed synonym file, with a
+     * reviewer's name against it.
+     *
+     * <p>TODO(BE-1 + QA, DEV-305): review this list with the synonym dictionary.
+     */
+    private static final Set<String> FORM_QUALIFIERS =
+            Set.of(
+                    "granules",
+                    "granule",
+                    "micronized",
+                    "micronised",
+                    "powder",
+                    "fine",
+                    "crystalline",
+                    "anhydrous",
+                    "hydrate",
+                    "monohydrate",
+                    "dihydrate",
+                    "coated",
+                    "uncoated");
+
     private final Map<String, String> synonyms = new HashMap<>();
 
     public IngredientNormalizer() {
@@ -76,7 +109,7 @@ public class IngredientNormalizer {
     }
 
     /**
-     * Lower-cased, unaccented, dose-free, parenthesis-free.
+     * Lower-cased, unaccented, dose-free, parenthesis-free, and stripped of physical-form qualifiers.
      *
      * <p>Order matters: parentheses go before dose, or "Tylenol (500mg)" leaves an empty bracket.
      */
@@ -87,7 +120,52 @@ public class IngredientNormalizer {
         s = s.toLowerCase(java.util.Locale.ROOT);
         s = s.replace('_', ' ').replace('-', ' ').replace('/', ' ');
         s = MULTI_SPACE.matcher(s).replaceAll(" ");
-        return s.trim();
+        return stripFormQualifiers(s.trim());
+    }
+
+    /**
+     * "acetaminophen micronized" → "acetaminophen"; "sodium chloride" is left alone.
+     *
+     * <p>If every word is a qualifier we keep the original — an ingredient genuinely called
+     * "Anhydrous" does not exist, but neither does an empty key help anyone.
+     */
+    private static String stripFormQualifiers(String lowered) {
+        if (lowered.isEmpty()) {
+            return lowered;
+        }
+        String kept =
+                java.util.Arrays.stream(lowered.split(" "))
+                        .filter(w -> !FORM_QUALIFIERS.contains(w))
+                        .collect(java.util.stream.Collectors.joining(" "))
+                        .trim();
+        return kept.isEmpty() ? lowered : kept;
+    }
+
+    /**
+     * The form 허가정보's {@code item_ingr_name} parameter expects: "Ibuprofen", "Sodium Chloride".
+     *
+     * <p>The upstream search is a <b>case-sensitive substring</b> match, which is a nastier thing
+     * than a case-sensitive exact match. {@code Ibuprofen} returns 282 products; {@code ibuprofen}
+     * returns 142 — every one of them <i>Dex</i>ibuprofen, and not a single actual ibuprofen product.
+     * Searching a user's lower-cased allergy text would silently return the wrong medicines.
+     */
+    public String toSearchTerm(String raw) {
+        String canonical = canonicalize(raw);
+        if (canonical.isEmpty()) {
+            return "";
+        }
+        String resolved = synonyms.getOrDefault(canonical, canonical);
+        StringBuilder out = new StringBuilder(resolved.length());
+        for (String word : resolved.split(" ")) {
+            if (word.isEmpty()) {
+                continue;
+            }
+            if (!out.isEmpty()) {
+                out.append(' ');
+            }
+            out.append(Character.toUpperCase(word.charAt(0))).append(word.substring(1));
+        }
+        return out.toString();
     }
 
     /**

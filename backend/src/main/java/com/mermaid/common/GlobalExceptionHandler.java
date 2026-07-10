@@ -58,13 +58,15 @@ public class GlobalExceptionHandler {
      * for {@code @RequestBody}. Missing it meant {@code ?lat=999} returned a 500 saying "something
      * went wrong on our side", when the problem was entirely on the caller's.
      */
+    // IllegalArgumentException is deliberately NOT here. Spring, Jackson and Spring Cache all throw
+    // it for internal problems — a cache that refuses a null value is our bug, not the caller's — and
+    // mapping it to INVALID_REQUEST told a user their request was malformed when it was perfect.
     @ExceptionHandler({
         MethodArgumentNotValidException.class,
         ConstraintViolationException.class,
         HandlerMethodValidationException.class,
         MissingServletRequestParameterException.class,
-        MethodArgumentTypeMismatchException.class,
-        IllegalArgumentException.class
+        MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<Map<String, Object>> invalid(Exception e) {
         log.warn("invalid request: {}", e.getMessage());

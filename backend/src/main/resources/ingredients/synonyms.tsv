@@ -7,17 +7,20 @@
 # Format (tab-separated):
 #   alias <TAB> canonical <TAB> reviewer <TAB> source
 #
-# Matching is done on the normalised form (lower case, no dose, no parentheses),
-# so write both columns in that form.
+# Matching happens on the normalised form: lower case, no dose, no parentheses,
+# and with physical-form qualifiers already stripped (granules, micronized,
+# anhydrous, …) — see IngredientNormalizer.FORM_QUALIFIERS. So you do NOT need a
+# row for "Acetaminophen Granules"; you DO need one for a different chemical name
+# or a salt that shares the allergen.
 #
 # TODO(BE-1 + QA, DEV-305): review and extend before the demo. The list below is
 # a seed covering the ingredients our personas actually mention. Do not add a row
-# without checking it against 식약처 허가정보 `MAIN_INGR_ENG` values.
+# without checking it against 식약처 허가정보 `MAIN_INGR_ENG` / `ITEM_INGR_NAME` values.
 
-paracetamol	acetaminophen	TODO	INN name; USAN uses acetaminophen. 허가정보 uses "Acetaminophen".
+paracetamol	acetaminophen	TODO	INN name; USAN and 허가정보 both use "Acetaminophen".
 apap	acetaminophen	TODO	Common US abbreviation on labels.
-acetaminophen granules	acetaminophen	TODO	허가정보 MAIN_INGR_ENG for 어린이타이레놀산: "Acetaminophen Granules".
-ibuprofen lysine	ibuprofen	TODO	Salt form; same allergen.
+ibuprofen lysine	ibuprofen	TODO	Salt form; same allergen. 허가정보 lists both.
 ibuprofen arginine	ibuprofen	TODO	Salt form; same allergen.
+dexibuprofen	ibuprofen	TODO	S-enantiomer of ibuprofen; cross-reactivity is expected. 허가정보 lists it separately.
 asa	acetylsalicylic acid	TODO	Standard abbreviation.
 aspirin	acetylsalicylic acid	TODO	Brand-turned-generic; identical substance.

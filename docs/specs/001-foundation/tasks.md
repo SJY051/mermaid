@@ -124,13 +124,13 @@ flowchart LR
 
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
-| DEV-301 | e약은요 어댑터 (안내문) | P0 | M | BE-1 | ⛔ DEV-002 |
-| DEV-302 | 허가정보 어댑터 (성분, `MAIN_INGR_ENG`) | P0 | M | BE-1 | ⛔ DEV-002 |
-| DEV-303 | **DUR 어댑터** (병용·연령·임부·노인) | P1 | L | BE-1 | ⛔ DEV-002 · 스펙 §2-10 |
-| DEV-304 | `ITEM_SEQ` 기반 3종 병합 | P0 | M | BE-1 | ⛔ DEV-301~303 |
+| DEV-301 | e약은요 어댑터 (안내문) | P0 | M | BE-1 | ✅ |
+| DEV-302 | 허가정보 어댑터 (성분, `MAIN_INGR_ENG`) | P0 | M | BE-1 | ✅ 목록·상세·성분검색 |
+| DEV-303 | **DUR 어댑터** (병용·연령·임부·노인) | P1 | L | BE-1 | ✅ 4종 전부 |
+| DEV-304 | `ITEM_SEQ` 기반 3종 병합 | P0 | M | BE-1 | ✅ 실제 API로 검증 |
 | DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫** (`resources/ingredients/synonyms.tsv`) |
-| DEV-306 | 알레르기 4-state 비교 서비스 | P0 | M | BE-1 | ⛔ DEV-305 |
-| DEV-307 | `GET /drugs`, `GET /drugs/{id}` | P0 | M | BE-1 | ⛔ DEV-304 |
+| DEV-306 | 알레르기 4-state 비교 서비스 | P0 | M | BE-1 | ✅ `AllergyChecker` |
+| DEV-307 | `GET /drugs`, `GET /drugs/{id}` | P0 | M | BE-1 | ✅ |
 | DEV-308 | 의약품 카드 UI + 4-state 시각 구분 | P0 | M | FE-1, PM/UX | ⛔ DEV-307 |
 
 > **DEV-305는 QA와 함께 합니다.** LLM만으로 성분 동의어를 확정하면 안 됩니다 (스펙 §2-12). 사람이 검토한 매핑 파일에 근거 메모를 남기세요.
@@ -141,7 +141,7 @@ flowchart LR
 |---|---|---|---|---|---|
 | DEV-401 | Chat Completions 프록시 (키 은닉, system 제거) | P0 | M | BE-1 | ✅ |
 | DEV-402 | 시스템 프롬프트 + 프롬프트 인젝션 방어 | P0 | M | BE-1, PM/UX | 🔧 부분 완료 |
-| DEV-403 | 2-패스 RAG 조립 | P0 | L | BE-1 | ⛔ DEV-304 |
+| DEV-403 | 2-패스 RAG 조립 | P0 | L | BE-1 | 🔧 `DrugService.retrieve()` 준비됨. 챗 흐름에 연결만 남음 |
 | DEV-404 | **서버 후처리 불변조건 7개** | P0 | M | BE-1 | ✅ 요청 경로에 연결됨 |
 | DEV-405 | **규칙 기반 응급 선별** (LLM보다 먼저) | P0 | M | BE-1, PM/UX | ✅ 문구·패턴 검수는 PM/UX 남음 |
 | DEV-406 | `ui_actions[]` allowlist 검증 | P0 | M | BE-1 | ✅ sealed interface + Jackson subtype |

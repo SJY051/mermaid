@@ -33,16 +33,26 @@
 
 **4. 없는 요일은 필드 자체가 없습니다.** 이 약국은 일요일·공휴일에 쉬어서 `dutyTime7*`, `dutyTime8*`이 아예 없습니다. `WeeklyHours`가 없는 인덱스를 CLOSED로 처리하는 건 그래서 맞습니다.
 
-**5. 성분 검색은 영문이고 대소문자를 가립니다.**
-- `item_ingr_name=Acetaminophen` → 1,357건
-- `item_ingr_name=acetaminophen` → **0건**
+**5. 성분 검색은 대소문자를 구분하는 _부분 문자열_ 매칭입니다.** (정확 일치가 아닙니다)
+- `item_ingr_name=Ibuprofen` → 282건 (진짜 이부프로펜)
+- `item_ingr_name=ibuprofen` → **142건 — 전부 Dex*ibuprofen***. 진짜 이부프로펜 제품은 하나도 없습니다
+- `item_ingr_name=Acetaminophen` → 1,357건 / `acetaminophen` → **0건**
 - `item_ingr_name=아세트아미노펜` → **0건**
+
+**사용자가 입력한 대소문자를 그대로 넘기면 알레르기 질문에 엉뚱한 약이 나옵니다.** `IngredientNormalizer.toSearchTerm()`을 반드시 거치세요.
 
 **6. 목록 조회에 `item_seq` 파라미터가 없습니다.** 넣어도 조용히 무시하고 전체 43,064건을 반환합니다. `ITEM_SEQ`로 단건을 잡으려면 상세 조회(`getDrugPrdtPrmsnDtlInq06` — **06**입니다. `…Inq07`은 404)를 쓰세요.
 
 **7. `ITEM_SEQ`가 마스터 조인 키입니다.** e약은요의 `itemSeq`, 허가정보의 `ITEM_SEQ`, DUR의 `ITEM_SEQ`가 같은 값(`202005623`)입니다. 실물로 확인했습니다.
 
 **8. DUR `INGR_CODE`(`D000762`)는 허가정보의 `[M######]`와 조인되지 않습니다.** 성분 레벨로 엮으려면 DUR의 `MAIN_INGR`(역시 `[M######]`)을 쓰세요.
+
+**9. 성분 이름은 제형 수식어를 달고 옵니다.** `Acetaminophen Granules`, `Acetaminophen Micronized`, `Anhydrous Caffeine`. 전부 같은 알레르겐입니다. 벗겨내지 않으면 아세트아미노펜 알레르기 환자에게 `warning`만 뜹니다 — 차단되어야 하는데도.
+반면 **염 형태**(`Chlorpheniramine Maleate`)는 벗기지 않습니다. 그건 실제 성분명입니다.
+
+**10. 같은 성분이 두 번 옵니다.** `타이레놀8시간이알서방정`의 `ITEM_INGR_NAME`은 `"Acetaminophen/Acetaminophen"`, `ITEM_INGR_CNT=2`. 이중층 정제라서요.
+
+**11. 모든 약이 e약은요에 있는 건 아닙니다.** 수출용 의약품은 안내문이 없습니다. `Optional.empty()`가 정상이며, `@Cacheable`에 `unless = "#result == null"`이 없으면 Redis가 예외를 던집니다.
 
 ## 재수집
 
