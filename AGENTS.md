@@ -102,6 +102,24 @@ These are not style preferences. Each one marks a place where being wrong can hu
 
 **Check API access:** `./bin/check-api-access.py` — all 8 endpoints must print `[OK]`.
 
+### On Windows
+
+Everything works, with one rule: **run this repo's own scripts from Git Bash**, which ships with Git for Windows. PowerShell and `cmd` are fine for everything else.
+
+| What you run | Where |
+|---|---|
+| `./bin/setup.sh`, `./bin/verify-api-doc.sh` | Git Bash (they are bash scripts) |
+| `python bin/check-api-access.py` | anywhere — standard library only, but the `python3` shebang is a Unix thing, so name the interpreter |
+| `gradlew.bat bootRun` | anywhere (`./gradlew` in Git Bash also works) |
+| `pnpm dev`, `docker compose up -d` | anywhere |
+
+Two traps we defused rather than documented, so you should never meet them:
+
+- **Line endings.** Git for Windows rewrites LF to CRLF on checkout by default, and a shell script with CRLF dies on its own shebang: `bad interpreter: No such file or directory`. The pre-commit hook fails the same way, which would silently remove the secret guard. The root `.gitattributes` pins `*.sh`, `.githooks/*`, `*.py`, and `*.tsv` to LF. Don't remove it.
+- **Symlinks.** `CLAUDE.md` used to be a symlink to this file. Windows checks a symlink out as a plain text file containing the target's path unless you have Developer Mode on, so it became a 9-byte file reading `AGENTS.md` — which Claude Code would then load as its entire instruction set. It is now a one-line `@AGENTS.md` import, which Anthropic recommends for exactly this reason. Don't reintroduce the symlink.
+
+> **This path has not been exercised on a real Windows machine.** If you are the first to clone here on Windows, run `./bin/setup.sh` in Git Bash, then `cd backend && ./gradlew test` and `cd frontend && pnpm test`, and tell us what broke. Fixing it is a `fix(config)` commit and a favour to whoever comes next.
+
 ---
 
 ## 4. Definition of done

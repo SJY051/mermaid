@@ -1,0 +1,26 @@
+# Line endings.
+#
+# Git for Windows defaults to `core.autocrlf=true`, which rewrites LF to CRLF on checkout.
+# A shell script with CRLF line endings dies before it runs a single command:
+#
+#     bash: ./bin/setup.sh: /usr/bin/env: bad interpreter: No such file or directory
+#
+# The pre-commit hook fails the same way — and a hook that cannot start is a secret guard
+# that is not there. Nail every executable text file to LF, on every platform.
+
+* text=auto
+
+*.sh          text eol=lf
+*.py          text eol=lf
+.githooks/*   text eol=lf
+*.bat         text eol=crlf
+*.ps1         text eol=crlf
+
+# Reviewed by a human, edited on GitHub's web editor, read by a Java loader.
+# Keep it LF so a Windows edit doesn't rewrite every line in the diff.
+*.tsv         text eol=lf
+
+*.jar         binary
+*.png         binary
+*.jpg         binary
+*.docx        binary
