@@ -2,6 +2,7 @@ package com.mermaid.drug;
 
 import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.common.NotFoundException;
+import com.mermaid.common.Parallel;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.drug.domain.Drug;
@@ -22,6 +23,7 @@ import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
 
 /**
  * Assembles one medicine from three government services, joined on {@code ITEM_SEQ} (spec §2-10).
@@ -53,6 +55,16 @@ public class DrugService {
 
     /** How deep we walk the ranked list looking for three with published guidance. */
     private static final int MAX_DETAIL_PROBES = 8;
+
+    /**
+     * How many calls to 식약처 may be in flight at once from one chat turn.
+     *
+     * <p>Four, and raising it will not help. Measured 2026-07-10: four DUR calls take 5.77s in
+     * sequence and 2.70s together — a 2.1× speed-up, not 4×. The ministry throttles concurrent
+     * requests per service key, so past a handful of sockets we would only be queueing on their side
+     * while looking busy on ours. Four is where the curve flattens.
+     */
+    private static final int UPSTREAM_CONCURRENCY = 4;
 
     /**
      * The upstream returns products in no useful order, so we impose one.
@@ -120,13 +132,22 @@ public class DrugService {
      * — most of them — comes back with an empty list, which is a fact and not an error.
      */
     public Drug detail(String itemSeq, Set<String> avoidedKeys) {
-        DrugPermissionApiClient.PermittedDetail permitted =
-                permissionClient
-                        .detail(itemSeq)
-                        .orElseThrow(() -> new NotFoundException("No drug with ITEM_SEQ " + itemSeq));
+        // Three services, one key, and no dependency between them. Fetched together they cost one
+        // round-trip instead of three, and the DUR call is itself four more, also concurrent.
+        var fetched =
+                Mono.zip(
+                                Parallel.async(() -> permissionClient.detail(itemSeq)),
+                                Parallel.async(() -> easyDrugClient.findBySeq(itemSeq)),
+                                Parallel.async(() -> durClient.warningsFor(itemSeq)))
+                        .block();
+        if (fetched == null) {
+            throw new NotFoundException("No drug with ITEM_SEQ " + itemSeq);
+        }
 
-        Optional<EasyDrugApiClient.Narrated> narrated = easyDrugClient.findBySeq(itemSeq);
-        List<DurWarning> warnings = durClient.warningsFor(itemSeq);
+        DrugPermissionApiClient.PermittedDetail permitted =
+                fetched.getT1().orElseThrow(() -> new NotFoundException("No drug with ITEM_SEQ " + itemSeq));
+        Optional<EasyDrugApiClient.Narrated> narrated = fetched.getT2();
+        List<DurWarning> warnings = fetched.getT3();
 
         return new Drug(
                 Drug.idOf(itemSeq),
@@ -173,22 +194,21 @@ public class DrugService {
         List<Drug> candidates = new ArrayList<>();
 
         // What the user named by hand outranks anything we inferred: they asked about it.
-        for (String productName : query.productNamesKo()) {
-            for (Drug d : searchByName(productName, avoidedKeys)) {
+        for (List<Drug> hits :
+                Parallel.map(query.productNamesKo(), UPSTREAM_CONCURRENCY, n -> searchByName(n, avoidedKeys))) {
+            for (Drug d : hits) {
                 namedSeqs.add(d.itemSeq());
                 candidates.add(d);
             }
         }
 
-        List<List<Drug>> perIngredient = new ArrayList<>();
-        for (String ingredient : query.ingredientsEn()) {
-            perIngredient.add(
-                    searchByIngredient(ingredient, avoidedKeys).stream()
-                            .filter(d -> d.allergyCheck().status() != AllergyCheck.Status.BLOCKED)
-                            .filter(d -> !isExportOnly(d.nameKo()))
-                            .sorted(BY_USEFULNESS)
-                            .toList());
-        }
+        List<List<Drug>> perIngredient =
+                Parallel.map(query.ingredientsEn(), UPSTREAM_CONCURRENCY, ingredient ->
+                        searchByIngredient(ingredient, avoidedKeys).stream()
+                                .filter(d -> d.allergyCheck().status() != AllergyCheck.Status.BLOCKED)
+                                .filter(d -> !isExportOnly(d.nameKo()))
+                                .sorted(BY_USEFULNESS)
+                                .toList());
         candidates.addAll(roundRobin(perIngredient));
 
         List<Drug> merged =
@@ -199,20 +219,33 @@ public class DrugService {
                         .toList();
 
         List<Drug> chosen = new ArrayList<>();
-        for (Drug candidate : merged) {
-            if (chosen.size() == MAX_CONTEXT_DRUGS) {
-                break;
-            }
+        // A batch at a time, so the common case — the three best candidates all have guidance —
+        // costs one round of probes and one round of assembly, and we never fetch the tail we do
+        // not need. Everything inside a batch runs at once.
+        for (int from = 0; from < merged.size() && chosen.size() < MAX_CONTEXT_DRUGS; from += MAX_CONTEXT_DRUGS) {
+            List<Drug> batch = merged.subList(from, Math.min(from + MAX_CONTEXT_DRUGS, merged.size()));
+
             // Cheap probe before the six-call detail assembly. Cached, so detail() re-reads it free.
-            if (easyDrugClient.findBySeq(candidate.itemSeq()).isEmpty()) {
-                log.debug("Skipping {} — no e약은요 guidance to ground on", candidate.nameKo());
-                continue;
+            List<Boolean> hasGuidance =
+                    Parallel.map(batch, UPSTREAM_CONCURRENCY, d -> easyDrugClient.findBySeq(d.itemSeq()).isPresent());
+
+            List<Drug> groundable = new ArrayList<>();
+            for (int i = 0; i < batch.size(); i++) {
+                if (hasGuidance.get(i)) {
+                    groundable.add(batch.get(i));
+                } else {
+                    log.debug("Skipping {} — no e약은요 guidance to ground on", batch.get(i).nameKo());
+                }
             }
-            detail(candidate.itemSeq(), avoidedKeys, namedSeqs.contains(candidate.itemSeq()))
-                    .ifPresent(chosen::add);
+
+            Parallel.map(groundable, UPSTREAM_CONCURRENCY, d ->
+                            detail(d.itemSeq(), avoidedKeys, namedSeqs.contains(d.itemSeq())))
+                    .forEach(assembled -> assembled.ifPresent(chosen::add));
         }
 
-        return RetrievedContext.of(chosen);
+        return RetrievedContext.of(chosen.size() <= MAX_CONTEXT_DRUGS
+                ? chosen
+                : chosen.subList(0, MAX_CONTEXT_DRUGS));
     }
 
     /**

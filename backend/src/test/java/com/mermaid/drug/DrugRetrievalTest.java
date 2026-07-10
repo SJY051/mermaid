@@ -218,7 +218,7 @@ class DrugRetrievalTest {
             RetrievedContext ctx = retrieve(world, RetrievalQuery.EMPTY);
 
             assertThat(ctx.isEmpty()).isTrue();
-            assertThat(world.calls).isZero();
+            assertThat(world.calls.get()).isZero();
         }
     }
 
@@ -328,7 +328,8 @@ class DrugRetrievalTest {
         final Map<String, List<Row>> byIngredient = new LinkedHashMap<>();
         final Map<String, List<String>> detailIngredients = new LinkedHashMap<>();
         final Set<String> withoutGuidance = new java.util.HashSet<>();
-        int calls;
+        /** Retrieval fans out across threads now, so a plain int would lose increments. */
+        final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
 
         World name(String query, Row... rows) {
             byName.put(query, Arrays.asList(rows));
@@ -394,19 +395,19 @@ class DrugRetrievalTest {
         var permission = new DrugPermissionApiClient(null, props, mode, loader) {
             @Override
             public List<Permitted> findByName(String itemName) {
-                world.calls++;
+                world.calls.incrementAndGet();
                 return permitted(world.byName.getOrDefault(itemName, List.of()));
             }
 
             @Override
             public List<Permitted> findByIngredient(String ingredientEn) {
-                world.calls++;
+                world.calls.incrementAndGet();
                 return permitted(world.byIngredient.getOrDefault(ingredientEn, List.of()));
             }
 
             @Override
             public Optional<PermittedDetail> detail(String itemSeq) {
-                world.calls++;
+                world.calls.incrementAndGet();
                 Row r = world.find(itemSeq);
                 if (r == null) {
                     return Optional.empty();
@@ -432,7 +433,7 @@ class DrugRetrievalTest {
         var easyDrug = new EasyDrugApiClient(null, props, mode, loader) {
             @Override
             public Optional<Narrated> findBySeq(String itemSeq) {
-                world.calls++;
+                world.calls.incrementAndGet();
                 if (world.withoutGuidance.contains(itemSeq)) {
                     return Optional.empty();
                 }
@@ -447,7 +448,7 @@ class DrugRetrievalTest {
         var dur = new DurApiClient(null, props, mode, loader) {
             @Override
             public List<DurWarning> warningsFor(String itemSeq) {
-                world.calls++;
+                world.calls.incrementAndGet();
                 return List.of();
             }
         };

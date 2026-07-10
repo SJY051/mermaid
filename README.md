@@ -89,7 +89,6 @@ DATA_MODE=fixture ./gradlew bootRun
 | `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
 | `App.tsx`, `useNaverMap.ts` | UI-01 의약품 카드, UI-02 지도, UI-03 상세. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
 | `ChatProxyService#prepare` | `response_format` 주입. glm-5.2는 지원하지만 `deepseek-v4-*`는 400을 냅니다 — 모델별 플래그가 필요합니다 (DEV-102) |
-| `DrugService#retrieve` | 상세 조회 3건이 순차이고 각각 DUR을 4번 부릅니다. 병렬화하면 콜드 응답이 크게 빨라집니다 |
 
 누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
 

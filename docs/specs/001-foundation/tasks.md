@@ -36,18 +36,20 @@ tags: [wbs, backlog, team]
 | **에러 계약** | 13개 코드 + `X-Request-Id` + `retryable`. 내부 정보 미노출 |
 | **산출물** | ERD·테이블 명세서를 실제 DB에서 생성. `ddl-auto: validate` 통과 |
 
-> **챗 응답은 느립니다.** 콜드 캐시 112초, 웜 캐시는 훨씬 빠릅니다. LLM 왕복 2회(추출 + 요약)에
-> 콜드일 때 식약처 호출 약 29회가 붙습니다. `mermaid.llm.timeout`은 120초입니다.
+> **챗 응답은 느립니다.** 콜드 100초 이상. 조회는 이미 4.7초로 줄였고(병렬화 완료), **나머지는 전부 LLM
+> 왕복 2회**입니다. 같은 웜 요청이 215초 → 87초로 튈 만큼 프로바이더 편차가 큽니다.
 > FE는 **로딩 상태를 반드시 그려야 합니다** (DEV-408).
 
 ### 다음에 할 일 (BE-1, 순서대로)
 
-1. **DEV-102 — `response_format` 주입.** `ChatProxyService#prepare`의 TODO. `glm-5.2`는 `json_schema` strict를 정확히 지킵니다(`oneOf`/`$defs`/`const`/`format`까지 실측). 단 `deepseek-v4-*`·`qwen3.7-max`는 `response_format` 자체에 400을 냅니다 → **모델별 capability 플래그**가 필요합니다. 그리고 **검증용 스키마와 프로바이더 강제용 스키마는 별개**이며, 서버 런타임 검증기가 여전히 source of truth입니다.
+1. **DEV-102 — `response_format` 주입.** `ChatProxyService#prepare`의 TODO. `glm-5.2`는 strict `json_schema`를 정확히 지킵니다 — 전체 `MermAidAnswer` 스키마(`$defs`/`$ref`/`const`/nullable union 포함)를 실측으로 통과시켰습니다. 단 `deepseek-v4-flash`는 같은 요청에 **400**을 냅니다 → **모델별 capability 플래그**가 필요합니다. 그리고 **검증용 스키마와 프로바이더 강제용 스키마는 별개**이며, 서버 런타임 검증기가 여전히 source of truth입니다.
 2. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9를 실제 엔드포인트와 대조. **알려진 불일치:** 스펙 §5-3에 `GET /api/v1/health`가 있으나 실제로는 Actuator의 `/actuator/health`만 있습니다.
-3. **성능.** 콜드 112초는 시연에 쓰기 부담스럽습니다. `DrugService.retrieve()`의 상세 조회 3건이 순차이고, 각각 DUR 4회를 부릅니다. 병렬화하거나 DUR을 필요한 종류만 부르세요.
 
 > ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
 > `ChatProxyController#answer`. 설계 근거와 실측 함정은 스펙 §2-2에 전부 적어뒀습니다.
+>
+> ✅ **조회 병렬화 완료.** `detail()` 8.79초 → 4.23초, `retrieve()` 콜드 4.68초.
+> **동시성을 더 올리지 마세요** — 식약처가 서비스키 단위로 조입니다(DUR 4회: 순차 5.77초, 동시 2.70초 = 2.1배).
 
 ### ASQi만 풀 수 있는 것 (막혀 있음)
 

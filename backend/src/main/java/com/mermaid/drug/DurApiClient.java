@@ -2,6 +2,7 @@ package com.mermaid.drug;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
@@ -67,6 +68,9 @@ public class DurApiClient {
 
     private static final int MAX_ROWS = 20;
 
+    /** All four kinds at once. There are only ever four. */
+    private static final int KIND_CONCURRENCY = 4;
+
     private final WebClient publicApiWebClient;
     private final PublicApiProperties properties;
     private final DataModeProperties dataMode;
@@ -75,15 +79,20 @@ public class DurApiClient {
     /**
      * Every published warning for one product, across all four kinds.
      *
-     * <p>Four upstream calls. Cached hard: a contraindication notice changes when the ministry issues
-     * one, which is to say rarely.
+     * <p>Four upstream calls, and no one of them depends on another's answer — so they go together.
+     * At ~1.5s each that is four and a half seconds saved on every uncached drug, and a chat turn
+     * assembles three of them. Cached hard afterwards: a contraindication notice changes when the
+     * ministry issues one, which is to say rarely.
+     *
+     * <p>Results stay in {@code Kind} declaration order, which the tests rely on.
      */
     @Cacheable(value = "durWarnings", key = "#itemSeq")
     public List<DurWarning> warningsFor(String itemSeq) {
+        List<List<DurWarning>> perKind =
+                Parallel.map(List.of(DurWarning.Kind.values()), KIND_CONCURRENCY, kind -> byKind(itemSeq, kind));
+
         List<DurWarning> all = new ArrayList<>();
-        for (DurWarning.Kind kind : DurWarning.Kind.values()) {
-            all.addAll(byKind(itemSeq, kind));
-        }
+        perKind.forEach(all::addAll);
         return all;
     }
 
