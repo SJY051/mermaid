@@ -272,7 +272,7 @@ You can edit files directly on GitHub in the browser: pencil icon → edit → c
 
 ## 13. Working with AI assistants
 
-This section is two-directional: rules the AI must follow, and guidance for the human steering it. The model-specific notes distill the official guides for [Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5) and the [GPT-5.6 family](https://developers.openai.com/api/docs/guides/latest-model), adapted to this repo.
+Rules the AI must follow, and guidance for the human steering it. Team members run different daily-driver models — most on the GPT family, some on Claude — so everything here is written to hold **regardless of which model sits in which seat**. The model-specific dials at the end distill the official guides for [Claude Fable 5](https://platform.claude.com/docs/en/build-with-claude/prompt-engineering/prompting-claude-fable-5) and the [GPT-5.6 family](https://developers.openai.com/api/docs/guides/latest-model).
 
 ### 13-1. Rules for any model working here
 
@@ -297,25 +297,34 @@ Both vendors' guidance converges on the same shape, so use it regardless of mode
 4. **Require evidence with the result.** End the brief with the completion criteria as commands: *"Done when `./gradlew test` and `bin/verify-api-doc.sh` pass — show the output."*
 5. **Distinguish "assess" from "act".** If you're describing a problem or thinking out loud, say so — otherwise a capable model may implement a fix you only wanted diagnosed.
 
-### 13-3. Claude (Fable 5 / Opus 4.8) notes
+### 13-3. A working rhythm that needs no special tooling
 
-- **Effort is the main quality/latency/cost dial.** `high` is the sensible default; drop to `medium`/`low` for routine or mechanical work — lower effort on Fable 5 still outperforms max effort on prior models. Reserve `xhigh` for the hardest capability-sensitive tasks.
-- **Long turns are normal.** Hard tasks run many minutes; autonomous runs can extend for hours. Don't kill a run for being quiet — check on it asynchronously.
-- **It responds to intent.** The single highest-leverage line in a brief is the *why* (13-2 item 1).
-- **Anti-overreach line that works:** "Don't add features, refactor, or introduce abstractions beyond what the task requires. Do the simplest thing that works."
-- **Grounding line that works:** "Before reporting progress, audit each claim against a tool result from this session." Anthropic reports this nearly eliminates fabricated status reports on long runs.
-- **Don't ask it to transcribe its reasoning into the response** — that can trigger refusal classifiers. Read the structured thinking output instead if you need visibility.
+For anything substantial, walk these phases in order. Each phase is just a prompt to your model plus a file in the repo — no custom skills or plugins required:
 
-### 13-4. GPT-5.6 family (Sol / Terra / Luna) notes
+1. **Research.** *"Explore the code and docs relevant to X; report the constraints, options, and trade-offs. Don't implement."* Skipping this is how you get a clean solution to the wrong problem.
+2. **Spec.** Have the model draft a one-page spec in `docs/specs/NNN-<feature>/spec.md` — goals, requirements, open questions — and review it *yourself* before any code exists. A wrong plan caught here costs a page; caught during implementation it costs days.
+3. **Scaffold.** Skeleton plus test skeleton, no real logic, committed on its own. Every diff after this is small and readable.
+4. **Implement & verify.** Tests alongside code; done per §4.
+5. **Capture.** When something bit you, write it where the next person will look: a new trap into [`fixtures/README.md`](backend/src/main/resources/fixtures/README.md) or §11 here, a measured constraint into a comment with its date.
 
-Our `codex-worker` delegation lane runs **gpt-5.6-sol**.
+Collapse phases for small mechanical tasks. The rhythm is not ceremony — it moves the expensive mistakes to the cheap end.
 
-- **Pick the tier by the job:** `sol` for complex implementation and review, `terra` for cost-balanced everyday work, `luna` for high-volume mechanical transforms.
-- **Start `reasoning.effort` one level lower than instinct suggests** (`medium` is the balanced default) and raise it only when a representative task measurably improves. Assuming maximum effort is best is the documented anti-pattern.
-- **Verbosity is a separate dial** (`text.verbosity`); 5.6 is more concise by default than its predecessors, so avoid stacking broad brevity instructions on top — they over-truncate.
-- **Pro mode** (`reasoning.mode: "pro"`) trades latency for a deeper single answer — appropriate for high-value code review with clear criteria, not for iteration loops.
-- **Define the autonomy boundary explicitly** (13-2 item 2); OpenAI's guidance is verbatim that the model should be told "what level of action each request authorizes."
-- When delegating through `codex exec`, commit the scaffold **before** dispatching so the worker's exact diff is auditable from git, and verify the result yourself — the delegator owns the outcome.
+### 13-4. Orchestrator and workers
+
+Both vendors now recommend the same structure for larger work: one model **plans, dispatches, and verifies** (the orchestrator — normally your daily-driver model) while cheaper or parallel **workers** execute bounded tasks. Any pairing works — Claude orchestrating Codex workers, GPT-5.6 orchestrating its own subagents, or one model wearing both hats on a small task. The rules that keep it safe are pairing-independent:
+
+- **Brief a worker like §13-2 says**: a bounded, self-contained task with completion criteria. Workers fill gaps by inventing; leave no gaps.
+- **Commit the scaffold before dispatching**, so each worker's exact diff is auditable from git.
+- **Route by cost the right way round**: planning, review, and safety-relevant judgment go to your strongest model; mechanical, well-bounded transforms go to the cheap ones — never the reverse.
+- **The orchestrator — and ultimately you — owns the outcome.** Verify worker output with the §4 commands yourself; a worker's own "done" is a claim, not evidence.
+
+### 13-5. Model-specific dials
+
+**Claude (Fable 5 / Opus 4.8).** Effort is the main quality/latency/cost dial: `high` by default, `medium`/`low` for routine work, `xhigh` only for the hardest tasks. Long silent turns on hard problems are normal — check asynchronously rather than killing the run. The single highest-leverage line in a brief is the *why*. On long runs, add *"before reporting progress, audit each claim against a tool result from this session"* — Anthropic reports this nearly eliminates fabricated status reports. Don't ask it to transcribe its reasoning into the response (that can trigger refusal classifiers); read the structured thinking output instead.
+
+**GPT-5.6 family (Sol / Terra / Luna).** Pick the tier by the job: `sol` for complex implementation and review, `terra` for cost-balanced daily work, `luna` for high-volume mechanical transforms. Start `reasoning.effort` one level *lower* than instinct suggests (`medium` is the balanced default) and raise it only on measured improvement — assuming maximum effort is best is the documented anti-pattern. Verbosity is a separate dial (`text.verbosity`), and 5.6 is already concise: don't stack extra brevity instructions, they over-truncate. Pro mode (`reasoning.mode: "pro"`) trades latency for one deeper answer — right for high-value review with clear criteria, wrong for iteration loops.
+
+**Both families.** Leaner prompts measurably win: OpenAI reports 10–15% better evaluations with 41–66% fewer tokens from trimming system prompts; Anthropic reports over-prescriptive prompts written for older models actively degrade current ones. State each instruction once, point at documents instead of pasting them, and always give the autonomy boundary (§13-2).
 
 ---
 
