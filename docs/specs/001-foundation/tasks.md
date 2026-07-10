@@ -46,7 +46,14 @@ tags: [wbs, backlog, team]
 1. **DEV-203 병원 검색.** **공공 API 8종 전부 승인되어 200입니다** (`./bin/check-api-access.py`). 목록·상세 실제 응답이 `fixtures/hospital_list.json`, `hospital_detail.json`에 있습니다.
    함정은 `fixtures/README.md` **12~17번** — 특히 **`distance`가 심평원은 미터·국립중앙의료원은 km**(반대!), **`radius` 필수**, **`XPos`=경도/`YPos`=위도**, **오퍼레이션 이름에도 버전 접미사**(`getDtlInfo2.8`).
    시간표가 없는 기관은 `isOpenNow`를 `null`로 두세요. `false`로 쓰지 마세요.
-2. **문서화.** `AGENTS.md`, 직군별 브랜치 규칙, 코드 표기법, Conventional Commits 안내. 비개발자 팀원 대상.
+2. **프론트 테스트 확장.** 47개가 붙었지만 `App.tsx`(챗 전체 흐름)와 `NearbyFacilities`는 아직 안 덮였습니다.
+
+> ✅ **문서화 완료.** [`AGENTS.md`](../../../AGENTS.md) — 안전 규칙과 그 근거, 브랜치·커밋 규약, 코드·주석 표기법,
+> 자주 밟는 함정, 비개발자 안내까지. 사람과 AI 에이전트가 같은 문서를 봅니다.
+>
+> ✅ **프론트엔드 테스트 47개.** 이전엔 **하나도 없었고**, 그래서 `baseURL`이 상대 경로라 챗이 브라우저에서
+> 전혀 안 되던 버그가 브라우저를 띄울 때까지 살아남았습니다. 다섯 파일 전부 **일부러 코드를 망가뜨려
+> 빨간불이 뜨는지 확인**했습니다(대화를 `localStorage`로 옮기면 4개가 즉시 실패). CI가 `pnpm test`를 돌립니다.
 
 > ✅ **DEV-003 완료 · DEV-206 대부분 완료.** 실제 브라우저에서 검증했습니다 — 타일이 그려지고, 약국 3곳에
 > 핀이 찍히고, 핀을 누르면 이름·영업여부·거리·전화가 뜹니다. 위치 권한을 거부하면 **서울시청으로 폴백하고
@@ -90,7 +97,7 @@ tags: [wbs, backlog, team]
 |---|---|---|
 | BE-2 | DEV-202 주간 시간표 | `PublicApiResponse`가 봉투 두 종류를 다 풉니다. fixture로 개발하세요 |
 | FE-1 | DEV-408 챗 UI | astryx 셋업 완료. `MermAidAnswer` 타입이 `lib/types.ts`에 있습니다 |
-| FE-2 | DEV-501/502 브라우저 저장소 | `lib/storage.ts` 골격 있음. 채팅을 `sessionStorage`로 옮기는 것부터 |
+| FE-2 | DEV-207 상세 드로어 | DEV-106이 끝나 막힌 게 없습니다. `storage.ts`는 이미 `sessionStorage`를 쓰고 테스트가 지킵니다 |
 | PM/QA | 동의어 사전 검토 | 검토자 칸이 전부 `TODO`입니다. **판정만 하면 되게 시트를 준비해뒀습니다** → [DEV-305 검토 시트](DEV-305-synonym-review.md) |
 
 > ✅ **[2026-07-10 결정됨] 나프록센 건 — 계열 표를 만들지 않고 생성기를 묶었습니다.**
@@ -123,16 +130,18 @@ tags: [wbs, backlog, team]
 
 ## 1. 팀원 배분
 
-팀은 5명입니다. 넷이 개발 레인(프론트 2 / 백엔드 2), 한 명이 PM·QA 레인입니다.
+팀은 4명, 직무 레인은 5개입니다. 개발 레인 넷(프론트 2 / 백엔드 2) 중 BE-1·FE-1을 윤서진이 겸직하고, 한 명이 PM·QA 레인입니다.
 **전원이 프론트와 백엔드를 다 만지되**, 아래는 각자가 **책임지고 완료를 보증하는** 영역입니다.
 
 | 레인 | 담당 | 주 영역 | 왜 이 묶음인가 |
 |---|---|---|---|
 | **BE-1 / Dev Lead** | 윤서진 | 챗 프록시, 2-패스 RAG, 후처리 불변조건, 안전 규칙, 의약품 3종 API, DataMode, CI·통합·리뷰 | 의약품 API 셋(e약은요·허가정보·DUR)은 `ITEM_SEQ` 조인으로 얽혀 있고 2-패스 RAG의 1단계입니다. 챗과 같은 사람이 쥐어야 경계가 갈리지 않습니다 |
-| **BE-2** | [이름] | 의료기관 API(약국·병원), Haversine·영업시간 계산, Redis 캐시, `GET /facilities` | 의료기관 도메인이 통째로 독립적이라 병렬 작업이 막히지 않습니다 |
-| **FE-1** | [이름] | astryx 셋업, 챗 UI(UI-01), 의약품 카드, 알레르기 4-state 표시, safe fallback UI | 챗 화면과 카드가 한 덩어리입니다 |
-| **FE-2** | [이름] | 네이버맵(UI-02), 상세 드로어(UI-03), 브라우저 저장소, 즐겨찾기 CRUD | 지도와 상세, 저장소가 한 흐름입니다 |
-| **PM / UX / QA** | [이름] | 요구사항 추적, 영어 문구·안전 문구, fixture 사람 검증, 테스트 실행, 발표·시연 | 개발자가 아니어도 **완료를 보증하는 산출물**을 냅니다 (아래 §4) |
+| **BE-2** | 임수혁 | 의료기관 API(약국·병원), Haversine·영업시간 계산, Redis 캐시, `GET /facilities` | 의료기관 도메인이 통째로 독립적이라 병렬 작업이 막히지 않습니다 |
+| **FE-1** | 윤서진 | astryx 셋업, 챗 UI(UI-01), 의약품 카드, 알레르기 4-state 표시, safe fallback UI | 챗 화면과 카드가 한 덩어리입니다 |
+| **FE-2** | 박주형 | 네이버맵(UI-02), 상세 드로어(UI-03), 브라우저 저장소, 즐겨찾기 CRUD | 지도와 상세, 저장소가 한 흐름입니다 |
+| **PM / UX / QA** | 최정민 | 요구사항 추적, 영어 문구·안전 문구, fixture 사람 검증, 테스트 실행, 발표·시연 | 개발자가 아니어도 **완료를 보증하는 산출물**을 냅니다 (아래 §4) |
+
+> 이름은 수행계획서 v0.2(2026-07-10 수정본) §3 기준입니다. 팀원 4명에 직무가 5개라 BE-1·FE-1은 윤서진이 겸직합니다.
 
 ### 인계 지점
 
@@ -193,7 +202,7 @@ flowchart LR
 | DEV-003 | 네이버맵 키 발급 + `localhost` allowlist | P0 | S | FE-2 | ✅ 브라우저에서 확인 |
 | DEV-004 | 대표 계정 무료량 확인 (NCP 콘솔) | P0 | S | 윤서진 | 🔧 [스펙 §3 미확인 항목] |
 
-> **DEV-002는 끝났습니다.** 실제 응답 7종이 `backend/src/main/resources/fixtures/`에 있고, `data-mode: fixture`로 네트워크 없이 개발할 수 있습니다.
+> **DEV-002는 끝났습니다.** 실제 응답 13종이 `backend/src/main/resources/fixtures/`에 있고, `data-mode: fixture`로 네트워크 없이 개발할 수 있습니다.
 > 약국 API는 **하루 1,000회**뿐이니 fixture로 개발하세요. 디버깅에 한도를 쓰면 그날 개발이 끝납니다.
 > 실물 응답에서 알게 된 함정 17가지가 `fixtures/README.md`에 있습니다 — 파서를 쓰기 전에 읽으세요.
 
@@ -202,9 +211,9 @@ flowchart LR
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
 | DEV-101 | 저장소 scaffold, CI, 시크릿 가드 | P0 | M | Lead | ✅ |
-| DEV-102 | `MermAidAnswerV1` 스키마 + 런타임 검증기 | P0 | M | BE-1 | 🔧 `response_format` 주입만 남음 (glm-5.2는 지원) |
+| DEV-102 | `MermAidAnswerV1` 스키마 + 런타임 검증기 | P0 | M | BE-1 | ✅ 지원 모델엔 `response_format` 주입, 400이면 스키마 없이 1회 재시도 |
 | DEV-103 | `DataMode` (live/hybrid/fixture) | P0 | S | BE-1 | ✅ |
-| DEV-104 | Fixture 저장소 구성 | P0 | M | BE-2, QA | ✅ 실제 응답 7종 `src/main/resources/fixtures/` |
+| DEV-104 | Fixture 저장소 구성 | P0 | M | BE-2, QA | ✅ 실제 응답 13종 `src/main/resources/fixtures/` |
 | DEV-105 | 공통 에러 envelope + `X-Request-Id` | P0 | M | BE-1 | ✅ |
 | DEV-106 | **astryx 0.1.4 셋업 + Tailwind v4 레이어 브리지** | P0 | M | FE-1 | ✅ |
 
@@ -214,11 +223,11 @@ flowchart LR
 |---|---|---|---|---|---|
 | DEV-201 | Facility 어댑터 인터페이스 + fixture 구현체 | P0 | S | BE-2 | ✅ `PublicApiResponse` + `FixtureLoader` |
 | DEV-202 | 약국 어댑터 — 위치조회 ✅ / **주간시간표(`getParmacyBassInfoInqire`) 남음** | P0 | M | BE-2 | 🔧 |
-| DEV-203 | 병원 어댑터 (2단 호출 + `ykiho` 캐시) | P0 | L | BE-2 | ⛔ **심평원 API가 403** — 활용신청 승인 대기 |
+| DEV-203 | 병원 어댑터 (2단 호출 + `ykiho` 캐시) | P0 | L | BE-2 | 🔧 **API는 승인됨**(2026-07-10, 8종 전부 200). 어댑터 미구현 → `?type=hospital`은 `501` |
 | DEV-204 | 거리·영업중 필터 + `is_open_now` **nullable** | P0 | M | BE-2 | ✅ (주간시간표 붙이면 `INFERRED`→`OFFICIAL_SCHEDULE`) |
 | DEV-205 | `GET /facilities` + provider namespace ID | P0 | M | BE-2 | ✅ 목록. 단건(`/{id}`)은 남음 |
 | DEV-206 | 지도·목록 UI + GPS 거부 시 수동 위치 | P0 | L | FE-2 | 🔧 지도·목록·핀·폴백 완료. **수동 위치 입력 남음** |
-| DEV-207 | 상세 드로어 (UI-03) + **바텀시트 직접 조립** | P0 | M | FE-2 | ⛔ DEV-106 |
+| DEV-207 | 상세 드로어 (UI-03) + **바텀시트 직접 조립** | P0 | M | FE-2 | 🔧 미착수. DEV-106이 끝나 막힌 것은 없습니다 |
 | DEV-208 | 공휴일 캘린더 (특일 정보 API) | P1 | M | BE-2 | 🔧 지금은 늘 평일 |
 
 ### EPIC 3 — 의약품·DUR·알레르기 (BE-1 · FE-1)

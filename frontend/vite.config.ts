@@ -1,4 +1,5 @@
-import { defineConfig, loadEnv, type Plugin } from 'vite'
+import { loadEnv, type Plugin } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -35,6 +36,15 @@ function refuseSecretsInClientBundle(): Plugin {
 
 export default defineConfig({
   plugins: [refuseSecretsInClientBundle(), react(), tailwindcss()],
+
+  // Tests run through this same config on purpose: the secret guard above fires during
+  // `pnpm test` too, so a badly-named key fails the suite as well as the build.
+  test: {
+    environment: 'jsdom',
+    setupFiles: ['./src/test/setup.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
+    restoreMocks: true,
+  },
 
   // One .env at the repo root feeds docker compose, Spring, and Vite alike.
   // Only VITE_-prefixed keys reach the browser, so the service keys stay server-side.
