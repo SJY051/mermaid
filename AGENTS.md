@@ -98,7 +98,7 @@ These are not style preferences. Each one marks a place where being wrong can hu
 
 **Every day:** `docker compose up -d`, then backend and frontend as in §0. Vite proxies `/api` to Spring, so the browser sees a single origin and CORS never enters the picture.
 
-**Develop offline:** `DATA_MODE=fixture ./gradlew bootRun` serves real captured responses without touching the network. The pharmacy API allows **1,000 calls per day** — five people refreshing a map can spend that before lunch, so fixture mode is the default working style. Note that fixture mode **ignores query parameters**; test filtering logic with `hybrid` or unit tests.
+**Develop offline:** `DATA_MODE=fixture ./gradlew bootRun` serves real captured responses without touching the network. The pharmacy API allows **1,000 calls per day** — four people refreshing a map can spend that before lunch, so fixture mode is the default working style. Note that fixture mode **ignores query parameters**; test filtering logic with `hybrid` or unit tests.
 
 **Check API access:** `./bin/check-api-access.py` — all 8 endpoints must print `[OK]`.
 
@@ -128,7 +128,7 @@ Always include the task ID from [`tasks.md`](docs/specs/001-foundation/tasks.md)
 
 ### Lanes
 
-Five people, split so work doesn't collide. Who owns which lane is in [`tasks.md` §3](docs/specs/001-foundation/tasks.md).
+Four people cover five lanes — BE-1 and FE-1 share an owner — split so work doesn't collide. Who owns which lane is in [`tasks.md` §1](docs/specs/001-foundation/tasks.md).
 
 | Lane | Primary area | Example branch |
 |---|---|---|

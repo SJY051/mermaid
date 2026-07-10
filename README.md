@@ -73,7 +73,7 @@ DATA_MODE=fixture ./gradlew bootRun
 - **§2 원본 문서에서 달라진 점.** 요구사항 명세서 v0.1에는 실제로 구현 불가능한 요구가 몇 개 있었습니다. 무엇이 왜 바뀌었는지 근거와 함께 적혀 있습니다.
 - **§3 검증된 외부 제약.** 이 표를 안 읽으면 각각 반나절씩 날립니다. 요약하면:
 
-  - 약국 API는 **하루 1,000회**입니다. 다섯 명이 지도를 새로고침하면 점심 전에 소진됩니다. `DATA_MODE=fixture`로 개발하세요.
+  - 약국 API는 **하루 1,000회**입니다. 네 명이 지도를 새로고침하면 점심 전에 소진됩니다. `DATA_MODE=fixture`로 개발하세요.
   - 실물 응답에서 알게 된 함정 17가지가 [`fixtures/README.md`](backend/src/main/resources/fixtures/README.md)에 있습니다. 파서를 쓰기 전에 읽으세요.
   - JSON을 요청하는 파라미터가 API마다 다릅니다. 약국·심평원은 `_type=json`, 식약처는 `type=json`. 언더스코어 하나 차이로 조용히 XML이 옵니다.
   - 네이버맵 키 파라미터는 `ncpKeyId`입니다. 인터넷 예제의 `ncpClientId`는 인증 실패합니다.

@@ -383,7 +383,7 @@ verified_at:       ISO 8601
 - `hybrid` — 실패 시 fixture로 자동 fallback (로그·UI 메타데이터에 기록)
 - `fixture` — 네트워크 없이 동작
 
-**약국 API는 개발계정 하루 1,000회입니다.** 다섯 명이 개발하면 점심 전에 소진됩니다. 그리고 발표 당일 공공 API가 죽어도 `fixture`로 시연이 굴러갑니다.
+**약국 API는 개발계정 하루 1,000회입니다.** 네 명이 개발하면 점심 전에 소진됩니다. 그리고 발표 당일 공공 API가 죽어도 `fixture`로 시연이 굴러갑니다.
 
 **fixture를 live로 위장하지 않습니다.** 모든 사실 카드에 `source{provider, record_id, retrieved_at, data_mode}`를 붙이고 화면에 표시합니다.
 
