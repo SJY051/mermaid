@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FacilityMap } from './FacilityMap'
 import { AUTH_FAILURE_MESSAGE } from '../hooks/useNaverMap'
@@ -90,6 +90,14 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount FIRST, while the naver stub still exists. React can leave a passive mount effect
+  // (the one that builds markers and the InfoWindow) scheduled but unflushed when a test's last
+  // assertion only needed the DOM; whatever flushes it next — including the unmount itself —
+  // must find `naver` still defined. CI run 29110631929 failed exactly there: the stub was
+  // removed before the deferred flush, and FacilityMap.tsx:54 threw `naver is not defined`
+  // on a machine slow enough for the effect to lag. cleanup() is idempotent, so the global
+  // one in src/test/setup.ts running again afterwards is harmless.
+  cleanup()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   document.getElementById('naver-maps-sdk')?.remove()
