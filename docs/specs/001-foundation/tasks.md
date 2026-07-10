@@ -63,6 +63,12 @@ tags: [wbs, backlog, team]
 | FE-2 | DEV-501/502 브라우저 저장소 | `lib/storage.ts` 골격 있음. 채팅을 `sessionStorage`로 옮기는 것부터 |
 | PM/QA | 동의어 사전 검토 | `resources/ingredients/synonyms.tsv`의 검토자 칸이 전부 `TODO`입니다 |
 
+> ⚠ **PM/QA에게 — 임상 판단이 필요한 건이 하나 있습니다.** "이부프로펜 알레르기"를 선언한 사용자에게
+> 지금 **나프록센**이 추천됩니다. 둘 다 NSAID 계열입니다. 우리 판정은 성분 단위 정확 일치라 `no_match_found`가
+> 뜨고, 표시 문구는 "보장 아님, 약사에게 확인"이라 거짓말은 아닙니다. 그래도 옳지 않습니다.
+> **계열 교차반응 표는 임상 지식이라 개발자가 지어낼 수 없습니다.** 스펙 §2-12의 "알려진 한계"를 읽고
+> 결정해주세요.
+
 > **`DATA_MODE=fixture ./gradlew bootRun`** — 공공 API를 한 번도 부르지 않고 개발할 수 있습니다.
 > 약국 API는 하루 1,000회뿐입니다. 그리고 조사 문서가 틀렸던 여섯 곳이
 > [`fixtures/README.md`](../../../backend/src/main/resources/fixtures/README.md)에 정리돼 있으니
