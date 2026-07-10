@@ -112,13 +112,21 @@ mermaid:
     # NOTE: getParmacyLcinfoInqire has NO radius param. We clip by distance ourselves.
     pharmacy-base-url: https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService
 
-    # 건강보험심사평가원 병원정보서비스 (data.go.kr 15001698) — has xPos/yPos/radius(m)
+    # 건강보험심사평가원 병원정보서비스 — getHospBasisList(xPos/yPos/radius) is its ONLY operation,
+    # and it is the only place a ykiho comes from.
+    #
+    # 2026-07-10: answers 403 with our key and 401 with a wrong one, so the path is right and the
+    # 활용신청 has not been approved. Nothing below this line has ever returned 200; the field names
+    # are still UNKNOWN. Do not write a parser from documentation alone — see spec §3.
     hospital-base-url: https://apis.data.go.kr/B551182/hospInfoServicev2
 
-    # 건강보험심사평가원 의료기관별상세정보서비스 (data.go.kr 15001699) — keyed by ykiho
-    # TODO(team): confirm the live version suffix (2.7 vs 2.8) on data.go.kr before
-    #             generating DTOs. See docs/specs/001-foundation/spec.md §3.
-    hospital-detail-base-url: https://apis.data.go.kr/B551182/MadmDtlInfoService2.8
+    # 건강보험심사평가원 의료기관별상세정보서비스 — keyed by ykiho. No search operation of its own,
+    # so it is useless without the service above.
+    #
+    # The version suffix appears TWICE: service `…2.7`, operation `getDtlInfo2.7`. `…2.8` answers
+    # 404 "API not found", and `…2.7/getDtlInfo` (unsuffixed operation) answers 404 as well. Both
+    # were in this file. Verified by probing: 403 means the operation exists, 404 means it does not.
+    hospital-detail-base-url: https://apis.data.go.kr/B551182/MadmDtlInfoService2.7
 
     # 식약처 의약품개요정보 e약은요 (data.go.kr 15075057) — narrative text, NO ingredients
     # NOTE: this one uses `type=json`, not `_type=json`.
