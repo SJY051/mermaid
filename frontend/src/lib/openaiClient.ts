@@ -4,17 +4,25 @@ import type { MermAidAnswer } from './types'
 /**
  * The official OpenAI SDK, pointed at our own Spring backend.
  *
- * `baseURL` sends every call to `/api/v1`, which Vite proxies to Spring in dev.
- * The real provider key lives on the server (NFR-03) — the browser sends a placeholder
- * the proxy ignores. It cannot be empty: the constructor throws without a key, and there
- * is no `process.env` here to fall back on.
+ * **`baseURL` must be absolute.** The SDK builds every request with `new URL(path, baseURL)`, and
+ * a relative `'/api/v1'` throws `Failed to construct 'URL': Invalid URL` before a single byte
+ * leaves the browser. It fails inside `send()`, which catches it, so the screen says "something
+ * went wrong" and the network tab stays empty — the chat had never once run in a browser while
+ * every backend test passed against curl.
  *
- * Why not the Vercel AI SDK? `useChat` validates each SSE line against its own
- * `UIMessageChunk` schema and rejects OpenAI's `choices[].delta` shape. Making the backend
- * more standards-compliant moves it further away, not closer. Spec §2-3.
+ * Building it from `location.origin` keeps the request same-origin, which is the whole point:
+ * Vite proxies `/api` to Spring in dev, and the `openai` SDK attaches `Authorization` plus
+ * `x-stainless-*` headers that would otherwise trigger a CORS preflight (spec §2-3).
+ *
+ * The real provider key lives on the server (NFR-03) — the browser sends a placeholder the proxy
+ * ignores. It cannot be empty: the constructor throws without a key.
+ *
+ * Why not the Vercel AI SDK? `useChat` validates each SSE line against its own `UIMessageChunk`
+ * schema and rejects OpenAI's `choices[].delta` shape. Making the backend more standards-compliant
+ * moves it further away, not closer.
  */
 export const openai = new OpenAI({
-  baseURL: '/api/v1',
+  baseURL: new URL('/api/v1', window.location.origin).toString(),
   apiKey: 'not-needed',
   dangerouslyAllowBrowser: true,
 })

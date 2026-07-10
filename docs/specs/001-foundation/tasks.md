@@ -45,8 +45,19 @@ tags: [wbs, backlog, team]
 1. **DEV-203 병원 검색.** **공공 API 8종 전부 승인되어 200입니다** (`./bin/check-api-access.py`). 목록·상세 실제 응답이 `fixtures/hospital_list.json`, `hospital_detail.json`에 있습니다.
    함정은 `fixtures/README.md` **12~17번** — 특히 **`distance`가 심평원은 미터·국립중앙의료원은 km**(반대!), **`radius` 필수**, **`XPos`=경도/`YPos`=위도**, **오퍼레이션 이름에도 버전 접미사**(`getDtlInfo2.8`).
    시간표가 없는 기관은 `isOpenNow`를 `null`로 두세요. `false`로 쓰지 마세요.
-2. **DEV-003·206·207 지도.** `useNaverMap`이 `navermap_authFailure`를 잡고 `FacilityMap`이 실패를 화면에 씁니다(회색 상자 대신). **남은 것: `.env`의 `VITE_NAVER_MAP_CLIENT_ID`에 NCP 콘솔의 Client ID를 넣고, Web 서비스 URL에 `http://localhost:5173`을 등록.** 지도 핀·현재 위치는 그 다음입니다.
-3. **문서화.** `AGENTS.md`, 직군별 브랜치 규칙, 코드 표기법, Conventional Commits 안내. 비개발자 팀원 대상.
+2. **문서화.** `AGENTS.md`, 직군별 브랜치 규칙, 코드 표기법, Conventional Commits 안내. 비개발자 팀원 대상.
+
+> ✅ **DEV-003·206·207 지도 완료.** 실제 브라우저에서 검증했습니다 — 타일이 그려지고, 약국 3곳에 핀이 찍히고,
+> 핀을 누르면 이름·영업여부·거리·전화가 뜹니다. 위치 권한을 거부하면 **서울시청으로 폴백하고 그렇다고 말합니다.**
+> `isOpenNow`가 `null`이면 "Hours unknown"입니다 — "Closed"가 아닙니다(§2-13).
+>
+> **네이버 키는 curl로 검증할 수 없습니다.** 틀린 키로도 `maps.js`가 200(바이트 수까지 동일)이고, `onload`가
+> 발동하고, `naver.maps`가 정의되고, `new naver.maps.Map()`이 성공합니다. **그 뒤에야** `navermap_authFailure`가
+> 불립니다. 그 콜백이 유일한 신호이고, 스크립트를 붙이기 **전에** 등록해야 합니다.
+>
+> ⚠ **`VITE_` 접두사가 붙은 값은 브라우저 번들에 문자열로 박힙니다.** Client Secret이 거기 들어가 있었고
+> `dist/assets/index-*.js`에 컴파일됐습니다(폐기함). 이제 `vite.config.ts`가 `VITE_*SECRET*` 류 이름을 보면
+> **빌드를 거부**합니다. Client ID는 `VITE_NAVER_MAP_CLIENT_ID`, Secret은 `NAVER_MAP_CLIENT_SECRET`(접두사 없음).
 
 > ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
 > `ChatProxyController#answer`. 설계 근거와 실측 함정은 스펙 §2-2에 전부 적어뒀습니다.

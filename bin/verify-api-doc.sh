@@ -118,6 +118,26 @@ for field in code message retryable request_id; do
 done
 
 echo
+echo "§2 · §3 응답의 필드 이름 (문서가 지어낼 수 있는 부분)"
+# Status codes said nothing about field names, so the document claimed `lat`/`lng` and uppercase
+# enums for a week. Assert the names the document prints.
+facility=$(curl -s "$BASE/facilities?lat=37.5663&lng=126.9779&radius_m=1000")
+for field in '"latitude"' '"longitude"' '"distanceMeters"' '"statusConfidence"'; do
+  echo "$facility" | grep -q "$field"
+  check "GET /facilities 응답에 $field" $?
+done
+echo "$facility" | grep -qE '"lat":|"lng":'
+check "응답에 lat/lng 는 없다 (요청 파라미터 이름과 다름)" $([ $? -ne 0 ] && echo 0 || echo 1)
+echo "$facility" | grep -qE '"status":"(open|closed|unknown)"'
+check "operation.status 는 소문자 wire 값" $?
+
+drug=$(curl -s "$BASE/drugs/202005623")
+for field in '"itemSeq"' '"ingredientsEn"' '"prescriptionStatus"' '"allergyCheck"' '"durWarnings"'; do
+  echo "$drug" | grep -q "$field"
+  check "GET /drugs/{itemSeq} 응답에 $field" $?
+done
+
+echo
 echo "§5 에러 코드가 세 곳에서 일치하는가"
 enum=$(grep -cE '^\s{4}[A-Z_]+\(HttpStatus' "$ROOT/backend/src/main/java/com/mermaid/common/ErrorCode.java")
 union=$(grep -cE "^\s*\| '[A-Z_]+'$" "$ROOT/frontend/src/lib/types.ts")

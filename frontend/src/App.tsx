@@ -8,16 +8,7 @@ import { parseAnswer, streamChat } from './lib/openaiClient'
 import type { MermAidAnswer } from './lib/types'
 import { getDeviceId } from './lib/storage'
 import { AllergyBadge } from './components/AllergyBadge'
-import { FacilityMap } from './components/FacilityMap'
-
-/**
- * TODO(FE-2, DEV-207): centre the map on the user, not on 서울시청.
- *
- * `navigator.geolocation` needs a permission prompt and a fallback, and `GET /facilities` needs
- * the coordinates anyway. Until that lands, every map opens here — which is honest, because we
- * have not asked where the user is.
- */
-const SEOUL_CITY_HALL = { lat: 37.5663, lng: 126.9779 }
+import { NearbyFacilities } from './components/NearbyFacilities'
 
 /**
  * Walking skeleton for UI-01.
@@ -129,12 +120,11 @@ export default function App() {
           {/* The assistant asks for the map through `uiActions`; it never calls a tool (spec §2-1). */}
           {answer.uiActions.map((action, i) =>
             action.type === 'OPEN_FACILITY_MAP' ? (
-              <FacilityMap
+              <NearbyFacilities
                 key={i}
-                center={SEOUL_CITY_HALL}
-                caption={`${action.payload.types.join(', ')} within ${action.payload.radiusM}m${
-                  action.payload.openNow ? ', open now' : ''
-                }`}
+                types={action.payload.types}
+                radiusM={action.payload.radiusM}
+                openNow={action.payload.openNow}
               />
             ) : null,
           )}
