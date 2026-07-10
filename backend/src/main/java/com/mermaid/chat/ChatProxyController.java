@@ -8,6 +8,7 @@ import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,13 +35,66 @@ public class ChatProxyController {
 
     private final ChatProxyService chatProxyService;
     private final StructuredOutputFallback fallback;
+    private final EmergencyTriage emergencyTriage;
     private final ObjectMapper objectMapper;
 
+    /**
+     * One path, two content types, chosen by the request body rather than by {@code Accept}.
+     *
+     * <p>Before either branch, rule-based screening runs (SA-03). If it fires we answer from code and
+     * never reach the model — because a live model, asked about crushing chest pain, replied {@code
+     * urgency: "unknown"}. Someone having a heart attack does not get a second try.
+     *
+     * <p>The blocking branch returns a {@link ResponseEntity} with an explicit JSON content type. It
+     * has to: with {@code produces} listing {@code text/event-stream} first and a bare {@code Object}
+     * return, a client that sends no {@code Accept} header makes Spring try to write the JSON
+     * envelope as an SSE stream, and the request dies with {@code
+     * HttpMessageNotWritableException: No converter for ObjectNode}.
+     */
     @PostMapping(
             path = "/completions",
             produces = {MediaType.TEXT_EVENT_STREAM_VALUE, MediaType.APPLICATION_JSON_VALUE})
     public Object completions(@RequestBody JsonNode request) {
-        return ChatProxyService.wantsStream(request) ? streaming(request) : blocking(request);
+        boolean stream = ChatProxyService.wantsStream(request);
+
+        var redFlag = emergencyTriage.screen(ChatProxyService.lastUserMessage(request));
+        if (redFlag.isPresent()) {
+            log.warn("Emergency triage fired: {} — answering without calling the model", redFlag.get());
+            MermAidAnswer answer = emergencyTriage.emergencyAnswer(redFlag.get());
+            return stream
+                    ? streamOne(answer)
+                    : ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(envelope(answer));
+        }
+
+        return stream
+                ? streaming(request)
+                : ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(blocking(request));
+    }
+
+    /** Emits a complete answer as a single OpenAI-shaped SSE chunk, then {@code [DONE]}. */
+    private SseEmitter streamOne(MermAidAnswer answer) {
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        try {
+            ObjectNode delta = objectMapper.createObjectNode();
+            delta.put("role", "assistant");
+            delta.put("content", objectMapper.writeValueAsString(answer));
+
+            ObjectNode choice = objectMapper.createObjectNode();
+            choice.put("index", 0);
+            choice.set("delta", delta);
+            choice.putNull("finish_reason");
+
+            ObjectNode chunk = objectMapper.createObjectNode();
+            chunk.put("object", "chat.completion.chunk");
+            chunk.set("choices", objectMapper.createArrayNode().add(choice));
+
+            emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(chunk)));
+            emitter.send(SseEmitter.event().data(ChatProxyService.DONE_SENTINEL));
+            emitter.complete();
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+        }
+        return emitter;
     }
 
     /**
@@ -116,11 +170,14 @@ public class ChatProxyController {
 
     /** An OpenAI-shaped envelope carrying a safe fallback body. */
     private JsonNode errorEnvelope() {
-        MermAidAnswer safe =
-                fallback.coerce("Sorry — I could not reach the assistant. Please try again.");
+        return envelope(fallback.coerce("Sorry — I could not reach the assistant. Please try again."));
+    }
+
+    /** Wraps an answer in the {@code chat.completion} envelope the {@code openai} SDK expects. */
+    private JsonNode envelope(MermAidAnswer answer) {
         ObjectNode message = objectMapper.createObjectNode().put("role", "assistant");
         try {
-            message.put("content", objectMapper.writeValueAsString(safe));
+            message.put("content", objectMapper.writeValueAsString(answer));
         } catch (Exception e) {
             message.put("content", "{}");
         }

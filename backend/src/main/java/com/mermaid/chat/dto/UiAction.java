@@ -16,7 +16,12 @@ import java.util.List;
  * <p>A closed allowlist on purpose. The model cannot ask the UI to open an arbitrary URL, run
  * code, or navigate anywhere we did not name here.
  */
-@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.EXISTING_PROPERTY, property = "type")
+// `As.PROPERTY`, not `EXISTING_PROPERTY`. The latter assumes the object already carries the
+// discriminator and therefore writes nothing on serialisation — and a record's extra `type()`
+// method is not a record component, so Jackson never emits it either. The result parsed fine and
+// serialised without `type`, which meant the frontend's `action.type === 'OPEN_FACILITY_MAP'`
+// never matched and the map never opened. Caught by calling the live endpoint, not by a unit test.
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
 @JsonSubTypes({
     @JsonSubTypes.Type(value = UiAction.OpenFacilityMap.class, name = "OPEN_FACILITY_MAP"),
     @JsonSubTypes.Type(value = UiAction.ApplyFacilityFilters.class, name = "APPLY_FACILITY_FILTERS"),
@@ -26,6 +31,8 @@ import java.util.List;
 })
 public sealed interface UiAction {
 
+    /** For Java call sites. Jackson writes the discriminator itself, so keep it out of the JSON. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     String type();
 
     @JsonIgnoreProperties(ignoreUnknown = true)

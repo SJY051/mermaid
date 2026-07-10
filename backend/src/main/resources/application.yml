@@ -68,9 +68,15 @@ logging:
 mermaid:
   llm:
     # Any OpenAI-compatible endpoint. See .env.example.
+    #
+    # The default model is glm-5.2 because it is one of the few on this endpoint that
+    # honours `response_format: {type: json_schema, strict: true}` — verified 2026-07-10,
+    # including oneOf/$defs/const/format. deepseek-v4-* and qwen3.7-max answer 400 to any
+    # response_format at all; minimax-m3 accepts it and returns <think> prose anyway.
+    # StructuredOutputFallback exists precisely because that second class of model exists.
     base-url: ${LLM_BASE_URL:https://opencode.ai/zen/go/v1}
     api-key: ${LLM_API_KEY:}
-    model: ${LLM_MODEL:big-pickle}
+    model: ${LLM_MODEL:glm-5.2}
     timeout: 60s
 
   public-api:
@@ -95,6 +101,12 @@ mermaid:
     easy-drug-base-url: https://apis.data.go.kr/1471000/DrbEasyDrugInfoService
 
     # 식약처 의약품 제품 허가정보 (data.go.kr 15095677) — structured ingredients (FR-04)
+    # Verified 2026-07-10:
+    #   list   = getDrugPrdtPrmsnInq07   → ITEM_INGR_NAME (English, '/'-separated). Filter with
+    #            `item_ingr_name=Acetaminophen` — ENGLISH, and CASE-SENSITIVE ('acetaminophen' → 0).
+    #            It has NO item_seq parameter; passing one is silently ignored.
+    #   detail = getDrugPrdtPrmsnDtlInq06 → MAIN_INGR_ENG, MAIN_ITEM_INGR ([M######]…). Note "06",
+    #            not "07" — getDrugPrdtPrmsnDtlInq07 returns 404.
     drug-permission-base-url: https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService07
 
     # 식약처 DUR 품목정보 (data.go.kr 15059486) — 병용/연령/임부 금기, 노인주의 (FR-07)

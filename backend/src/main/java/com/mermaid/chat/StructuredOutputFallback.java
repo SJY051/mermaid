@@ -43,6 +43,17 @@ public class StructuredOutputFallback {
         String candidate = stripMarkdownFence(rawContent.trim());
         try {
             MermAidAnswer parsed = objectMapper.readValue(candidate, MermAidAnswer.class);
+            // Valid JSON of the WRONG shape is the sneakier failure: Jackson ignores unknown fields,
+            // so a model that answered with `reply` instead of `summary` parses cleanly into an
+            // object with nothing to render. An empty summary and no drugs means we learned nothing,
+            // and the raw text is more use to the reader than a blank card.
+            boolean empty =
+                    (parsed.summary() == null || parsed.summary().isBlank())
+                            && (parsed.drugs() == null || parsed.drugs().isEmpty());
+            if (empty) {
+                log.warn("Model returned JSON with no summary and no drugs; falling back to prose");
+                return safeAnswer(rawContent);
+            }
             return withGuarantees(parsed);
         } catch (Exception e) {
             log.warn("Model ignored the response schema; falling back to prose. reason={}", e.getMessage());

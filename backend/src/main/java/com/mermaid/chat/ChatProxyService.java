@@ -31,7 +31,14 @@ import reactor.core.publisher.Mono;
 public class ChatProxyService {
 
     private static final String COMPLETIONS_PATH = "/chat/completions";
-    /** OpenAI-compatible streams terminate with this literal. It is not JSON. */
+
+    /**
+     * OpenAI-compatible streams terminate with this literal. It is not JSON.
+     *
+     * <p>Observed against opencode zen: one more chunk arrives <i>after</i> {@code [DONE]} carrying
+     * cost metadata ({@code {"choices":[],"cost":"0"}}). The {@code openai} JS SDK stops reading at
+     * the sentinel, so anything after it is noise at best. We cut the stream there.
+     */
     public static final String DONE_SENTINEL = "[DONE]";
 
     private final WebClient llmWebClient;
@@ -39,7 +46,13 @@ public class ChatProxyService {
     private final SystemPromptProvider systemPromptProvider;
     private final ObjectMapper objectMapper;
 
-    /** Relays the upstream SSE stream chunk by chunk. Each element is one {@code data:} payload. */
+    /**
+     * Relays the upstream SSE stream chunk by chunk. Each element is one {@code data:} payload.
+     *
+     * <p>Emits {@code [DONE]} and then completes. Whatever the upstream sends after the sentinel —
+     * opencode zen appends a cost chunk — is dropped, because a client that follows the OpenAI
+     * protocol has already stopped listening.
+     */
     public Flux<String> stream(JsonNode clientRequest) {
         ObjectNode upstream = prepare(clientRequest, true);
         return llmWebClient
@@ -50,6 +63,7 @@ public class ChatProxyService {
                 .bodyValue(upstream)
                 .retrieve()
                 .bodyToFlux(String.class)
+                .takeUntil(DONE_SENTINEL::equals)
                 .timeout(llmProperties.timeout());
     }
 
@@ -69,6 +83,17 @@ public class ChatProxyService {
 
     public static boolean wantsStream(JsonNode clientRequest) {
         return clientRequest.path("stream").asBoolean(false);
+    }
+
+    /** The newest user turn — what {@link EmergencyTriage} screens. Empty if there is none. */
+    public static String lastUserMessage(JsonNode clientRequest) {
+        String last = "";
+        for (JsonNode m : clientRequest.path("messages")) {
+            if ("user".equals(m.path("role").asText())) {
+                last = m.path("content").asText("");
+            }
+        }
+        return last;
     }
 
     /**
