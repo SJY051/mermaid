@@ -1,3 +1,4 @@
+import OpenAI from 'openai'
 import { describe, expect, it } from 'vitest'
 import { FALLBACK_DISCLAIMER, openai, parseAnswer } from './openaiClient'
 
@@ -5,31 +6,33 @@ import { FALLBACK_DISCLAIMER, openai, parseAnswer } from './openaiClient'
  * The bug this file exists for.
  *
  * `baseURL` was `'/api/v1'`. The backend had 275 passing tests, every one of them driven by curl,
- * and the chat had never once run in a browser. The SDK builds each request with
- * `new URL(path, baseURL)`; a relative base throws there, inside `send()`, which catches it — so
- * the screen said "something went wrong" and the network tab stayed empty.
+ * and the chat had never once run in a browser. The SDK concatenates — `new URL(baseURL + path)` —
+ * and a relative base makes that a relative string, which single-argument `URL` rejects. The
+ * constructor is fine; `buildURL` throws on the first request, inside `send()`, which catches it.
+ * So the screen said "something went wrong" and the network tab stayed empty.
  *
- * A typecheck cannot see this. Only something that constructs the URL can.
+ * A typecheck cannot see this. Only something that builds the URL can — and it has to build it the
+ * way the SDK does. Resolving `new URL('chat/completions', baseURL)` would silently answer
+ * `/api/chat/completions`, dropping the `/v1` the Spring route needs, and still not throw.
  */
 describe('the openai client points somewhere a browser can actually reach', () => {
-  it('has an absolute baseURL', () => {
-    expect(() => new URL(openai.baseURL)).not.toThrow()
+  it('has an absolute baseURL on our own origin', () => {
     expect(openai.baseURL).toMatch(/^https?:\/\//)
-  })
-
-  it('can build a request URL the way the SDK does', () => {
-    // This is the exact call that threw. `chat/completions` is relative to the base.
-    expect(() => new URL('chat/completions', openai.baseURL)).not.toThrow()
-  })
-
-  it('stays on /api/v1 so the Vite proxy and the same-origin rule still hold', () => {
-    expect(new URL(openai.baseURL).pathname).toBe('/api/v1')
     expect(new URL(openai.baseURL).origin).toBe(window.location.origin)
   })
 
+  it('resolves a request to the /api/v1 route Spring actually serves', () => {
+    const url = new URL(openai.buildURL('/chat/completions', null))
+
+    expect(url.pathname).toBe('/api/v1/chat/completions')
+    expect(url.origin).toBe(window.location.origin)
+  })
+
   it('would have caught the original bug', () => {
-    // Left in deliberately: it documents why the line above is written the way it is.
-    expect(() => new URL('chat/completions', '/api/v1')).toThrow()
+    const broken = new OpenAI({ baseURL: '/api/v1', apiKey: 'x', dangerouslyAllowBrowser: true })
+
+    // The constructor is happy. That is precisely why this shipped.
+    expect(() => broken.buildURL('/chat/completions', null)).toThrow(TypeError)
   })
 })
 

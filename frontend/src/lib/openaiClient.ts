@@ -4,11 +4,16 @@ import type { MermAidAnswer } from './types'
 /**
  * The official OpenAI SDK, pointed at our own Spring backend.
  *
- * **`baseURL` must be absolute.** The SDK builds every request with `new URL(path, baseURL)`, and
- * a relative `'/api/v1'` throws `Failed to construct 'URL': Invalid URL` before a single byte
- * leaves the browser. It fails inside `send()`, which catches it, so the screen says "something
- * went wrong" and the network tab stays empty — the chat had never once run in a browser while
- * every backend test passed against curl.
+ * **`baseURL` must be absolute.** The SDK concatenates rather than resolves — `new URL(baseURL +
+ * path)` — so a relative `'/api/v1'` yields the relative string `'/api/v1/chat/completions'`, and
+ * single-argument `URL` rejects it with `TypeError: Invalid URL`. The constructor accepts the bad
+ * base without complaint; the throw lands on the first request, inside `send()`, which catches it.
+ * The screen said "something went wrong", the network tab stayed empty, and the chat had never once
+ * run in a browser while every backend test passed against curl.
+ *
+ * Because it concatenates, `baseURL` must carry the full `/api/v1` prefix — resolving it instead,
+ * with `new URL(path, baseURL)`, would quietly answer `/api/chat/completions` and bypass the Spring
+ * route. A trailing slash is harmless; the SDK drops the duplicate.
  *
  * Building it from `location.origin` keeps the request same-origin, which is the whole point:
  * Vite proxies `/api` to Spring in dev, and the `openai` SDK attaches `Authorization` plus
