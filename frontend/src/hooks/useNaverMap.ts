@@ -15,17 +15,49 @@ import { useEffect, useRef, useState } from 'react'
  *
  * `language=en` switches every map label to English. That single parameter is most of why
  * we chose Naver over Kakao for an English-speaking audience.
+ *
+ * ## You cannot check a Naver key with curl
+ *
+ * Measured in a real browser, 2026-07-10, with a deliberately wrong key:
+ *
+ *   - `maps.js` answers 200 with the same 333KB of JavaScript
+ *   - `script.onload` fires
+ *   - `window.naver.maps` is defined
+ *   - `new naver.maps.Map(...)` constructs without throwing
+ *   - and only THEN does the SDK call `window.navermap_authFailure`
+ *
+ * Every check a server-side script can make passes. The callback is the only signal, which is
+ * why it is registered before the script is appended, and why a component that ignores it shows
+ * the user a blank grey box and calls it a map.
  */
 
 const SCRIPT_ID = 'naver-maps-sdk'
 
+export const AUTH_FAILURE_MESSAGE =
+  'Naver Maps rejected the key. Check VITE_NAVER_MAP_CLIENT_ID, and that http://localhost:5173 ' +
+  'is registered in the NCP application’s Web service URL allowlist.'
+
+/**
+ * Everyone waiting to hear that authentication failed.
+ *
+ * The SDK calls one global, once, whoever is listening. A module-level set keeps `window` with a
+ * single owner, so a second component mounting a map cannot overwrite the first one's handler.
+ */
+const authFailureListeners = new Set<(e: Error) => void>()
+
+if (typeof window !== 'undefined') {
+  window.navermap_authFailure = () => {
+    const error = new Error(AUTH_FAILURE_MESSAGE)
+    authFailureListeners.forEach((notify) => notify(error))
+  }
+}
+
 function loadNaverMapsScript(keyId: string): Promise<void> {
-  if (document.getElementById(SCRIPT_ID)) {
+  const existing = document.getElementById(SCRIPT_ID)
+  if (existing) {
     return window.naver?.maps
       ? Promise.resolve()
-      : new Promise((resolve) => {
-          document.getElementById(SCRIPT_ID)!.addEventListener('load', () => resolve())
-        })
+      : new Promise((resolve) => existing.addEventListener('load', () => resolve()))
   }
 
   return new Promise((resolve, reject) => {
@@ -33,14 +65,13 @@ function loadNaverMapsScript(keyId: string): Promise<void> {
     script.id = SCRIPT_ID
     script.async = true
     script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${keyId}&language=en`
-    script.onload = () => resolve()
-    script.onerror = () =>
-      reject(
-        new Error(
-          'Naver Maps failed to load. Check VITE_NAVER_MAP_KEY_ID, and that http://localhost ' +
-            'is registered in the NCP application’s Web service URL allowlist.',
-        ),
-      )
+    script.onload = () => {
+      // `window.naver.maps` exists even for a key Naver rejects — measured. This guards only the
+      // case where the script body failed to execute; it is NOT the authentication check.
+      if (window.naver?.maps) resolve()
+      else reject(new Error('Naver Maps loaded but defined no `naver.maps` namespace.'))
+    }
+    script.onerror = () => reject(new Error('Naver Maps script could not be fetched. Are you offline?'))
     document.head.appendChild(script)
   })
 }
@@ -57,13 +88,23 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
   const [error, setError] = useState<Error | null>(null)
 
   useEffect(() => {
-    const keyId = import.meta.env.VITE_NAVER_MAP_KEY_ID as string | undefined
+    const keyId = import.meta.env.VITE_NAVER_MAP_CLIENT_ID as string | undefined
     if (!keyId) {
-      setError(new Error('VITE_NAVER_MAP_KEY_ID is not set. Copy .env.example to .env.'))
+      setError(new Error('VITE_NAVER_MAP_CLIENT_ID is not set. Copy .env.example to .env.'))
       return
     }
 
     let cancelled = false
+
+    // Register before loading. The SDK authenticates as it runs, and a key it rejects would
+    // otherwise fail silently — `ready` true, tiles never painted, no error anywhere.
+    const onAuthFailure = (e: Error) => {
+      if (!cancelled) {
+        setReady(false)
+        setError(e)
+      }
+    }
+    authFailureListeners.add(onAuthFailure)
 
     loadNaverMapsScript(keyId)
       .then(() => {
@@ -80,6 +121,7 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
 
     return () => {
       cancelled = true
+      authFailureListeners.delete(onAuthFailure)
     }
     // Re-creating the map on every centre change would throw away the user's panning.
     // Move the camera with `map.setCenter()` instead.

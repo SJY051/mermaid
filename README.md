@@ -24,7 +24,7 @@ cd frontend && pnpm dev             # http://localhost:5173
 | 키 | 어디서 | 주의 |
 |---|---|---|
 | `DATA_GO_KR_SERVICE_KEY` | [data.go.kr](https://www.data.go.kr) | **Decoding 키**를 넣으세요. Encoding 키를 넣으면 `SERVICE_KEY_IS_NOT_REGISTERED_ERROR`가 납니다 |
-| `VITE_NAVER_MAP_KEY_ID` | NCP 콘솔 > Maps | Web 서비스 URL에 `http://localhost` 등록 필수 |
+| `VITE_NAVER_MAP_CLIENT_ID` | NCP 콘솔 > Maps > Application 의 **Client ID** | **Client Secret이 아닙니다.** `VITE_` 값은 브라우저 번들에 박히니 시크릿을 넣지 마세요. Web 서비스 URL에 `http://localhost:5173` 등록 필수 |
 | `LLM_API_KEY` | OpenAI 호환 엔드포인트 | |
 
 `.env`는 커밋되지 않습니다. **이 저장소는 public이고, 유출된 키는 몇 분 안에 수집됩니다.** pre-commit 훅이 막아주지만, 훅을 믿지 말고 조심하세요.

@@ -30,7 +30,7 @@ cat <<'EOF'
 
     1. Fill in .env
          DATA_GO_KR_SERVICE_KEY   → data.go.kr, use the DECODING key
-         VITE_NAVER_MAP_KEY_ID    → NCP console > Maps (register http://localhost)
+         VITE_NAVER_MAP_CLIENT_ID    → NCP console > Maps (register http://localhost)
          LLM_API_KEY              → your OpenAI-compatible endpoint
 
     2. Start the infrastructure

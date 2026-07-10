@@ -45,7 +45,7 @@ tags: [wbs, backlog, team]
 1. **DEV-203 병원 검색.** **공공 API 8종 전부 승인되어 200입니다** (`./bin/check-api-access.py`). 목록·상세 실제 응답이 `fixtures/hospital_list.json`, `hospital_detail.json`에 있습니다.
    함정은 `fixtures/README.md` **12~17번** — 특히 **`distance`가 심평원은 미터·국립중앙의료원은 km**(반대!), **`radius` 필수**, **`XPos`=경도/`YPos`=위도**, **오퍼레이션 이름에도 버전 접미사**(`getDtlInfo2.8`).
    시간표가 없는 기관은 `isOpenNow`를 `null`로 두세요. `false`로 쓰지 마세요.
-2. **DEV-003·206·207 지도.** 네이버맵 키는 채워져 있습니다. **`maps.js`는 가짜 키에도 200을 돌려주므로** 서버에서 curl로 검증할 수 없습니다. 브라우저에서 `authFailure` 콜백을 봐야 합니다.
+2. **DEV-003·206·207 지도.** `useNaverMap`이 `navermap_authFailure`를 잡고 `FacilityMap`이 실패를 화면에 씁니다(회색 상자 대신). **남은 것: `.env`의 `VITE_NAVER_MAP_CLIENT_ID`에 NCP 콘솔의 Client ID를 넣고, Web 서비스 URL에 `http://localhost:5173`을 등록.** 지도 핀·현재 위치는 그 다음입니다.
 3. **문서화.** `AGENTS.md`, 직군별 브랜치 규칙, 코드 표기법, Conventional Commits 안내. 비개발자 팀원 대상.
 
 > ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
