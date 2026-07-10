@@ -1,0 +1,27 @@
+# gitleaks configuration for a PUBLIC repository.
+#
+# The default ruleset stays ON. This file carves out exactly one exception, and it
+# is scoped to a VALUE shape rather than to a file.
+#
+# Why not `paths`: a path allowlist exempts the whole file. A real
+# DATA_GO_KR_SERVICE_KEY pasted into that file would then sail through — which is
+# the opposite of what a secret scanner is for. (`matchCondition = "AND"` did not
+# save us here; verified against gitleaks 8.30 by planting a real-looking key.)
+#
+# Because this matches the secret's value, not its location, a genuine credential
+# is still reported no matter which file it lands in.
+
+title = "mermAid"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Browser storage key NAMES, not credentials.
+
+`generic-api-key` fires on any identifier ending in _KEY whose value carries enough
+entropy, which catches `const SAVED_FACILITIES_KEY = 'mermaid.savedFacilities.v1'`.
+Only values shaped exactly like our storage keys (`mermaid.<name>.v<n>`) are exempt.
+"""
+regexes = ['''^mermaid\.[A-Za-z]+\.v\d+$''']
