@@ -280,6 +280,19 @@ public class DrugService {
         public boolean isEmpty() {
             return ingredientsEn.isEmpty() && productNamesKo.isEmpty();
         }
+
+        /**
+         * The same query without the ingredients the model proposed, keeping the product names the
+         * person typed themselves.
+         *
+         * <p>The two halves have different authors. A product name is theirs — "is 부루펜 safe for
+         * me?" deserves an answer, even a blocked one. An ingredient is the model's suggestion of
+         * what would help, and choosing a medicine for someone who has just declared an allergy is a
+         * clinical act. See {@code AllergyDeclaration}, which decides when to call this.
+         */
+        public RetrievalQuery withoutProposedIngredients() {
+            return new RetrievalQuery(List.of(), productNamesKo);
+        }
     }
 
     private Drug summary(DrugPermissionApiClient.Permitted p, Set<String> avoidedKeys) {

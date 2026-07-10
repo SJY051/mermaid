@@ -47,10 +47,22 @@ public class DrugContextRetriever {
      */
     public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
         long startedAt = System.nanoTime();
-        RetrievalQuery query = extractor.extract(userText);
+        RetrievalQuery extracted = extractor.extract(userText);
+
+        // The gate. An allergy reaches us two ways — the request field, or the person's own words —
+        // and either one takes the choice of medicine away from the model. See AllergyDeclaration.
+        boolean allergyDeclared =
+                !excludedIngredients.isEmpty() || AllergyDeclaration.presentIn(userText);
+        boolean suppressed = allergyDeclared && !extracted.ingredientsEn().isEmpty();
+        if (suppressed) {
+            log.info("Allergy declared this turn — dropping {} model-proposed ingredient(s): {}",
+                    extracted.ingredientsEn().size(), extracted.ingredientsEn());
+        }
+        RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
+
         if (query.isEmpty()) {
             log.debug("No drug search terms in this turn; the model gets an empty context");
-            return DrugContext.empty();
+            return suppressed ? DrugContext.allergySuppressed() : DrugContext.empty();
         }
         long extractedAt = System.nanoTime();
 
@@ -62,7 +74,7 @@ public class DrugContextRetriever {
                 millisBetween(startedAt, extractedAt), millisBetween(extractedAt, System.nanoTime()));
 
         return new DrugContext(
-                render(retrieved), retrieved.allowedProductNames(), retrieved.sources());
+                render(retrieved, allergyDeclared), retrieved.allowedProductNames(), retrieved.sources());
     }
 
     private static long millisBetween(long fromNanos, long toNanos) {
@@ -77,12 +89,14 @@ public class DrugContextRetriever {
         return keys;
     }
 
-    private String render(RetrievedContext retrieved) {
+    private String render(RetrievedContext retrieved, boolean allergyDeclared) {
         ArrayNode drugs = objectMapper.createArrayNode();
         for (Drug drug : retrieved.drugs()) {
             drugs.add(toContextNode(drug));
         }
-        return DrugContext.preamble(retrieved.drugs().size()) + "\n" + drugs.toPrettyString();
+        return DrugContext.preamble(retrieved.drugs().size(), allergyDeclared)
+                + "\n"
+                + drugs.toPrettyString();
     }
 
     private ObjectNode toContextNode(Drug drug) {
@@ -152,17 +166,59 @@ public class DrugContextRetriever {
             String systemMessage, Set<String> allowedProductNames, List<SourceRef> sources) {
 
         static DrugContext empty() {
-            return new DrugContext(preamble(0) + "\n[]", Set.of(), List.of());
+            return new DrugContext(preamble(0, false) + "\n[]", Set.of(), List.of());
         }
 
-        static String preamble(int count) {
+        /**
+         * Nothing retrieved because we took the choice of medicine away from the model.
+         *
+         * <p>Distinct from {@link #empty()} on purpose: "we found nothing" and "we refused to look"
+         * are different answers, and the person deserves to be told which one they got.
+         */
+        static DrugContext allergySuppressed() {
+            return new DrugContext(preamble(0, true) + "\n[]", Set.of(), List.of());
+        }
+
+        /**
+         * @param allergyDeclared the person told us about an allergy this turn, so the model may not
+         *     propose a medicine — not even one it believes to be unrelated. We match allergens by
+         *     ingredient name and hold no drug-class knowledge, so "unrelated" is not ours to say.
+         */
+        static String preamble(int count, boolean allergyDeclared) {
             if (count == 0) {
-                return """
-                    DRUG_CONTEXT: nothing was retrieved for this turn.
-                    You must set `drugs` to an empty array and name no medicine at all, in any field. \
-                    Recommend visiting a pharmacy, and ask a clarifying question if that would help.
-                    """;
+                return allergyDeclared
+                        ? """
+                        DRUG_CONTEXT: nothing was retrieved for this turn.
+
+                        The person told you about an allergy. We compare allergens by exact ingredient \
+                        name and we do not check whether a medicine is related to one someone reacts \
+                        to, so we did not look for an alternative and you must not name one. Set \
+                        `drugs` to an empty array and name no medicine at all, in any field. Say \
+                        plainly that you cannot suggest an alternative for someone with an allergy \
+                        and that a pharmacist can. Recommend visiting a pharmacy.
+                        """
+                        : """
+                        DRUG_CONTEXT: nothing was retrieved for this turn.
+                        You must set `drugs` to an empty array and name no medicine at all, in any field. \
+                        Recommend visiting a pharmacy, and ask a clarifying question if that would help.
+                        """;
             }
+            return grounded(count) + (allergyDeclared ? NO_ALTERNATIVES : "");
+        }
+
+        /**
+         * Appended when the person is allergic and named a product themselves. The allowlist already
+         * stops the model naming a different medicine; this stops it gesturing at one in prose.
+         */
+        private static final String NO_ALTERNATIVES =
+                """
+
+                The person told you about an allergy. Do not suggest an alternative medicine, \
+                ingredient or drug family — we did not check whether anything is related to what they \
+                react to. Tell them a pharmacist can advise on alternatives.
+                """;
+
+        private static String grounded(int count) {
             return """
                 DRUG_CONTEXT: %d product(s), retrieved just now from 식품의약품안전처 open data.
 
