@@ -61,7 +61,7 @@ tags: [wbs, backlog, team]
 | BE-2 | DEV-202 주간 시간표 | `PublicApiResponse`가 봉투 두 종류를 다 풉니다. fixture로 개발하세요 |
 | FE-1 | DEV-408 챗 UI | astryx 셋업 완료. `MermAidAnswer` 타입이 `lib/types.ts`에 있습니다 |
 | FE-2 | DEV-501/502 브라우저 저장소 | `lib/storage.ts` 골격 있음. 채팅을 `sessionStorage`로 옮기는 것부터 |
-| PM/QA | 동의어 사전 검토 | `resources/ingredients/synonyms.tsv`의 검토자 칸이 전부 `TODO`입니다 |
+| PM/QA | 동의어 사전 검토 | 검토자 칸이 전부 `TODO`입니다. **판정만 하면 되게 시트를 준비해뒀습니다** → [DEV-305 검토 시트](DEV-305-synonym-review.md) |
 
 > ✅ **[2026-07-10 결정됨] 나프록센 건 — 계열 표를 만들지 않고 생성기를 묶었습니다.**
 > "이부프로펜 알레르기"를 선언한 사용자에게 **나프록센**이 추천되던 문제입니다. 원인은 알레르기 판정이 아니라

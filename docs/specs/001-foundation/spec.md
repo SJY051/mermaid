@@ -584,7 +584,11 @@ OpenAI 이용정책은 *"면허가 필요한 맞춤형 조언(의료 조언 등)
   - **그러므로 진짜 위험은 틀린 행이 아니라 _없는 행_이다.** 검토자 칸이 `TODO`라는 건 어느 쪽인지 아무도 확인하지 않았다는 뜻이다.
   - **한 것:** `putRow()`가 검토자 칸을 **읽지도 않고 버리던** 것을 고쳤다. 이제 `TODO`·공란은 서명이 아니며(`IngredientNormalizer.isSigned`), 미서명 행은 **매 부팅 WARN에 이름이 찍힌다.** **동작은 불변** — 미서명 행도 계속 차단한다(강등이 위험한 방향이므로). `dexibuprofen` 행의 근거란은 화학적 동일성(이부프로펜의 S-거울상)으로 다시 썼다. **계열 교차반응은 근거가 아니다.**
   - **남은 것 — 서명. 에이전트가 대신할 수 없다.** 그 칸의 유일한 의미가 "사람이 확인했다"이기 때문이다. 한결이 이름을 채우면 그 칸은 그 순간부터 아무 뜻도 없어진다. DEV-305에서 PM/QA가 7행에 서명하고 누락 행을 채운다. **서명 전까지 행을 추가하지 않는다.**
-  - **준비 중:** 허가정보를 실호출해 각 행의 실제 `MAIN_INGR_ENG` 값과 **누락 후보 행**(ibuprofen·acetaminophen·acetylsalicylic acid의 염·이성질체 표기 변형)을 뽑아 검토자에게 넘긴다. 검토를 조사가 아니라 확인으로 만들기 위해서다. `DATA_GO_KR_SERVICE_KEY`가 필요하다.
+  - **준비 완료 (2026-07-10):** 허가정보 실호출 21회로 세 계열의 모든 성분 표기를 열거해 [DEV-305 검토 시트](DEV-305-synonym-review.md)에 정리했다. 검토자는 조사하지 않고 판정만 하면 된다. 스윕에서 드러난 것:
+    - **경고 없이 통과하는 표기 4종** — `Dexibuprofen D.C.`(24), `Aspirin Enteric Pellets`(27), `Aspirin Enteric Granules`(2), `Aspirin Lysine For Injection 90%`(1). 알레르기가 있어도 아무 표시가 붙지 않는다.
+    - **경고만 뜨고 차단되지 않는 표기 4종** — `Microencapsulated Acetaminophen`(12), `Ibuprofen Piconol`(22), `Ibuprofen Sodium Dihydrate`(1), `Ibuprofen Encapsulated`(1).
+    - **표준명이 거꾸로 있는 버그** — 허가정보에 `Acetylsalicylic Acid`는 **0건**, `Aspirin`은 119건이다. `toSearchTerm("Aspirin")`이 전자를 내놓으므로 `GET /api/v1/drugs?ingredient=Aspirin`은 **빈 목록**이고 RAG는 아스피린 제품을 못 가져온다. 표기법 사실이므로 확인은 쉽다. 시트 ①.
+    - `Salicylic Acid`(32)는 아세틸살리실산이 **아니다.** 프로브에 우연히 걸린 다른 물질이고, 아스피린 알레르기와의 관계는 AR-01의 계열 문제라 우리가 판정하지 않는다. 행을 추가하지 않는다.
 
 ---
 
