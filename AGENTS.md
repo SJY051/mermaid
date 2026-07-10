@@ -82,6 +82,8 @@ These are not style preferences. Each one marks a place where being wrong can hu
 
 **2-8. Never commit `.env`.** This repository is public; a leaked key is scraped within minutes. The pre-commit hook and CI's gitleaks are the last line of defence, not the first.
 
+The hook only runs when `core.hooksPath` points at `.githooks`, and that setting lives in `.git/config` — per-clone, never committed. `pnpm install` sets it for you (`bin/install-hooks.mjs`, via `prepare`), so a clone that skipped `bin/setup.sh` is still guarded. Verify yours: `git config core.hooksPath` must print `.githooks`.
+
 **2-9. Provenance is server-owned.** Every fact card carries a `sourceRef` (which agency, when). The server writes it; the model only references a `sourceRefId`. Fixture data is never presented as live — when `dataStatus` is `fixture`, the UI says so.
 
 ---
