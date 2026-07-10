@@ -3,7 +3,7 @@ title: mermAid 작업 분해 · 팀원 배분 (WBS)
 status: draft
 created: 2026-07-10
 updated: 2026-07-10
-owner: ASQi
+owner: 윤서진
 tags: [wbs, backlog, team]
 ---
 
@@ -113,7 +113,7 @@ tags: [wbs, backlog, team]
 
 | 레인 | 담당 | 주 영역 | 왜 이 묶음인가 |
 |---|---|---|---|
-| **BE-1 / Dev Lead** | ASQi | 챗 프록시, 2-패스 RAG, 후처리 불변조건, 안전 규칙, 의약품 3종 API, DataMode, CI·통합·리뷰 | 의약품 API 셋(e약은요·허가정보·DUR)은 `ITEM_SEQ` 조인으로 얽혀 있고 2-패스 RAG의 1단계입니다. 챗과 같은 사람이 쥐어야 경계가 갈리지 않습니다 |
+| **BE-1 / Dev Lead** | 윤서진 | 챗 프록시, 2-패스 RAG, 후처리 불변조건, 안전 규칙, 의약품 3종 API, DataMode, CI·통합·리뷰 | 의약품 API 셋(e약은요·허가정보·DUR)은 `ITEM_SEQ` 조인으로 얽혀 있고 2-패스 RAG의 1단계입니다. 챗과 같은 사람이 쥐어야 경계가 갈리지 않습니다 |
 | **BE-2** | [이름] | 의료기관 API(약국·병원), Haversine·영업시간 계산, Redis 캐시, `GET /facilities` | 의료기관 도메인이 통째로 독립적이라 병렬 작업이 막히지 않습니다 |
 | **FE-1** | [이름] | astryx 셋업, 챗 UI(UI-01), 의약품 카드, 알레르기 4-state 표시, safe fallback UI | 챗 화면과 카드가 한 덩어리입니다 |
 | **FE-2** | [이름] | 네이버맵(UI-02), 상세 드로어(UI-03), 브라우저 저장소, 즐겨찾기 CRUD | 지도와 상세, 저장소가 한 흐름입니다 |
@@ -176,7 +176,7 @@ flowchart LR
 | DEV-001 | 기술 스택·저장소 구조 결정 | P0 | S | Lead | ✅ `spec.md` §1 |
 | DEV-002 | 공공 API 8종 Spike (실응답 확보) | P0 | L | BE-1, BE-2, QA | ✅ 전부 200 |
 | DEV-003 | 네이버맵 키 발급 + `localhost` allowlist | P0 | S | FE-2 | 🔧 |
-| DEV-004 | 대표 계정 무료량 확인 (NCP 콘솔) | P0 | S | ASQi | 🔧 [스펙 §3 미확인 항목] |
+| DEV-004 | 대표 계정 무료량 확인 (NCP 콘솔) | P0 | S | 윤서진 | 🔧 [스펙 §3 미확인 항목] |
 
 > **DEV-002는 끝났습니다.** 실제 응답 7종이 `backend/src/main/resources/fixtures/`에 있고, `data-mode: fixture`로 네트워크 없이 개발할 수 있습니다.
 > 약국 API는 **하루 1,000회**뿐이니 fixture로 개발하세요. 디버깅에 한도를 쓰면 그날 개발이 끝납니다.
