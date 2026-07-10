@@ -66,6 +66,10 @@ logging:
 # classes (LlmProperties, PublicApiProperties) — never read via @Value.
 # ---------------------------------------------------------------
 mermaid:
+  # live    — call the real APIs; a provider failure is an error the user sees
+  # hybrid  — call them, fall back to fixtures on failure, and label the data as such
+  # fixture — never touch the network (reproducible demos, CI, and the 1,000/day quota)
+  data-mode: ${DATA_MODE:hybrid}
   llm:
     # Any OpenAI-compatible endpoint. See .env.example.
     #
@@ -132,3 +136,6 @@ spring:
     enabled: false
   cache:
     type: simple
+
+mermaid:
+  data-mode: fixture

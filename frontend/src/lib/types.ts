@@ -126,9 +126,56 @@ export interface Facility {
   addressKo: string | null
   addressEn: string | null
   phone: string | null
-  location: { lat: number; lng: number } | null
+  latitude: number
+  longitude: number
   /** Computed by the backend — no public API provides it. */
-  distanceM: number | null
+  distanceMeters: number
   operation: FacilityOperation
   source: SourceRef
+}
+
+// ---------------------------------------------------------------------------
+// Errors — mirrors backend `ErrorCode` and `GlobalExceptionHandler` (spec §5-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Switch on `code`, never on `message`. The message is written for a person and may change;
+ * the code is the contract.
+ */
+export type ErrorCode =
+  | 'INVALID_REQUEST'
+  | 'INPUT_TOO_LARGE'
+  | 'UNSUPPORTED_MODEL'
+  | 'RATE_LIMITED'
+  | 'LOCATION_REQUIRED'
+  | 'RESOURCE_NOT_FOUND'
+  | 'AI_PROVIDER_TIMEOUT'
+  | 'AI_PROVIDER_ERROR'
+  | 'AI_SCHEMA_INVALID'
+  | 'FACILITY_PROVIDER_TIMEOUT'
+  | 'DRUG_PROVIDER_TIMEOUT'
+  | 'SOURCE_UNAVAILABLE'
+  | 'SOURCE_PAYLOAD_INVALID'
+  | 'INTERNAL_ERROR'
+
+export interface ApiError {
+  error: {
+    code: ErrorCode
+    /** Safe to render. Never contains internals. */
+    message: string
+    /** Whether offering a "try again" button is honest. */
+    retryable: boolean
+    /** Also on the `X-Request-Id` response header. Ask the user for this when they report a bug. */
+    request_id: string
+    details?: Record<string, unknown>
+  }
+}
+
+export function isApiError(value: unknown): value is ApiError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'error' in value &&
+    typeof (value as ApiError).error?.code === 'string'
+  )
 }

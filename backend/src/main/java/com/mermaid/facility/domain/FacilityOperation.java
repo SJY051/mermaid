@@ -38,6 +38,22 @@ public record FacilityOperation(
                 false, OperationStatus.CLOSED, StatusConfidence.OFFICIAL_SCHEDULE, verifiedAt, CALL_AHEAD);
     }
 
+    /**
+     * Derived from a single start/end pair whose meaning is not published.
+     *
+     * <p>The pharmacy location endpoint returns {@code startTime}/{@code endTime} without saying
+     * whether they describe today or a typical day. Using them is better than nothing and worse than
+     * the weekly table, so we say {@link StatusConfidence#INFERRED} and tell the user to call ahead.
+     */
+    public static FacilityOperation inferred(boolean open, Instant verifiedAt) {
+        return new FacilityOperation(
+                open,
+                open ? OperationStatus.OPEN : OperationStatus.CLOSED,
+                StatusConfidence.INFERRED,
+                verifiedAt,
+                "Opening hours are approximate. Please call before visiting.");
+    }
+
     /** No usable timetable. Not the same as closed. */
     public static FacilityOperation unknown(Instant verifiedAt) {
         return new FacilityOperation(

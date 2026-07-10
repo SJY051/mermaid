@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.chat.dto.MermAidAnswer;
 import java.io.IOException;
+import java.util.List;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -35,6 +37,7 @@ public class ChatProxyController {
 
     private final ChatProxyService chatProxyService;
     private final StructuredOutputFallback fallback;
+    private final AnswerValidator answerValidator;
     private final EmergencyTriage emergencyTriage;
     private final ObjectMapper objectMapper;
 
@@ -102,6 +105,12 @@ public class ChatProxyController {
      *
      * <p>We forward the upstream's terminal {@code data: [DONE]} verbatim — the {@code openai} SDK
      * watches for it to close the stream. It is not JSON, so nothing here may try to parse it.
+     *
+     * <p><b>The post-processing invariants do not run on this path.</b> They cannot: the JSON only
+     * becomes parseable once the last chunk lands, and by then the earlier chunks are already on the
+     * wire. A streamed answer therefore reaches the browser <i>unverified</i>, and the frontend's
+     * {@code parseAnswer} is the only guard. That is why the spec makes {@code stream=false} the P0
+     * default (§5-4). Do not stream a drug recommendation until DEV-403 buffers-then-validates.
      */
     private SseEmitter streaming(JsonNode request) {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
@@ -128,8 +137,15 @@ public class ChatProxyController {
     }
 
     /**
-     * Non-streaming path. The assistant's {@code content} is coerced into the response schema before
-     * it reaches the browser, so a model that ignored the schema cannot crash the client (NFR-04).
+     * Non-streaming path.
+     *
+     * <p>Three gates, in order. {@link StructuredOutputFallback} makes the content <i>parseable</i>;
+     * {@link AnswerValidator} makes it <i>true</i>. A model can return flawless JSON naming a Korean
+     * medicine that does not exist, and only the second gate stops that.
+     *
+     * <p>{@code retrievedProductNames} is what pass 1 of the RAG flow actually fetched from the MFDS
+     * APIs. Until DEV-403 wires that up it is empty, which means: any answer that names a drug is
+     * rejected. That is the correct behaviour for a system that has retrieved nothing.
      */
     private JsonNode blocking(JsonNode request) {
         JsonNode upstream = chatProxyService.complete(request).block();
@@ -144,6 +160,19 @@ public class ChatProxyController {
         }
 
         MermAidAnswer coerced = fallback.coerce(messageNode.path("content").asText(null));
+
+        // TODO(BE-1, DEV-403): pass the product names retrieved in pass 1 of the RAG flow.
+        Set<String> retrievedProductNames = Set.of();
+
+        List<String> violations = answerValidator.validate(coerced, retrievedProductNames);
+        if (!violations.isEmpty()) {
+            log.warn("Answer failed {} post-processing invariant(s); refusing it. {}",
+                    violations.size(), violations);
+            return envelope(
+                    fallback.safeAnswer(
+                            "I could not verify that answer against official data, so I will not show it. "
+                                    + "Please describe your symptoms again, or visit a pharmacy."));
+        }
 
         // Rewrite `content` in place so the envelope stays OpenAI-shaped for the SDK.
         ObjectNode rewritten = upstream.deepCopy();

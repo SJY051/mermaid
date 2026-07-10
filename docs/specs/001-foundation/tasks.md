@@ -88,32 +88,34 @@ flowchart LR
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
 | DEV-001 | 기술 스택·저장소 구조 결정 | P0 | S | Lead | ✅ `spec.md` §1 |
-| DEV-002 | 공공 API 5종 Spike (실응답 확보) | P0 | L | BE-1, BE-2, QA | 🔧 **키 발급 후 즉시** |
+| DEV-002 | 공공 API 6종 Spike (실응답 확보) | P0 | L | BE-1, BE-2, QA | ✅ 심평원만 403 |
 | DEV-003 | 네이버맵 키 발급 + `localhost` allowlist | P0 | S | FE-2 | 🔧 |
 | DEV-004 | 대표 계정 무료량 확인 (NCP 콘솔) | P0 | S | ASQi | 🔧 [스펙 §3 미확인 항목] |
 
-> **DEV-002가 모든 것의 앞에 있습니다.** 약국 API는 **하루 1,000회**뿐이니, 실제 응답을 한 번 받아 `src/test/resources/`에 저장하고 그걸로 개발하세요. 디버깅에 한도를 쓰면 그날 개발이 끝납니다.
+> **DEV-002는 끝났습니다.** 실제 응답 7종이 `backend/src/main/resources/fixtures/`에 있고, `data-mode: fixture`로 네트워크 없이 개발할 수 있습니다.
+> 약국 API는 **하루 1,000회**뿐이니 fixture로 개발하세요. 디버깅에 한도를 쓰면 그날 개발이 끝납니다.
+> 조사 문서가 틀렸던 여섯 곳은 `fixtures/README.md`에 정리돼 있습니다 — 파서를 쓰기 전에 읽으세요.
 
 ### EPIC 1 — 기반·계약
 
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
 | DEV-101 | 저장소 scaffold, CI, 시크릿 가드 | P0 | M | Lead | ✅ |
-| DEV-102 | `MermAidAnswerV1` 스키마 + 런타임 검증기 | P0 | M | BE-1 | 🔧 |
-| DEV-103 | `DataMode` (live/hybrid/fixture) | P0 | S | BE-1 | 🔧 스펙 §2-14 |
-| DEV-104 | Fixture 저장소 구성 | P0 | M | BE-2, QA | ⛔ DEV-002 |
-| DEV-105 | 공통 에러 envelope + `X-Request-Id` | P0 | M | BE-1 | 🔧 스펙 §5-2 |
-| DEV-106 | **astryx 0.1.4 셋업 + Tailwind v4 레이어 브리지** | P0 | M | FE-1 | 🔧 |
+| DEV-102 | `MermAidAnswerV1` 스키마 + 런타임 검증기 | P0 | M | BE-1 | 🔧 `response_format` 주입만 남음 (glm-5.2는 지원) |
+| DEV-103 | `DataMode` (live/hybrid/fixture) | P0 | S | BE-1 | ✅ |
+| DEV-104 | Fixture 저장소 구성 | P0 | M | BE-2, QA | ✅ 실제 응답 7종 `src/main/resources/fixtures/` |
+| DEV-105 | 공통 에러 envelope + `X-Request-Id` | P0 | M | BE-1 | ✅ |
+| DEV-106 | **astryx 0.1.4 셋업 + Tailwind v4 레이어 브리지** | P0 | M | FE-1 | ✅ |
 
 ### EPIC 2 — 의료기관 (BE-2 · FE-2)
 
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
-| DEV-201 | Facility 어댑터 인터페이스 + fixture 구현체 | P0 | S | BE-2 | 🔧 |
-| DEV-202 | 약국 어댑터 (`getParmacyLcinfoInqire` 파싱) | P0 | L | BE-2 | ⛔ DEV-002 |
-| DEV-203 | 병원 어댑터 (2단 호출 + `ykiho` 캐시) | P0 | L | BE-2 | ⛔ DEV-002 |
-| DEV-204 | 거리·영업중 필터 + `is_open_now` **nullable** | P0 | M | BE-2 | 🔧 부분 완료 |
-| DEV-205 | `GET /facilities` + provider namespace ID | P0 | M | BE-2 | 🔧 |
+| DEV-201 | Facility 어댑터 인터페이스 + fixture 구현체 | P0 | S | BE-2 | ✅ `PublicApiResponse` + `FixtureLoader` |
+| DEV-202 | 약국 어댑터 — 위치조회 ✅ / **주간시간표(`getParmacyBassInfoInqire`) 남음** | P0 | M | BE-2 | 🔧 |
+| DEV-203 | 병원 어댑터 (2단 호출 + `ykiho` 캐시) | P0 | L | BE-2 | ⛔ **심평원 API가 403** — 활용신청 승인 대기 |
+| DEV-204 | 거리·영업중 필터 + `is_open_now` **nullable** | P0 | M | BE-2 | ✅ (주간시간표 붙이면 `INFERRED`→`OFFICIAL_SCHEDULE`) |
+| DEV-205 | `GET /facilities` + provider namespace ID | P0 | M | BE-2 | ✅ 목록. 단건(`/{id}`)은 남음 |
 | DEV-206 | 지도·목록 UI + GPS 거부 시 수동 위치 | P0 | L | FE-2 | ⛔ DEV-205 |
 | DEV-207 | 상세 드로어 (UI-03) + **바텀시트 직접 조립** | P0 | M | FE-2 | ⛔ DEV-106 |
 | DEV-208 | 공휴일 캘린더 (특일 정보 API) | P1 | M | BE-2 | 🔧 지금은 늘 평일 |
@@ -140,9 +142,9 @@ flowchart LR
 | DEV-401 | Chat Completions 프록시 (키 은닉, system 제거) | P0 | M | BE-1 | ✅ |
 | DEV-402 | 시스템 프롬프트 + 프롬프트 인젝션 방어 | P0 | M | BE-1, PM/UX | 🔧 부분 완료 |
 | DEV-403 | 2-패스 RAG 조립 | P0 | L | BE-1 | ⛔ DEV-304 |
-| DEV-404 | **서버 후처리 불변조건 7개** | P0 | M | BE-1 | 🔧 스펙 §2-15 |
-| DEV-405 | **규칙 기반 응급 선별** (LLM보다 먼저) | P0 | M | BE-1, PM/UX | 🔧 SA-03 |
-| DEV-406 | `ui_actions[]` allowlist 검증 | P0 | M | BE-1 | 🔧 스펙 §2-11 |
+| DEV-404 | **서버 후처리 불변조건 7개** | P0 | M | BE-1 | ✅ 요청 경로에 연결됨 |
+| DEV-405 | **규칙 기반 응급 선별** (LLM보다 먼저) | P0 | M | BE-1, PM/UX | ✅ 문구·패턴 검수는 PM/UX 남음 |
+| DEV-406 | `ui_actions[]` allowlist 검증 | P0 | M | BE-1 | ✅ sealed interface + Jackson subtype |
 | DEV-407 | Safe fallback 응답 | P0 | S | BE-1 | ✅ 부분 (`StructuredOutputFallback`) |
 | DEV-408 | 메인 챗 UI + 개인정보 경고 + 응급 배너 | P0 | L | FE-1 | ⛔ DEV-106 |
 | DEV-409 | 스트리밍 UX (조립 후 검증) | P1 | M | BE-1, FE-1 | ✅ 백엔드 완료 |
@@ -241,11 +243,12 @@ rg 'TODO\(team\)' backend/src frontend/src
 
 | 위치 | 이슈 | 담당 |
 |---|---|---|
-| `PharmacyApiClient#parse` | DEV-202 | BE-2 |
-| `FacilityService#hospitals` | DEV-203 | BE-2 |
+| `PharmacyApiClient#weeklyHours` | DEV-202 | BE-2 |
+| `FacilityService#hospitals` | DEV-203 (심평원 403 대기) | BE-2 |
 | `FacilityController#detail` | DEV-205 | BE-2 |
 | `HolidayCalendar#isHoliday` | DEV-208 | BE-2 |
 | `DrugService#search`, `#detail` | DEV-301, DEV-307 | BE-1 |
-| `ChatProxyService#prepare` (response_format) | DEV-102 | BE-1 |
+| `ChatProxyService#prepare` (response_format — glm-5.2는 지원함) | DEV-102 | BE-1 |
 | `useNaverMap.ts` 마커 렌더링 | DEV-206 | FE-2 |
 | `App.tsx` 의약품 카드·지도 | DEV-308, DEV-408 | FE-1 |
+| `ChatProxyController#blocking` (`retrievedProductNames`) | DEV-403 | BE-1 |

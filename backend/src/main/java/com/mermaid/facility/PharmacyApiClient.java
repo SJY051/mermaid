@@ -1,10 +1,14 @@
 package com.mermaid.facility;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.PublicApiException;
+import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
+import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,85 +19,144 @@ import org.springframework.web.reactive.function.client.WebClient;
 /**
  * 국립중앙의료원 전국 약국 정보 조회 서비스 (data.go.kr 15000576).
  *
- * <p>Three facts that shape this class:
+ * <p>What the live API actually returns (verified 2026-07-10, {@code fixtures/pharmacy.json}) — this
+ * differs from what every write-up about it says:
  *
  * <ul>
- *   <li>The operation is {@code getParmacyLcinfoInqire} — yes, "Parmacy", the typo is theirs.
- *   <li>It takes {@code WGS84_LON} and {@code WGS84_LAT} and <b>no radius</b>. Results arrive sorted
- *       by distance; we clip them ourselves in {@link FacilityService}.
- *   <li>It returns the whole weekly timetable ({@code dutyTime1s}…{@code dutyTime8c}) in the same
- *       response, so "open now" needs no second call.
+ *   <li>The operation is {@code getParmacyLcinfoInqire}. Yes, "Parmacy"; the typo is theirs.
+ *   <li>It takes {@code WGS84_LON}/{@code WGS84_LAT} and <b>no radius</b>. Results come back
+ *       distance-sorted and we clip them ourselves.
+ *   <li>It returns <b>no weekly timetable</b>. Only {@code startTime}/{@code endTime}, whose meaning
+ *       ("today" or "typical"?) is still unconfirmed. The real {@code dutyTime1s}…{@code dutyTime6c}
+ *       table lives in {@code getParmacyBassInfoInqire}, one call per pharmacy.
+ *   <li>{@code distance} is in <b>kilometres</b> (0.14 = 140 m), and the coordinate fields are
+ *       {@code latitude}/{@code longitude}, not {@code wgs84Lat}/{@code wgs84Lon}.
  * </ul>
  *
- * <p>The development quota is <b>1,000 calls/day</b> — the tightest of all four APIs. Five people
- * refreshing a map will burn it before lunch, which is why {@link Cacheable} is not optional here.
+ * <p>The development quota is <b>1,000 calls/day</b> — the tightest of all our APIs. Five people
+ * refreshing a map will burn it before lunch, which is why {@link Cacheable} and {@link
+ * DataModeProperties} are not optional here.
  */
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class PharmacyApiClient {
 
-    private static final String OPERATION = "getParmacyLcinfoInqire";
+    private static final String OP_BY_LOCATION = "getParmacyLcinfoInqire";
     private static final int MAX_ROWS = 100;
+    private static final String FIXTURE = "pharmacy.json";
 
     private final WebClient publicApiWebClient;
     private final PublicApiProperties properties;
+    private final DataModeProperties dataMode;
+    private final FixtureLoader fixtures;
 
     /**
-     * Pharmacies near a point, distance-sorted, with their weekly hours.
+     * Pharmacies near a point, distance-sorted.
      *
-     * <p>Cached on the rounded coordinate: two users on the same street corner share one upstream
-     * call. Rounding to 3 decimals is roughly a 100m grid.
+     * <p>Cached on the rounded coordinate: two people on the same street corner share one upstream
+     * call. Three decimal places is roughly a 100 m grid.
      */
-    @Cacheable(value = "pharmaciesNear", key = "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000)")
+    @Cacheable(
+            value = "pharmaciesNear",
+            key = "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000)")
     public List<RawPharmacy> findNear(double lat, double lng) {
+        if (dataMode.isFixtureOnly()) {
+            return parse(fixtures.load(FIXTURE));
+        }
         if (!properties.isConfigured()) {
-            log.warn("DATA_GO_KR_SERVICE_KEY is not set — returning no pharmacies");
-            return List.of();
+            log.warn("DATA_GO_KR_SERVICE_KEY is not set — falling back to fixture data");
+            return parse(fixtures.load(FIXTURE));
         }
 
-        URI uri =
-                PublicApiUriBuilder.of(properties.pharmacyBaseUrl(), OPERATION)
-                        .serviceKey(properties.serviceKey())
-                        .param("WGS84_LON", lng)
-                        .param("WGS84_LAT", lat)
-                        .param("numOfRows", MAX_ROWS)
-                        .param("pageNo", 1)
-                        .param("_type", "json") // NOTE: underscore. The MFDS APIs want plain `type`.
-                        .build();
-
         try {
-            JsonNode body = publicApiWebClient.get().uri(uri).retrieve().bodyToMono(JsonNode.class).block();
-            return parse(body);
+            JsonNode raw =
+                    publicApiWebClient
+                            .get()
+                            .uri(uriFor(lat, lng))
+                            .retrieve()
+                            .bodyToMono(JsonNode.class)
+                            .block();
+            return parse(raw);
         } catch (Exception e) {
+            if (dataMode.allowsFallback()) {
+                // hybrid: a demo must survive a government outage, and the source metadata will
+                // tell the user this row came from a fixture.
+                log.warn("pharmacy lookup failed, falling back to fixture: {}", e.getMessage());
+                return parse(fixtures.load(FIXTURE));
+            }
             throw new PublicApiException("Pharmacy lookup failed near " + lat + "," + lng, e);
         }
     }
 
-    /**
-     * TODO(team): map {@code response.body.items.item[]} onto {@link RawPharmacy}.
-     *
-     * <p>Fields you need: {@code hpid}, {@code dutyName}, {@code dutyAddr}, {@code dutyTel1}, {@code
-     * wgs84Lat}, {@code wgs84Lon}, and {@code dutyTime1s}/{@code dutyTime1c} … {@code dutyTime8s}/
-     * {@code dutyTime8c}.
-     *
-     * <p>Two traps. When there is exactly one result, {@code item} is an object rather than an array.
-     * And when the service key is wrong the response is a 200 carrying an error envelope, not a 4xx —
-     * check {@code response.header.resultCode} and throw {@link PublicApiException} unless it is
-     * {@code "00"}.
-     *
-     * <p>Write the test first: drop a real response into {@code src/test/resources/} and assert
-     * against it. Do not spend the daily quota on debugging.
-     */
-    private List<RawPharmacy> parse(JsonNode body) {
-        log.warn("PharmacyApiClient.parse is not implemented yet — returning no pharmacies");
-        return List.of();
+    URI uriFor(double lat, double lng) {
+        return PublicApiUriBuilder.of(properties.pharmacyBaseUrl(), OP_BY_LOCATION)
+                .serviceKey(properties.serviceKey())
+                .param("WGS84_LON", lng)
+                .param("WGS84_LAT", lat)
+                .param("numOfRows", MAX_ROWS)
+                .param("pageNo", 1)
+                .param("_type", "json") // NOTE: underscore. The MFDS services want plain `type`.
+                .build();
     }
 
     /**
-     * One pharmacy, straight off the wire.
+     * Maps {@code response.body.items.item[]} onto {@link RawPharmacy}.
      *
-     * @param dutyTimes index 1..8 → {open, close} HHMM strings; 1=Mon … 7=Sun, 8=holiday
+     * <p>{@link PublicApiResponse} absorbs the envelope difference, the object-vs-array shape of a
+     * single result, and the mixed string/number field types. A non-{@code "00"} result code throws
+     * rather than yielding an empty list that reads as "no pharmacies nearby".
+     */
+    private List<RawPharmacy> parse(JsonNode raw) {
+        PublicApiResponse response = PublicApiResponse.of(raw).requireOk();
+
+        List<RawPharmacy> out = new ArrayList<>();
+        for (JsonNode row : response.items()) {
+            Double lat = PublicApiResponse.number(row, "latitude");
+            Double lng = PublicApiResponse.number(row, "longitude");
+            String hpid = PublicApiResponse.text(row, "hpid");
+            if (hpid == null || lat == null || lng == null) {
+                // Without an official record id or a location we cannot place it on a map or ever
+                // refer to it again. Drop it rather than invent an id (spec §4-3).
+                continue;
+            }
+            out.add(
+                    new RawPharmacy(
+                            hpid,
+                            PublicApiResponse.text(row, "dutyName"),
+                            PublicApiResponse.text(row, "dutyAddr"),
+                            PublicApiResponse.text(row, "dutyTel1"),
+                            lat,
+                            lng,
+                            PublicApiResponse.number(row, "distance"),
+                            PublicApiResponse.text(row, "startTime"),
+                            PublicApiResponse.text(row, "endTime")));
+        }
+        return out;
+    }
+
+    /**
+     * TODO(BE-2, DEV-202): fetch the weekly timetable.
+     *
+     * <p>{@code getParmacyBassInfoInqire?HPID=…} returns {@code dutyTime1s}…{@code dutyTime6c} (1=Mon
+     * … 6=Sat; a day the pharmacy is closed has <b>no field at all</b>, which is why {@code
+     * WeeklyHours} treats a missing index as closed). Feed those into {@link
+     * com.mermaid.facility.domain.WeeklyHours#fromDutyTimes} and the operation status becomes
+     * {@code OFFICIAL_SCHEDULE} instead of {@code INFERRED}.
+     *
+     * <p>It is one call per pharmacy — cache it by {@code hpid}. See {@code fixtures/pharmacy_basis.json}
+     * for a real response; develop against that, not against the 1,000/day quota.
+     */
+    public java.util.Map<Integer, String[]> weeklyHours(String hpid) {
+        return java.util.Map.of();
+    }
+
+    /**
+     * One pharmacy as the location endpoint returns it.
+     *
+     * @param distanceKm the API's own {@code distance}, in <b>kilometres</b>. Null when absent.
+     * @param startTime {@code "0900"} or {@code 900} on the wire; meaning unconfirmed — treat as
+     *     {@code INFERRED}, not as the published schedule
      */
     public record RawPharmacy(
             String hpid,
@@ -102,5 +165,7 @@ public class PharmacyApiClient {
             String phone,
             double latitude,
             double longitude,
-            java.util.Map<Integer, String[]> dutyTimes) {}
+            Double distanceKm,
+            String startTime,
+            String endTime) {}
 }
