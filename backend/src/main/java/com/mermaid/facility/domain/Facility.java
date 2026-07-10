@@ -1,20 +1,32 @@
 package com.mermaid.facility.domain;
 
+import com.mermaid.common.SourceRef;
+
 /**
- * A pharmacy or hospital as the frontend sees it. Not a JPA entity — this is assembled from public
- * API responses on every request (and cached in Redis), never stored in our schema.
+ * A pharmacy or hospital as the frontend sees it. Not a JPA entity — assembled from public API
+ * responses per request (and cached in Redis), never stored in our schema.
  *
- * @param id {@code hpid} for a pharmacy, {@code ykiho} for a hospital
+ * @param id provider-namespaced, e.g. {@code facility:nmc:12345} (spec §4-3). Never a name.
  * @param distanceMeters computed by us; the pharmacy API has no radius parameter (spec §2-9)
- * @param openNow computed by us; no public API exposes this (spec §2-9)
+ * @param operation computed by us; no public API exposes "open now" (spec §2-13)
+ * @param source provenance. Every fact carries one, and fixtures say so (spec §2-14)
  */
 public record Facility(
         String id,
         FacilityType type,
-        String name,
-        String address,
+        String nameKo,
+        String nameEn,
+        String addressKo,
+        String addressEn,
         String phone,
-        double latitude,
-        double longitude,
-        double distanceMeters,
-        boolean openNow) {}
+        Double latitude,
+        Double longitude,
+        Double distanceMeters,
+        FacilityOperation operation,
+        SourceRef source) {
+
+    /** Builds the namespaced id. `hpid` for a pharmacy, `ykiho` for a hospital. */
+    public static String idOf(String providerKey, String recordId) {
+        return "facility:" + providerKey + ":" + recordId;
+    }
+}

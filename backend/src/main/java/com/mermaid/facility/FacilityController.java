@@ -23,15 +23,20 @@ public class FacilityController {
 
     private final FacilityService facilityService;
 
-    /** e.g. {@code ?lat=37.56&lng=126.97&radius=500&open_now=true&type=pharmacy} */
+    /**
+     * e.g. {@code ?lat=37.56&lng=126.97&radius_m=500&open_now=true&type=pharmacy}
+     *
+     * <p>{@code open_now=true} returns only facilities we know to be open. A facility whose
+     * timetable we could not read is excluded rather than guessed at — see spec §2-13.
+     */
     @GetMapping
     public List<Facility> nearby(
             @RequestParam @Min(-90) @Max(90) double lat,
             @RequestParam @Min(-180) @Max(180) double lng,
-            @RequestParam(defaultValue = "1000") @Min(1) @Max(20_000) int radius,
+            @RequestParam(name = "radius_m", defaultValue = "1000") @Min(100) @Max(10_000) int radiusM,
             @RequestParam(name = "open_now", defaultValue = "false") boolean openNow,
             @RequestParam(defaultValue = "pharmacy") FacilityType type) {
-        return facilityService.findNearby(lat, lng, radius, openNow, type);
+        return facilityService.findNearby(lat, lng, radiusM, openNow, type);
     }
 
     /**

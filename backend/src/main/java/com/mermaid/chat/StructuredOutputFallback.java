@@ -1,20 +1,23 @@
 package com.mermaid.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.mermaid.chat.dto.MedicalResponse;
+import com.mermaid.chat.dto.MermAidAnswer;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Turns whatever the model actually said into a {@link MedicalResponse} the client can render
+ * Turns whatever the model actually said into a {@link MermAidAnswer} the client can render
  * (NFR-04, TC-03).
  *
  * <p>This is not defensive paranoia. We point the proxy at any OpenAI-compatible endpoint and swap
  * models freely, and support for {@code response_format} varies by model — a free model will happily
  * answer a JSON-schema request with a paragraph of prose, or wrap valid JSON in a markdown fence.
- * The client must not crash either way.
+ *
+ * <p>Note what the safe answer contains: no drugs, no actions, no sources. When we cannot trust the
+ * structure we do not guess at the content. Prose is still useful to a sick person; an invented
+ * medicine is not.
  */
 @Slf4j
 @Component
@@ -30,39 +33,70 @@ public class StructuredOutputFallback {
 
     /**
      * @param rawContent the assistant message's {@code content}, as the model wrote it
-     * @return a valid response — always, even if {@code rawContent} is prose or malformed
+     * @return a valid answer — always, even if {@code rawContent} is prose or malformed
      */
-    public MedicalResponse coerce(String rawContent) {
+    public MermAidAnswer coerce(String rawContent) {
         if (rawContent == null || rawContent.isBlank()) {
-            return safeDefault("I could not produce an answer. Please try rephrasing.");
+            return safeAnswer("I could not produce an answer. Please try rephrasing.");
         }
 
         String candidate = stripMarkdownFence(rawContent.trim());
         try {
-            MedicalResponse parsed = objectMapper.readValue(candidate, MedicalResponse.class);
+            MermAidAnswer parsed = objectMapper.readValue(candidate, MermAidAnswer.class);
             return withGuarantees(parsed);
         } catch (Exception e) {
-            log.warn(
-                    "Model ignored the response schema; falling back to plain text. reason={}",
-                    e.getMessage());
-            // The prose is still useful to the user — show it rather than an error.
-            return safeDefault(rawContent);
+            log.warn("Model ignored the response schema; falling back to prose. reason={}", e.getMessage());
+            return safeAnswer(rawContent);
         }
     }
 
     /** Fills in the fields the client depends on, whatever the model left out. */
-    private MedicalResponse withGuarantees(MedicalResponse r) {
-        return new MedicalResponse(
-                r.reply() == null ? "" : r.reply(),
-                r.urgency() == null ? MedicalResponse.Urgency.SEE_PHARMACIST : r.urgency(),
-                r.medications() == null ? List.of() : r.medications(),
-                r.map(),
+    private MermAidAnswer withGuarantees(MermAidAnswer r) {
+        return new MermAidAnswer(
+                MermAidAnswer.SCHEMA_VERSION,
+                r.answerId() == null ? "unknown" : r.answerId(),
+                "en",
+                r.dataStatus() == null ? MermAidAnswer.DataStatus.UNAVAILABLE : r.dataStatus(),
+                r.urgency() == null ? unknownUrgency() : r.urgency(),
+                r.summary() == null ? "" : r.summary(),
+                nullSafe(r.clarifyingQuestions()),
+                nullSafe(r.guidance()),
+                nullSafe(r.drugs()),
+                nullSafe(r.uiActions()),
+                nullSafe(r.sourceRefs()),
+                nullSafe(r.warnings()),
                 (r.disclaimer() == null || r.disclaimer().isBlank()) ? DISCLAIMER : r.disclaimer());
     }
 
-    private MedicalResponse safeDefault(String reply) {
-        return new MedicalResponse(
-                reply, MedicalResponse.Urgency.SEE_PHARMACIST, List.of(), null, DISCLAIMER);
+    /** No drugs, no actions, no sources — we do not trust the structure, so we claim nothing. */
+    public MermAidAnswer safeAnswer(String summary) {
+        return new MermAidAnswer(
+                MermAidAnswer.SCHEMA_VERSION,
+                "local-fallback",
+                "en",
+                MermAidAnswer.DataStatus.UNAVAILABLE,
+                unknownUrgency(),
+                summary,
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                DISCLAIMER);
+    }
+
+    private static MermAidAnswer.Urgency unknownUrgency() {
+        return new MermAidAnswer.Urgency(
+                MermAidAnswer.Urgency.Level.UNKNOWN,
+                "More information is needed",
+                "I could not determine urgency from what you told me.",
+                List.of(),
+                List.of());
+    }
+
+    private static <T> List<T> nullSafe(List<T> list) {
+        return list == null ? List.of() : list;
     }
 
     /** Models love to answer a JSON request with ```json … ``` around it. */

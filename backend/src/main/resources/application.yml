@@ -97,6 +97,11 @@ mermaid:
     # 식약처 의약품 제품 허가정보 (data.go.kr 15095677) — structured ingredients (FR-04)
     drug-permission-base-url: https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService07
 
+    # 식약처 DUR 품목정보 (data.go.kr 15059486) — 병용/연령/임부 금기, 노인주의 (FR-07)
+    # NOTE: also `type=json`. Its INGR_CODE (D-code) does NOT join to 허가정보's [M-code];
+    #       join on ITEM_SEQ. See docs/specs/001-foundation/spec.md §2-10, §3.
+    dur-base-url: https://apis.data.go.kr/1471000/DURPrdlstInfoService03
+
 ---
 # Test profile: no external infra required.
 spring:

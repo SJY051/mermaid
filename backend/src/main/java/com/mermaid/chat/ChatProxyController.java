@@ -3,7 +3,7 @@ package com.mermaid.chat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.mermaid.chat.dto.MedicalResponse;
+import com.mermaid.chat.dto.MermAidAnswer;
 import java.io.IOException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -89,7 +89,7 @@ public class ChatProxyController {
             return errorEnvelope();
         }
 
-        MedicalResponse coerced = fallback.coerce(messageNode.path("content").asText(null));
+        MermAidAnswer coerced = fallback.coerce(messageNode.path("content").asText(null));
 
         // Rewrite `content` in place so the envelope stays OpenAI-shaped for the SDK.
         ObjectNode rewritten = upstream.deepCopy();
@@ -105,7 +105,7 @@ public class ChatProxyController {
 
     private void trySendErrorChunk(SseEmitter emitter) {
         try {
-            MedicalResponse safe =
+            MermAidAnswer safe =
                     fallback.coerce("Sorry — I could not reach the assistant. Please try again.");
             emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(safe)));
             emitter.send(SseEmitter.event().data(ChatProxyService.DONE_SENTINEL));
@@ -116,7 +116,7 @@ public class ChatProxyController {
 
     /** An OpenAI-shaped envelope carrying a safe fallback body. */
     private JsonNode errorEnvelope() {
-        MedicalResponse safe =
+        MermAidAnswer safe =
                 fallback.coerce("Sorry — I could not reach the assistant. Please try again.");
         ObjectNode message = objectMapper.createObjectNode().put("role", "assistant");
         try {

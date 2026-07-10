@@ -15,7 +15,8 @@ public record PublicApiProperties(
         String hospitalBaseUrl,
         String hospitalDetailBaseUrl,
         String easyDrugBaseUrl,
-        String drugPermissionBaseUrl) {
+        String drugPermissionBaseUrl,
+        String durBaseUrl) {
 
     public boolean isConfigured() {
         return serviceKey != null && !serviceKey.isBlank();

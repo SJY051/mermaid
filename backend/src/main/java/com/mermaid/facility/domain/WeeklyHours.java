@@ -67,6 +67,16 @@ public final class WeeklyHours {
         return openedToday || carriedFromYesterday;
     }
 
+    /**
+     * Did the provider publish any hours at all?
+     *
+     * <p>When every row is closed, we do not know the place is shut — we know the data is
+     * missing. The caller must report {@code unknown}, not {@code closed} (spec §2-13).
+     */
+    public boolean hasAnySchedule() {
+        return byDay.values().stream().anyMatch(i -> !i.isClosed()) || !holiday.isClosed();
+    }
+
     public OpenInterval on(DayOfWeek day) {
         return byDay.get(day);
     }

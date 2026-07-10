@@ -103,11 +103,16 @@ public class ChatProxyService {
         }
         req.set("messages", sanitized);
 
-        // TODO(team): once you have confirmed the chosen model honours it, force the schema here:
-        //   req.set("response_format", jsonSchemaOf(MedicalResponse.class));
-        // Support varies across the models on an OpenAI-compatible endpoint, so we rely on the
-        // system prompt plus StructuredOutputFallback until someone verifies it with a real call.
-        // See docs/specs/001-foundation/spec.md §3.
+        // TODO(team, DEV-102): once you have confirmed the chosen model honours it, force the
+        // schema here with `req.set("response_format", …)`.
+        //
+        // Beware: the MermAidAnswerV1 schema in the spec uses `oneOf`, `format: date-time`, and
+        // nested `$defs`. Providers reject or ignore those under strict structured-output mode.
+        // The validation schema is NOT the same artifact as the provider-coercion schema — the
+        // server's runtime validator is the source of truth either way. See spec §3.
+        //
+        // Until someone verifies a real call, we rely on the system prompt plus
+        // StructuredOutputFallback and AnswerValidator.
 
         return req;
     }
