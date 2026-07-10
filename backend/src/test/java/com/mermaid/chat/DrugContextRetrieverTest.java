@@ -66,6 +66,34 @@ class DrugContextRetrieverTest {
         return mapper.readTree(message.substring(message.indexOf('[')));
     }
 
+    /** Remembers the query that actually reached retrieval — the gate's only observable effect. */
+    private static final class CapturingDrugService extends DrugService {
+
+        private final RetrievedContext result;
+        RetrievalQuery seen;
+
+        CapturingDrugService(RetrievedContext result) {
+            super(null, null, null, null, null, null, null);
+            this.result = result;
+        }
+
+        @Override
+        public RetrievedContext retrieve(RetrievalQuery query, Set<String> avoidedKeys) {
+            this.seen = query;
+            return result;
+        }
+    }
+
+    private DrugContextRetriever gated(RetrievalQuery extracted, CapturingDrugService drugService) {
+        SearchTermExtractor extractor = new SearchTermExtractor(null, mapper) {
+            @Override
+            public RetrievalQuery extract(String userText) {
+                return extracted;
+            }
+        };
+        return new DrugContextRetriever(extractor, drugService, new IngredientNormalizer(), mapper);
+    }
+
     @Nested
     @DisplayName("nothing retrieved")
     class Empty {
@@ -253,6 +281,119 @@ class DrugContextRetrieverTest {
                     .contains("combinationContraindicationCount")
                     .contains("tell a pharmacist")
                     .contains("Do not invent the list");
+        }
+    }
+
+    /**
+     * The model proposes ingredients. Asked for a headache remedy by someone allergic to ibuprofen, a
+     * live model proposed <b>Naproxen</b> — another NSAID, and a real product our allergy check reports
+     * as {@code no_match_found} because it matches ingredient names, not drug families. Nothing was
+     * hallucinated, so no invariant fires.
+     *
+     * <p>We hold no reviewed drug-class table and will not invent one (spec §2-12). So when an allergy
+     * is declared, the model does not get to choose a medicine at all.
+     */
+    @Nested
+    @DisplayName("a declared allergy takes the choice of medicine away from the model")
+    class AllergyGate {
+
+        private static final RetrievalQuery PROPOSED =
+                new RetrievalQuery(List.of("Acetaminophen", "Naproxen"), List.of());
+
+        @Test
+        @DisplayName("the naproxen regression: a proposed ingredient never reaches retrieval")
+        void proposedIngredientsNeverReachRetrieval() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(PROPOSED, drugService)
+                    .retrieve("I have a headache but I am allergic to ibuprofen", Set.of());
+
+            assertThat(drugService.seen)
+                    .as("retrieval must not be asked for anything the model proposed")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("the request field gates on its own — the sentence need not mention the allergy")
+        void excludeIngredientsFieldAlsoGates() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(PROPOSED, drugService).retrieve("I have a headache", Set.of("Ibuprofen"));
+
+            assertThat(drugService.seen).isNull();
+        }
+
+        @Test
+        @DisplayName("with no allergy the model's ingredients pass through untouched")
+        void noAllergyNoGate() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(PROPOSED, drugService).retrieve("I have a headache", Set.of());
+
+            assertThat(drugService.seen.ingredientsEn()).containsExactly("Acetaminophen", "Naproxen");
+        }
+
+        @Test
+        @DisplayName("a product the person named themselves is still looked up")
+        void userNamedProductSurvivesTheGate() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")), drugService)
+                    .retrieve("I'm allergic to ibuprofen — can I take 부루펜?", Set.of());
+
+            assertThat(drugService.seen.ingredientsEn()).isEmpty();
+            assertThat(drugService.seen.productNamesKo()).containsExactly("부루펜");
+        }
+
+        @Test
+        @DisplayName("\"we refused to look\" is not rendered as \"we found nothing\"")
+        void preambleExplainsTheRefusal() {
+            String message = gated(PROPOSED, new CapturingDrugService(RetrievedContext.EMPTY))
+                    .retrieve("I am allergic to ibuprofen, my head hurts", Set.of())
+                    .systemMessage();
+
+            assertThat(message)
+                    .contains("you must not name one")
+                    .contains("cannot suggest an alternative")
+                    .contains("name no medicine");
+        }
+
+        @Test
+        @DisplayName("without an allergy an empty context keeps its old wording")
+        void plainEmptyIsUnchanged() {
+            String message = gated(RetrievalQuery.EMPTY, new CapturingDrugService(RetrievedContext.EMPTY))
+                    .retrieve("hello", Set.of())
+                    .systemMessage();
+
+            assertThat(message)
+                    .contains("nothing was retrieved")
+                    .doesNotContain("cannot suggest an alternative");
+        }
+
+        @Test
+        @DisplayName("when the person named a drug, the model is told not to gesture at alternatives")
+        void groundedContextForbidsAlternatives() {
+            Drug blocked = new Drug(
+                    "drug:mfds:198701721", "198701721", "부루펜정400밀리그램", null, "삼일제약",
+                    List.of("Ibuprofen"), "이부프로펜", PrescriptionStatus.OTC,
+                    new Drug.Narrative("두통", "1일 3회", null, null, null, null, null),
+                    List.of(),
+                    new AllergyCheck(
+                            AllergyCheck.Status.BLOCKED,
+                            List.of("Ibuprofen"),
+                            "Contains Ibuprofen, which you asked to avoid."),
+                    TYLENOL_SOURCE);
+            RetrievedContext retrieved =
+                    new RetrievedContext(List.of(blocked), Set.of(blocked.nameKo()), List.of(TYLENOL_SOURCE));
+
+            String message = gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")),
+                            new CapturingDrugService(retrieved))
+                    .retrieve("I'm allergic to ibuprofen — can I take 부루펜?", Set.of())
+                    .systemMessage();
+
+            assertThat(message)
+                    .contains("1 product(s)")
+                    .contains("Do not suggest an alternative medicine");
         }
     }
 }

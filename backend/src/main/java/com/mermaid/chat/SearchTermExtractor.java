@@ -23,9 +23,17 @@ import org.springframework.stereotype.Component;
  * the answer says "go to a pharmacy". The model never gets to assert a medicine into existence —
  * {@code AnswerValidator} invariant 6 rejects any product name that did not come back from the API.
  *
- * <p>It follows that the extraction call needs no safety review of its own, but its <i>output</i> does
- * need sanitising: it is interpolated into an upstream query string, and it decides how many calls we
- * make. Hence {@link #parse}, which is where the real work is and where the tests point.
+ * <p><b>That guards existence, not appropriateness</b>, and the difference has teeth. Told "I have a
+ * headache but I am allergic to ibuprofen", this class proposed {@code Naproxen} — a real medicine,
+ * really licensed, really returned by the ministry, and a fellow NSAID that an ibuprofen-allergic
+ * person may well react to. No invariant fires, because nothing was invented. <b>Choosing which
+ * ingredient would help is the one clinical judgement in this pipeline, and a model makes it.</b>
+ *
+ * <p>So the output needs two things, not one. Its <i>shape</i> is sanitised here by {@link #parse} —
+ * it is interpolated into an upstream query string and decides how many calls we make. Its
+ * <i>authority</i> is bounded upstream of retrieval: when {@code AllergyDeclaration} fires, {@link
+ * DrugContextRetriever} discards every ingredient this class proposed. Keep the allergy line in the
+ * prompt below anyway; a model that also declines is a second layer, not the only one.
  *
  * <p>Every failure — timeout, prose instead of JSON, a provider that ignores {@code response_format} —
  * degrades to {@link RetrievalQuery#EMPTY}. An empty context is a safe context.

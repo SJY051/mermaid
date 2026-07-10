@@ -74,13 +74,20 @@ tags: [wbs, backlog, team]
 | BE-2 | DEV-202 주간 시간표 | `PublicApiResponse`가 봉투 두 종류를 다 풉니다. fixture로 개발하세요 |
 | FE-1 | DEV-408 챗 UI | astryx 셋업 완료. `MermAidAnswer` 타입이 `lib/types.ts`에 있습니다 |
 | FE-2 | DEV-501/502 브라우저 저장소 | `lib/storage.ts` 골격 있음. 채팅을 `sessionStorage`로 옮기는 것부터 |
-| PM/QA | 동의어 사전 검토 | `resources/ingredients/synonyms.tsv`의 검토자 칸이 전부 `TODO`입니다 |
+| PM/QA | 동의어 사전 검토 | 검토자 칸이 전부 `TODO`입니다. **판정만 하면 되게 시트를 준비해뒀습니다** → [DEV-305 검토 시트](DEV-305-synonym-review.md) |
 
-> ⚠ **PM/QA에게 — 임상 판단이 필요한 건이 하나 있습니다.** "이부프로펜 알레르기"를 선언한 사용자에게
-> 지금 **나프록센**이 추천됩니다. 둘 다 NSAID 계열입니다. 우리 판정은 성분 단위 정확 일치라 `no_match_found`가
-> 뜨고, 표시 문구는 "보장 아님, 약사에게 확인"이라 거짓말은 아닙니다. 그래도 옳지 않습니다.
-> **계열 교차반응 표는 임상 지식이라 개발자가 지어낼 수 없습니다.** 스펙 §2-12의 "알려진 한계"를 읽고
-> 결정해주세요.
+> ✅ **[2026-07-10 결정됨] 나프록센 건 — 계열 표를 만들지 않고 생성기를 묶었습니다.**
+> "이부프로펜 알레르기"를 선언한 사용자에게 **나프록센**이 추천되던 문제입니다. 원인은 알레르기 판정이 아니라
+> `SearchTermExtractor`였습니다 — **대체재를 고른 것은 LLM입니다.** 계열 교차반응 표는 임상 지식이고 팀에
+> 임상 검토자가 없으므로, 표 대신 **알레르기가 선언된 턴에서 모델의 성분 제안을 전부 버립니다**
+> (`AllergyDeclaration` → `DrugContextRetriever`, 스펙 SA-08). 임상 판단이 아니라 범위 축소라 서명이 필요 없습니다.
+> 수용된 위험과 남는 노출은 스펙 **§7-1 AR-01**에 있습니다. **읽고 이의가 있으면 말해주세요.**
+>
+> ⚠ **PM/QA에게 아직 남은 것 (AR-02).** `synonyms.tsv` 7행의 검토자 칸이 전부 `TODO`인데 그 행들은 이미
+> `blocked`를 만들고 있습니다. 특히 `dexibuprofen → ibuprofen`의 근거란은 *"cross-reactivity is expected"* —
+> **서명 없는 교차반응 근거가 차단을 만들고 있습니다.** 서명 전까지 행을 추가하지 마세요.
+>
+> 임상 검토자를 확보하면 서명된 계열 표를 얹을 수 있습니다. 단 **생성기 제한을 대체하지 않고 그 위에** 얹습니다.
 
 > **`DATA_MODE=fixture ./gradlew bootRun`** — 공공 API를 한 번도 부르지 않고 개발할 수 있습니다.
 > 약국 API는 하루 1,000회뿐입니다. 그리고 조사 문서가 틀렸던 여섯 곳이
@@ -205,10 +212,21 @@ flowchart LR
 | DEV-302 | 허가정보 어댑터 (성분, `MAIN_INGR_ENG`) | P0 | M | BE-1 | ✅ 목록·상세·성분검색 |
 | DEV-303 | **DUR 어댑터** (병용·연령·임부·노인) | P1 | L | BE-1 | ✅ 4종 전부 |
 | DEV-304 | `ITEM_SEQ` 기반 3종 병합 | P0 | M | BE-1 | ✅ 실제 API로 검증 |
-| DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫** (`resources/ingredients/synonyms.tsv`) |
+| DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫**. 판정만 하면 되게 근거를 모아뒀습니다 → [검토 시트](DEV-305-synonym-review.md) |
 | DEV-306 | 알레르기 4-state 비교 서비스 | P0 | M | BE-1 | ✅ `AllergyChecker` |
 | DEV-307 | `GET /drugs`, `GET /drugs/{id}` | P0 | M | BE-1 | ✅ |
 | DEV-308 | 의약품 카드 UI + 4-state 시각 구분 | P0 | M | FE-1, PM/UX | ⛔ DEV-307 |
+| DEV-309 | **동의어 사전 서명 + 아스피린 표준명 교정** (스펙 §7-1 **AR-02**) | P1 | S | 윤서진, PM/QA, BE-1 | 📋 **백로그.** 함께 검토·결정하고 서명한다. 아래 참고 |
+
+> **DEV-309 — 무엇을 결정해야 하나.** [검토 시트](DEV-305-synonym-review.md)에 실측 근거가 다 있습니다. 세 덩어리입니다.
+>
+> 1. **경고 없이 통과하는 표기 4종** — `Dexibuprofen D.C.`(24), `Aspirin Enteric Pellets`(27), `Aspirin Enteric Granules`(2), `Aspirin Lysine For Injection 90%`(1). 알레르기가 있어도 아무 표시가 안 붙습니다.
+> 2. **경고만 뜨고 차단되지 않는 표기 4종** — `Microencapsulated Acetaminophen`(12), `Ibuprofen Piconol`(22), `Ibuprofen Sodium Dihydrate`(1), `Ibuprofen Encapsulated`(1). 이 중 `Ibuprofen Piconol`만 화학·임상 판단이 필요합니다.
+> 3. **표준명이 거꾸로 박힌 버그** — 허가정보에 `Acetylsalicylic Acid`는 **0건**, `Aspirin`은 119건. `toSearchTerm("Aspirin")`이 존재하지 않는 문자열을 내놓아 `GET /api/v1/drugs?ingredient=Aspirin`이 **빈 목록**입니다. 표기법 사실이라 확인은 쉽습니다.
+>
+> **미서명 행을 지우는 쪽이 위험한 방향입니다.** 그 행들이 없으면 알레르기가 매칭되지 않습니다. 서명 전까지 행을 **추가하지도 지우지도** 않습니다. 미서명 행은 매 부팅 WARN에 이름이 찍힙니다.
+>
+> **서명은 사람이 합니다.** 그 칸의 유일한 의미가 "사람이 확인했다"이므로, 에이전트가 채우면 그 칸은 그 순간부터 아무 뜻도 없어집니다.
 
 > **DEV-305는 QA와 함께 합니다.** LLM만으로 성분 동의어를 확정하면 안 됩니다 (스펙 §2-12). 사람이 검토한 매핑 파일에 근거 메모를 남기세요.
 
