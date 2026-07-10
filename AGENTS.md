@@ -214,6 +214,14 @@ Flag, in this order:
 4. **Public-API traps (§11) reintroduced.** `distance` parsed with the wrong unit for its agency. `type=json` where `_type=json` is required. A 404 read as "the service is gone" rather than "the operation name is wrong". A radius parameter omitted.
 5. **Correctness where the language hides it.** A Java `record` cached into Redis's JDK serializer. A function passed to `Parallel.map` that can return `null` — `Mono.fromCallable` drops it and shifts every later index. `IllegalArgumentException` mapped to a client error.
 
+**Treated as P1 in this repository.** Codex surfaces only P0 and P1 on GitHub — the filter is fixed, not something these guidelines can widen. But a concern classified here as P1 rides that channel, so a few things that are ordinarily P2/P3 are declared P1 *because of what this app is*. The test is one question: does it decide whether care information reaches someone who is unwell and reading in a second language?
+
+- **Wrong or confusing English in a safety state** (error, blocked, emergency, empty). Ordinarily a P3 wording nit; here the reader decides whether to take a drug from it. A `no_match_found` or `blocked` message that reads as reassurance is P1.
+- **An accessibility defect that hides safety information.** If the allergy badge or the emergency banner is unreadable to a screen reader or too low-contrast to see, the safeguard never reaches the person it is for. P1.
+- **No loading or progress state on the cold path** (chat answers exceed 100s cold). Ordinarily a P2 UX gap; here the user reads a frozen screen as broken, leaves, and gets no information. P1.
+
+Keep this list short. Everything escalated to P1 spends the signal budget the filter exists to protect; if it grows, that is the filter being defeated, not widened. A new entry earns its place only by passing the same question — would a maintainer block merge on it here?
+
 Do not flag:
 
 - Formatting, import order, or naming that matches the surrounding code (§8).
