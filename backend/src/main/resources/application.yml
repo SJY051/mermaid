@@ -81,7 +81,16 @@ mermaid:
     base-url: ${LLM_BASE_URL:https://opencode.ai/zen/go/v1}
     api-key: ${LLM_API_KEY:}
     model: ${LLM_MODEL:glm-5.2}
-    timeout: 60s
+    # Pass 2 of the RAG flow writes a whole MermAidAnswer over three grounded drugs. Measured against
+    # glm-5.2 on opencode zen, 2026-07-10: ~14s for a small context, past 60s for a real one, and the
+    # SAME warm request took 215s then 87s minutes apart. The provider's latency, not ours — but two
+    # serial calls per turn doubles our exposure to it. Sixty seconds sat exactly on the boundary, so
+    # the same question answered or 500'd depending on the cache.
+    timeout: ${LLM_TIMEOUT:120s}
+    # Pass 1a returns two short arrays. Giving it the same budget as a full answer means a queued
+    # provider can burn three minutes before we even start retrieving. On timeout the drug context is
+    # empty, so the answer names no medicine and says to visit a pharmacy — degraded, never wrong.
+    extraction-timeout: ${LLM_EXTRACTION_TIMEOUT:30s}
 
   public-api:
     # IMPORTANT: this must be the DECODING key from data.go.kr.

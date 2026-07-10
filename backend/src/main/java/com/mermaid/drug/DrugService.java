@@ -1,15 +1,24 @@
 package com.mermaid.drug;
 
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.common.NotFoundException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.drug.domain.Drug;
 import com.mermaid.drug.domain.DurWarning;
+import com.mermaid.drug.domain.PrescriptionStatus;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -38,6 +47,27 @@ import org.springframework.stereotype.Service;
 public class DrugService {
 
     private static final String PROVIDER = "mfds"; // 식품의약품안전처
+
+    /** How many drugs the model is shown. Three cards is what a chat answer can carry honestly. */
+    private static final int MAX_CONTEXT_DRUGS = 3;
+
+    /** How deep we walk the ranked list looking for three with published guidance. */
+    private static final int MAX_DETAIL_PROBES = 8;
+
+    /**
+     * The upstream returns products in no useful order, so we impose one.
+     *
+     * <p>Over-the-counter first — a traveller cannot buy 전문의약품 without seeing a doctor. Then the
+     * ones whose ingredients raise no allergy question. Then the simplest formulation: a
+     * single-ingredient acetaminophen tablet answers "I have a headache" better than a six-ingredient
+     * cold syrup that happens to contain acetaminophen, and it carries fewer allergens the user never
+     * asked about. Name last, so the ordering is total and the tests are deterministic.
+     */
+    private static final Comparator<Drug> BY_USEFULNESS =
+            Comparator.comparingInt((Drug d) -> d.prescriptionStatus() == PrescriptionStatus.OTC ? 0 : 1)
+                    .thenComparingInt(d -> d.allergyCheck().status() == AllergyCheck.Status.WARNING ? 1 : 0)
+                    .thenComparingInt(d -> d.ingredientsEn().size())
+                    .thenComparing(Drug::nameKo);
 
     private final DrugPermissionApiClient permissionClient;
     private final EasyDrugApiClient easyDrugClient;
@@ -114,14 +144,142 @@ public class DrugService {
     }
 
     /**
-     * Drug context for pass 2 of the RAG flow, and the set of names {@code AnswerValidator} will
-     * allow the model to mention.
+     * Pass 1 of the RAG flow: everything the model is allowed to talk about this turn.
+     *
+     * <p>The query is <b>not</b> the user's sentence. 허가정보 matches product names as a substring, so
+     * {@code item_name="I have a headache"} returns {@code totalCount: 0} — verified against the live
+     * API. Something has to turn prose into search terms first; that is {@code SearchTermExtractor},
+     * and what it produces arrives here.
+     *
+     * <p>Three filters, each of which changes what a sick person is shown:
+     *
+     * <ol>
+     *   <li><b>Export-only products are dropped.</b> A name containing {@code 수출용} cannot be bought in
+     *       a Korean pharmacy. Searching {@code Acetaminophen} returns four of them on page one.
+     *       {@code 수출명} is a different thing — 게보린정(수출명:돌로린정) is sold here — and is kept.
+     *   <li><b>A product with no e약은요 entry is dropped.</b> Not a heuristic: our whole design is that
+     *       the model may only summarise official text, so a product with no official text cannot be
+     *       described at all. Empirically these are the same products as (1), plus a few others.
+     *   <li><b>Ingredient hits the user is allergic to are dropped;</b> products they named by hand are
+     *       kept, marked. Asking "is 부루펜 safe for me?" must get an answer. Being offered 부루펜 for a
+     *       headache you asked about while allergic to ibuprofen must not happen.
+     * </ol>
+     *
+     * <p>Ranking matters because the upstream order is arbitrary. {@code Acetaminophen} returns
+     * 판콜에이내복액 — a six-ingredient cold syrup — first, and a plain acetaminophen tablet at rank 13.
      */
-    public RetrievedContext retrieve(String query, Set<String> avoidedKeys) {
-        List<Drug> candidates = searchByName(query, avoidedKeys);
-        Set<String> allowedNames =
-                candidates.stream().map(Drug::nameKo).collect(java.util.stream.Collectors.toSet());
-        return new RetrievedContext(candidates, allowedNames);
+    public RetrievedContext retrieve(RetrievalQuery query, Set<String> avoidedKeys) {
+        Set<String> namedSeqs = new LinkedHashSet<>();
+        List<Drug> candidates = new ArrayList<>();
+
+        // What the user named by hand outranks anything we inferred: they asked about it.
+        for (String productName : query.productNamesKo()) {
+            for (Drug d : searchByName(productName, avoidedKeys)) {
+                namedSeqs.add(d.itemSeq());
+                candidates.add(d);
+            }
+        }
+
+        List<List<Drug>> perIngredient = new ArrayList<>();
+        for (String ingredient : query.ingredientsEn()) {
+            perIngredient.add(
+                    searchByIngredient(ingredient, avoidedKeys).stream()
+                            .filter(d -> d.allergyCheck().status() != AllergyCheck.Status.BLOCKED)
+                            .filter(d -> !isExportOnly(d.nameKo()))
+                            .sorted(BY_USEFULNESS)
+                            .toList());
+        }
+        candidates.addAll(roundRobin(perIngredient));
+
+        List<Drug> merged =
+                candidates.stream()
+                        .filter(d -> !isExportOnly(d.nameKo()))
+                        .filter(distinctBy(Drug::itemSeq))
+                        .limit(MAX_DETAIL_PROBES)
+                        .toList();
+
+        List<Drug> chosen = new ArrayList<>();
+        for (Drug candidate : merged) {
+            if (chosen.size() == MAX_CONTEXT_DRUGS) {
+                break;
+            }
+            // Cheap probe before the six-call detail assembly. Cached, so detail() re-reads it free.
+            if (easyDrugClient.findBySeq(candidate.itemSeq()).isEmpty()) {
+                log.debug("Skipping {} — no e약은요 guidance to ground on", candidate.nameKo());
+                continue;
+            }
+            detail(candidate.itemSeq(), avoidedKeys, namedSeqs.contains(candidate.itemSeq()))
+                    .ifPresent(chosen::add);
+        }
+
+        return RetrievedContext.of(chosen);
+    }
+
+    /**
+     * The list operation reports {@code ITEM_INGR_NAME}; the detail operation reports {@code
+     * MAIN_INGR_ENG}. They are different fields and can disagree, so the allergy verdict is taken
+     * again on the authoritative one. A product that only now turns out to be blocked is dropped —
+     * unless the user named it themselves, in which case they are shown it, marked blocked.
+     */
+    private Optional<Drug> detail(String itemSeq, Set<String> avoidedKeys, boolean userNamedIt) {
+        try {
+            Drug full = detail(itemSeq, avoidedKeys);
+            if (!userNamedIt && full.allergyCheck().status() == AllergyCheck.Status.BLOCKED) {
+                log.info("Dropping {} from context — MAIN_INGR_ENG revealed an avoided ingredient", itemSeq);
+                return Optional.empty();
+            }
+            return Optional.of(full);
+        } catch (RuntimeException e) {
+            log.warn("Could not assemble {} for the drug context: {}", itemSeq, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * One drug from each ingredient, in the order the ingredients were proposed, then the next from
+     * each, and so on.
+     *
+     * <p>Ranking the ingredients' results as one pool looks equivalent and is not. Every tie-break
+     * eventually falls through to the product name, and Korean product names beginning with 나 sort
+     * ahead of ones beginning with 삼. Asked for "headache and fever" with {@code [Acetaminophen,
+     * Ibuprofen, Naproxen]} proposed in that order, a single pooled sort really did return 나르펜정
+     * (ibuprofen), 나로펜정 and 나프록신정 (both naproxen) — three NSAIDs, two of them contraindicated in
+     * pregnancy, and not one of the 1,357 acetaminophen products. The alphabet had quietly overruled
+     * the ingredient the model put first.
+     *
+     * <p>Round-robin also means an allergy that rules out one ingredient does not empty the answer.
+     */
+    private static List<Drug> roundRobin(List<List<Drug>> perIngredient) {
+        List<Drug> interleaved = new ArrayList<>();
+        int deepest = perIngredient.stream().mapToInt(List::size).max().orElse(0);
+        for (int rank = 0; rank < deepest; rank++) {
+            for (List<Drug> hits : perIngredient) {
+                if (rank < hits.size()) {
+                    interleaved.add(hits.get(rank));
+                }
+            }
+        }
+        return interleaved;
+    }
+
+    /** {@code 수출용} means "for export". {@code 수출명} means "also sold abroad under this name". */
+    static boolean isExportOnly(String nameKo) {
+        return nameKo != null && nameKo.contains("수출용");
+    }
+
+    private static <T> Predicate<T> distinctBy(Function<T, ?> key) {
+        Set<Object> seen = ConcurrentHashMap.newKeySet();
+        return t -> seen.add(key.apply(t));
+    }
+
+    /** What the user asked about, and the only names the model may say. */
+    public record RetrievalQuery(List<String> ingredientsEn, List<String> productNamesKo) {
+
+        public static final RetrievalQuery EMPTY = new RetrievalQuery(List.of(), List.of());
+
+        public boolean isEmpty() {
+            return ingredientsEn.isEmpty() && productNamesKo.isEmpty();
+        }
     }
 
     private Drug summary(DrugPermissionApiClient.Permitted p, Set<String> avoidedKeys) {
@@ -151,9 +309,29 @@ public class DrugService {
     }
 
     /**
-     * @param drugs what we actually retrieved
+     * @param drugs what we actually retrieved, fully assembled
      * @param allowedProductNames the only Korean product names the model may name. Anything else is
      *     an invention and {@code AnswerValidator} rejects it (invariant 6).
+     * @param sources the provenance of those drugs. <b>The server authors these, not the model</b> —
+     *     it is the only party that knows whether a record came from the live API or a fixture.
      */
-    public record RetrievedContext(List<Drug> drugs, Set<String> allowedProductNames) {}
+    public record RetrievedContext(
+            List<Drug> drugs, Set<String> allowedProductNames, List<SourceRef> sources) {
+
+        public static final RetrievedContext EMPTY = new RetrievedContext(List.of(), Set.of(), List.of());
+
+        static RetrievedContext of(List<Drug> drugs) {
+            if (drugs.isEmpty()) {
+                return EMPTY;
+            }
+            return new RetrievedContext(
+                    List.copyOf(drugs),
+                    drugs.stream().map(Drug::nameKo).collect(Collectors.toUnmodifiableSet()),
+                    drugs.stream().map(Drug::source).toList());
+        }
+
+        public boolean isEmpty() {
+            return drugs.isEmpty();
+        }
+    }
 }

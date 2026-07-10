@@ -327,18 +327,35 @@ class DrugServiceFixtureTest {
         }
     }
 
+    /**
+     * The ranking, the filters and the allergy gate live in {@link DrugRetrievalTest}, which drives
+     * stub clients — fixtures ignore query parameters, so every {@code detail()} here returns the same
+     * product and none of that logic would be observable. This one test only checks that the real
+     * fixture path assembles a context at all.
+     */
     @Nested
     @DisplayName("retrieve() feeds the RAG flow and the hallucination gate")
     class Retrieval {
 
         @Test
-        @DisplayName("allowedProductNames is exactly what we retrieved")
+        @DisplayName("a named product becomes the context, and the allowlist is exactly its name")
         void allowedNames() {
-            DrugService.RetrievedContext ctx = service().retrieve("타이레놀", Set.of());
+            DrugService.RetrievedContext ctx =
+                    service().retrieve(new DrugService.RetrievalQuery(List.of(), List.of("타이레놀")), Set.of());
 
             assertThat(ctx.drugs()).isNotEmpty();
             assertThat(ctx.allowedProductNames())
                     .isEqualTo(ctx.drugs().stream().map(Drug::nameKo).collect(java.util.stream.Collectors.toSet()));
+            assertThat(ctx.sources()).hasSameSizeAs(ctx.drugs());
+        }
+
+        @Test
+        @DisplayName("prose retrieves nothing — 허가정보 has no product called 'I have a headache'")
+        void proseIsNotASearchTerm() {
+            // Verified against the live API on 2026-07-10: item_name="I have a headache" → totalCount 0.
+            // This is why SearchTermExtractor exists. Fixtures cannot reproduce it (they ignore the
+            // query), so what we assert here is the other half: an empty query never calls upstream.
+            assertThat(service().retrieve(DrugService.RetrievalQuery.EMPTY, Set.of()).isEmpty()).isTrue();
         }
     }
 }

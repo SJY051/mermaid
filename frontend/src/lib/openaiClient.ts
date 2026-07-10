@@ -22,9 +22,12 @@ export const openai = new OpenAI({
 /**
  * Streams an assistant turn, yielding the text assembled so far.
  *
- * Never bind a partial to a medical card. Mid-stream the JSON is truncated and
- * `parseAnswer` will fall back to prose — which is correct for a progress indicator
- * and wrong for a drug recommendation. Wait for the stream to finish. Spec §5-4.
+ * The backend answers `stream: true` with a **single** validated chunk — it cannot run its
+ * post-processing invariants on a partial JSON, and an unvalidated drug recommendation must
+ * not reach this file (spec §5-4). So expect one yield, then completion. Do not rebuild
+ * token-by-token rendering without a server that buffers and validates first.
+ *
+ * Never bind a partial to a medical card regardless. Wait for the stream to finish.
  */
 export async function* streamChat(
   messages: OpenAI.ChatCompletionMessageParam[],
@@ -50,10 +53,9 @@ export const FALLBACK_DISCLAIMER =
 /**
  * Coerces whatever the model produced into a renderable answer (NFR-04, TC-03).
  *
- * The backend validates too — schema plus the post-processing invariants of spec §2-15,
- * which is where a fabricated product name gets rejected. This client-side pass exists
- * because streaming deltas cannot be validated server-side: the JSON only becomes
- * parseable once the last chunk lands.
+ * The backend already validated it — schema plus the post-processing invariants of spec §2-15,
+ * which is where a fabricated product name gets rejected. This pass is not a second gate; it
+ * only guarantees the component tree gets a fully-populated object no matter what arrives.
  *
  * A parse failure here is not an error to show. Prose is still useful to a sick person.
  */

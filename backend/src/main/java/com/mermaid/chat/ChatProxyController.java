@@ -3,10 +3,10 @@ package com.mermaid.chat;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.dto.MermAidAnswer;
-import java.io.IOException;
+import com.mermaid.common.SourceRef;
 import java.util.List;
-import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -36,6 +36,7 @@ public class ChatProxyController {
     private static final long STREAM_TIMEOUT_MS = 120_000L;
 
     private final ChatProxyService chatProxyService;
+    private final DrugContextRetriever drugContextRetriever;
     private final StructuredOutputFallback fallback;
     private final AnswerValidator answerValidator;
     private final EmergencyTriage emergencyTriage;
@@ -63,15 +64,26 @@ public class ChatProxyController {
         var redFlag = emergencyTriage.screen(ChatProxyService.lastUserMessage(request));
         if (redFlag.isPresent()) {
             log.warn("Emergency triage fired: {} — answering without calling the model", redFlag.get());
-            MermAidAnswer answer = emergencyTriage.emergencyAnswer(redFlag.get());
-            return stream
-                    ? streamOne(answer)
-                    : ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(envelope(answer));
+            return respond(emergencyTriage.emergencyAnswer(redFlag.get()), stream);
         }
 
+        return respond(answer(request), stream);
+    }
+
+    /**
+     * Both content types carry the same fully-validated answer.
+     *
+     * <p>{@code stream=true} used to relay the upstream token by token, and the post-processing
+     * invariants could not run on it: the JSON is only parseable once the last chunk lands, by which
+     * time the earlier ones are already on the wire. A streamed drug recommendation therefore reached
+     * the browser unverified. It now arrives as one SSE chunk instead — the {@code openai} SDK reads
+     * it identically, and no answer leaves this server unchecked. Progressive rendering is a feature;
+     * an unvalidated medicine is a defect.
+     */
+    private Object respond(MermAidAnswer answer, boolean stream) {
         return stream
-                ? streaming(request)
-                : ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(blocking(request));
+                ? streamOne(answer)
+                : ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(envelope(answer));
     }
 
     /** Emits a complete answer as a single OpenAI-shaped SSE chunk, then {@code [DONE]}. */
@@ -101,113 +113,127 @@ public class ChatProxyController {
     }
 
     /**
-     * Bridges the WebClient {@code Flux} onto an {@link SseEmitter}.
+     * The two-pass RAG flow (spec §2-2).
      *
-     * <p>We forward the upstream's terminal {@code data: [DONE]} verbatim — the {@code openai} SDK
-     * watches for it to close the stream. It is not JSON, so nothing here may try to parse it.
+     * <pre>
+     *   pass 1  DrugContextRetriever  → the only medicines that exist, as far as this turn is concerned
+     *   pass 2  the model             → summarises them, and nothing else
+     *           StructuredOutputFallback → makes the content parseable
+     *           ground()                 → replaces the model's provenance with the server's
+     *           AnswerValidator          → makes it true
+     * </pre>
      *
-     * <p><b>The post-processing invariants do not run on this path.</b> They cannot: the JSON only
-     * becomes parseable once the last chunk lands, and by then the earlier chunks are already on the
-     * wire. A streamed answer therefore reaches the browser <i>unverified</i>, and the frontend's
-     * {@code parseAnswer} is the only guard. That is why the spec makes {@code stream=false} the P0
-     * default (§5-4). Do not stream a drug recommendation until DEV-403 buffers-then-validates.
+     * <p>Pass 1 is what gives invariant 6 its teeth. Before it existed, {@code retrievedProductNames}
+     * was empty and every answer naming a medicine was refused — correct for a system that had
+     * retrieved nothing, and useless.
      */
-    private SseEmitter streaming(JsonNode request) {
-        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+    private MermAidAnswer answer(JsonNode request) {
+        String userText = ChatProxyService.lastUserMessage(request);
+        DrugContext context =
+                drugContextRetriever.retrieve(userText, MermaidRequestExtension.excludedIngredients(request));
 
-        chatProxyService
-                .stream(request)
-                .subscribe(
-                        chunk -> {
-                            try {
-                                emitter.send(SseEmitter.event().data(chunk));
-                            } catch (IOException e) {
-                                // Client hung up mid-stream. Normal; stop pushing.
-                                emitter.completeWithError(e);
-                            }
-                        },
-                        error -> {
-                            log.error("Upstream chat stream failed", error);
-                            trySendErrorChunk(emitter);
-                            emitter.complete();
-                        },
-                        emitter::complete);
-
-        return emitter;
-    }
-
-    /**
-     * Non-streaming path.
-     *
-     * <p>Three gates, in order. {@link StructuredOutputFallback} makes the content <i>parseable</i>;
-     * {@link AnswerValidator} makes it <i>true</i>. A model can return flawless JSON naming a Korean
-     * medicine that does not exist, and only the second gate stops that.
-     *
-     * <p>{@code retrievedProductNames} is what pass 1 of the RAG flow actually fetched from the MFDS
-     * APIs. Until DEV-403 wires that up it is empty, which means: any answer that names a drug is
-     * rejected. That is the correct behaviour for a system that has retrieved nothing.
-     */
-    private JsonNode blocking(JsonNode request) {
-        JsonNode upstream = chatProxyService.complete(request).block();
+        JsonNode upstream;
+        long startedAt = System.nanoTime();
+        try {
+            upstream = chatProxyService.complete(request, List.of(context.systemMessage())).block();
+        } catch (RuntimeException e) {
+            // A slow or unreachable provider is our problem, not the user's. Reactor wraps the
+            // timeout, so this is where it lands: without the catch, a model that thinks for too long
+            // reports INTERNAL_ERROR and tells a sick person the server is broken.
+            log.error("Upstream chat call failed after {}ms", elapsedMs(startedAt), e);
+            return unreachable();
+        }
+        // Pass 2 is the slowest thing this server does, and its cost scales with how much the model
+        // has to write — three grounded drug cards is several thousand characters. Log it, or the
+        // next person to hit the timeout will start by suspecting the public APIs.
+        log.info("RAG pass 2: model answered in {}ms ({} chars of context)",
+                elapsedMs(startedAt), context.systemMessage().length());
         if (upstream == null) {
-            return errorEnvelope();
+            return unreachable();
         }
 
         JsonNode messageNode = upstream.path("choices").path(0).path("message");
         if (messageNode.isMissingNode()) {
             log.warn("Upstream returned no choices; shape={}", upstream.fieldNames());
-            return errorEnvelope();
+            return unreachable();
         }
 
-        MermAidAnswer coerced = fallback.coerce(messageNode.path("content").asText(null));
+        MermAidAnswer coerced = ground(fallback.coerce(messageNode.path("content").asText(null)), context);
 
-        // TODO(BE-1, DEV-403): pass the product names retrieved in pass 1 of the RAG flow.
-        Set<String> retrievedProductNames = Set.of();
-
-        List<String> violations = answerValidator.validate(coerced, retrievedProductNames);
+        List<String> violations = answerValidator.validate(coerced, context.allowedProductNames());
         if (!violations.isEmpty()) {
             log.warn("Answer failed {} post-processing invariant(s); refusing it. {}",
                     violations.size(), violations);
-            return envelope(
-                    fallback.safeAnswer(
-                            "I could not verify that answer against official data, so I will not show it. "
-                                    + "Please describe your symptoms again, or visit a pharmacy."));
+            return fallback.safeAnswer(
+                    "I could not verify that answer against official data, so I will not show it. "
+                            + "Please describe your symptoms again, or visit a pharmacy.");
         }
-
-        // Rewrite `content` in place so the envelope stays OpenAI-shaped for the SDK.
-        ObjectNode rewritten = upstream.deepCopy();
-        ObjectNode message = (ObjectNode) rewritten.path("choices").path(0).path("message");
-        try {
-            message.put("content", objectMapper.writeValueAsString(coerced));
-        } catch (Exception e) {
-            log.error("Could not serialise the coerced response", e);
-            return errorEnvelope();
-        }
-        return rewritten;
+        return coerced;
     }
 
-    private void trySendErrorChunk(SseEmitter emitter) {
-        try {
-            MermAidAnswer safe =
-                    fallback.coerce("Sorry — I could not reach the assistant. Please try again.");
-            emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(safe)));
-            emitter.send(SseEmitter.event().data(ChatProxyService.DONE_SENTINEL));
-        } catch (Exception ignored) {
-            // The client is already gone. Nothing useful left to do.
+    /**
+     * Replaces the model's {@code sourceRefs} and {@code dataStatus} with the server's own.
+     *
+     * <p>Provenance is not the model's to author. It has no way of knowing whether a record came from
+     * the live ministry API or from a fixture we replayed because the network was down, and a
+     * hand-copied {@code retrievedAt} is a timestamp nobody checked. The server retrieved the data, so
+     * the server says where it came from.
+     *
+     * <p>This narrows invariants 1 and 5 to what they should have been all along — <i>does the model's
+     * citation point at a source we actually hold?</i> — and turns invariant 3 into a regression guard
+     * over our own labelling rather than a gate on the model.
+     */
+    private MermAidAnswer ground(MermAidAnswer answer, DrugContext context) {
+        return new MermAidAnswer(
+                answer.schemaVersion(),
+                answer.answerId(),
+                answer.language(),
+                dataStatusOf(context.sources()),
+                answer.urgency(),
+                answer.summary(),
+                answer.clarifyingQuestions(),
+                answer.guidance(),
+                answer.drugs(),
+                answer.uiActions(),
+                context.sources(),
+                answer.warnings(),
+                answer.disclaimer());
+    }
+
+    /** No sources means we grounded nothing — {@code unavailable} is the honest word for that. */
+    private static MermAidAnswer.DataStatus dataStatusOf(List<SourceRef> sources) {
+        if (sources.isEmpty()) {
+            return MermAidAnswer.DataStatus.UNAVAILABLE;
         }
+        boolean anyFixture = sources.stream().anyMatch(s -> s.dataMode() == SourceRef.DataMode.FIXTURE);
+        boolean anyLive = sources.stream().anyMatch(s -> s.dataMode() == SourceRef.DataMode.LIVE);
+        if (anyFixture && anyLive) {
+            return MermAidAnswer.DataStatus.MIXED;
+        }
+        return anyFixture ? MermAidAnswer.DataStatus.FIXTURE : MermAidAnswer.DataStatus.LIVE;
     }
 
-    /** An OpenAI-shaped envelope carrying a safe fallback body. */
-    private JsonNode errorEnvelope() {
-        return envelope(fallback.coerce("Sorry — I could not reach the assistant. Please try again."));
+    private MermAidAnswer unreachable() {
+        return fallback.safeAnswer("Sorry — I could not reach the assistant. Please try again.");
     }
 
-    /** Wraps an answer in the {@code chat.completion} envelope the {@code openai} SDK expects. */
+    private static long elapsedMs(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
+    }
+
+    /**
+     * Wraps an answer in the {@code chat.completion} envelope the {@code openai} SDK expects.
+     *
+     * <p>The catch used to write {@code "{}"} and say nothing. A {@code SourceRef} carries an {@code
+     * Instant}, so an ObjectMapper without {@code JavaTimeModule} turns every grounded answer into a
+     * blank card — and the only trace was a blank card. If this ever fires, it must be loud.
+     */
     private JsonNode envelope(MermAidAnswer answer) {
         ObjectNode message = objectMapper.createObjectNode().put("role", "assistant");
         try {
             message.put("content", objectMapper.writeValueAsString(answer));
         } catch (Exception e) {
+            log.error("Could not serialise the answer; the client will render nothing", e);
             message.put("content", "{}");
         }
         ObjectNode choice = objectMapper.createObjectNode();

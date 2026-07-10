@@ -5,13 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.config.LlmProperties;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -47,29 +47,15 @@ public class ChatProxyService {
     private final ObjectMapper objectMapper;
 
     /**
-     * Relays the upstream SSE stream chunk by chunk. Each element is one {@code data:} payload.
+     * Non-streaming call. The caller normalises {@code content} through StructuredOutputFallback.
      *
-     * <p>Emits {@code [DONE]} and then completes. Whatever the upstream sends after the sentinel —
-     * opencode zen appends a cost chunk — is dropped, because a client that follows the OpenAI
-     * protocol has already stopped listening.
+     * <p>There is deliberately no chunk-by-chunk relay. One existed, and the post-processing
+     * invariants could not run on it — a streamed drug recommendation reached the browser unverified.
+     * {@code ChatProxyController} now answers {@code stream=true} with a single validated SSE chunk.
+     * Reinstating token streaming means buffering and validating first.
      */
-    public Flux<String> stream(JsonNode clientRequest) {
-        ObjectNode upstream = prepare(clientRequest, true);
-        return llmWebClient
-                .post()
-                .uri(COMPLETIONS_PATH)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + llmProperties.apiKey())
-                .accept(MediaType.TEXT_EVENT_STREAM)
-                .bodyValue(upstream)
-                .retrieve()
-                .bodyToFlux(String.class)
-                .takeUntil(DONE_SENTINEL::equals)
-                .timeout(llmProperties.timeout());
-    }
-
-    /** Non-streaming call. The caller normalises {@code content} through StructuredOutputFallback. */
-    public Mono<JsonNode> complete(JsonNode clientRequest) {
-        ObjectNode upstream = prepare(clientRequest, false);
+    public Mono<JsonNode> complete(JsonNode clientRequest, List<String> extraSystemMessages) {
+        ObjectNode upstream = prepare(clientRequest, false, extraSystemMessages);
         return llmWebClient
                 .post()
                 .uri(COMPLETIONS_PATH)
@@ -79,6 +65,43 @@ public class ChatProxyService {
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(llmProperties.timeout());
+    }
+
+    /**
+     * A single schema-constrained turn, unrelated to the user's conversation. Pass 1 of the RAG flow
+     * uses it to turn prose into search terms.
+     *
+     * <p>Nothing from the chat history is sent — only {@code userText}. The extraction prompt is not a
+     * place where a long conversation can accumulate leverage over the model.
+     *
+     * @return the assistant's raw {@code content}, or empty if the provider failed or ignored us
+     */
+    public Mono<String> completeJson(String systemPrompt, String userText, String schemaName, JsonNode schema) {
+        ObjectNode format = objectMapper.createObjectNode();
+        format.put("type", "json_schema");
+        ObjectNode jsonSchema = format.putObject("json_schema");
+        jsonSchema.put("name", schemaName);
+        jsonSchema.put("strict", true);
+        jsonSchema.set("schema", schema);
+
+        ObjectNode body = objectMapper.createObjectNode();
+        body.put("model", llmProperties.model());
+        body.put("stream", false);
+        body.set("response_format", format);
+        ArrayNode messages = body.putArray("messages");
+        messages.addObject().put("role", "system").put("content", systemPrompt);
+        messages.addObject().put("role", "user").put("content", userText);
+
+        return llmWebClient
+                .post()
+                .uri(COMPLETIONS_PATH)
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + llmProperties.apiKey())
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(body)
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .timeout(llmProperties.extractionTimeoutOrDefault())
+                .mapNotNull(r -> r.path("choices").path(0).path("message").path("content").asText(null));
     }
 
     public static boolean wantsStream(JsonNode clientRequest) {
@@ -101,19 +124,25 @@ public class ChatProxyService {
      *
      * <p>The model is pinned server-side: letting a browser choose it would let anyone bill us for
      * the most expensive model on the endpoint.
+     *
+     * <p>{@code extraSystemMessages} carry the DRUG_CONTEXT that pass 1 retrieved. They go <i>after</i>
+     * our system prompt and <i>before</i> the conversation, so the rules that constrain the context are
+     * already in force when the model reads it.
      */
-    private ObjectNode prepare(JsonNode clientRequest, boolean stream) {
+    private ObjectNode prepare(JsonNode clientRequest, boolean stream, List<String> extraSystemMessages) {
         ObjectNode req = clientRequest.deepCopy();
 
         req.put("model", llmProperties.model());
         req.put("stream", stream);
+        // Our own extension field (see MermaidRequestExtension). Upstream providers reject unknown
+        // top-level keys, and it is nobody's business but ours.
+        req.remove(MermaidRequestExtension.FIELD);
 
         ArrayNode sanitized = objectMapper.createArrayNode();
-        sanitized.add(
-                objectMapper
-                        .createObjectNode()
-                        .put("role", "system")
-                        .put("content", systemPromptProvider.get()));
+        sanitized.add(systemMessage(systemPromptProvider.get()));
+        for (String extra : extraSystemMessages) {
+            sanitized.add(systemMessage(extra));
+        }
 
         int dropped = 0;
         for (JsonNode message : req.path("messages")) {
@@ -128,17 +157,20 @@ public class ChatProxyService {
         }
         req.set("messages", sanitized);
 
-        // TODO(team, DEV-102): once you have confirmed the chosen model honours it, force the
-        // schema here with `req.set("response_format", …)`.
+        // TODO(BE-1, DEV-102): force the answer schema here with `req.set("response_format", …)`.
         //
-        // Beware: the MermAidAnswerV1 schema in the spec uses `oneOf`, `format: date-time`, and
-        // nested `$defs`. Providers reject or ignore those under strict structured-output mode.
-        // The validation schema is NOT the same artifact as the provider-coercion schema — the
-        // server's runtime validator is the source of truth either way. See spec §3.
+        // glm-5.2 honours strict json_schema — measured, including `oneOf`, `$defs`, `const` and
+        // `format` (see fixtures/README.md). Other models on the same endpoint reject it outright:
+        // deepseek-v4-* and qwen3.7-max answer 400. So this cannot be switched on unconditionally
+        // while the model is configurable; it needs a per-model capability flag.
         //
-        // Until someone verifies a real call, we rely on the system prompt plus
-        // StructuredOutputFallback and AnswerValidator.
+        // The validation schema is NOT the same artifact as the provider-coercion schema. The
+        // server's runtime validator stays the source of truth either way. See spec §3.
 
         return req;
+    }
+
+    private ObjectNode systemMessage(String content) {
+        return objectMapper.createObjectNode().put("role", "system").put("content", content);
     }
 }

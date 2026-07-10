@@ -87,9 +87,9 @@ DATA_MODE=fixture ./gradlew bootRun
 | `FacilityService#hospitals` | 병원은 API 두 개를 엮습니다. **다만 심평원 API가 지금 403** — 활용신청 승인이 필요합니다 |
 | `IngredientNormalizer` | 동의어 사전(`resources/ingredients/synonyms.tsv`)의 검토자 칸이 전부 `TODO`입니다. **QA가 채워야 합니다** |
 | `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
-| `App.tsx`, `useNaverMap.ts` | UI-01 의약품 카드, UI-02 지도, UI-03 상세 |
-| `ChatProxyController#blocking` | `retrievedProductNames` — 2-패스 RAG가 조회한 제품명. 지금은 비어 있어서 **모든 약 이름이 거부**됩니다 (DEV-403) |
-| `ChatProxyService#prepare` | `response_format` 주입. glm-5.2는 지원합니다 (DEV-102) |
+| `App.tsx`, `useNaverMap.ts` | UI-01 의약품 카드, UI-02 지도, UI-03 상세. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
+| `ChatProxyService#prepare` | `response_format` 주입. glm-5.2는 지원하지만 `deepseek-v4-*`는 400을 냅니다 — 모델별 플래그가 필요합니다 (DEV-102) |
+| `DrugService#retrieve` | 상세 조회 3건이 순차이고 각각 DUR을 4번 부릅니다. 병렬화하면 콜드 응답이 크게 빨라집니다 |
 
 누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
 
@@ -103,7 +103,7 @@ DATA_MODE=fixture ./gradlew bootRun
 - 이슈와 PR을 잘게 쪼개세요. **작업 추적성 자체가 채점 항목입니다** (NFR-05).
 
 ```bash
-cd backend  && ./gradlew test    # 161 tests
+cd backend  && ./gradlew test    # 219 tests
 cd frontend && pnpm build        # tsc -b 포함
 ```
 

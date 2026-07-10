@@ -17,28 +17,37 @@ tags: [wbs, backlog, team]
 
 ## 0. 지금 어디까지 왔나 (2026-07-10)
 
-**백엔드 배관과 도메인은 동작합니다. 프론트엔드는 골격만 있습니다.**
-테스트 161개, CI 3잡 초록. 실제 공공 API와 실제 MariaDB·Redis로 검증했습니다.
+**백엔드는 end-to-end로 동작합니다. 프론트엔드는 골격만 있습니다.**
+테스트 219개, CI 3잡 초록. 실제 공공 API·실제 LLM·실제 MariaDB·Redis로 검증했습니다.
 
 ### 실제로 돌아가는 것 (라이브 API로 확인)
 
 | | 확인한 내용 |
 |---|---|
-| **챗 프록시** | `openai` SDK가 `baseURL` 교체만으로 붙고, 스트리밍이 `[DONE]`으로 끝나고, 클라이언트 `system` 메시지가 제거되고, 인젝션이 막힙니다 |
+| **2-패스 RAG** | "I have a headache and a bit of fever" → 성분 추출 → 식약처 조회 → **실존 제품 3개**(삼남아세트아미노펜정·세토펜정·나르펜정)로만 답변. 출처·타임스탬프는 서버가 씁니다 |
+| **환각 차단** | 불변조건 6이 **실제로 작동**합니다. 조회되지 않은 제품명은 이름이 아무리 그럴듯해도 거부됩니다 |
+| **챗 프록시** | `openai` SDK가 `baseURL` 교체만으로 붙고, 클라이언트 `system` 메시지가 제거되고, 인젝션이 막힙니다. `stream=true`도 **검증 후** 1청크로 나갑니다 |
 | **응급 선별** | "crushing chest pain"에 **모델을 부르지 않고** 31ms 만에 119 안내. 모델은 이걸 `urgency: unknown`이라 답했습니다 |
-| **후처리 불변조건** | 7개 전부 요청 경로에 연결됨. 모델이 지어낸 약 이름은 거부됩니다 |
+| **후처리 불변조건** | 7개 전부 요청 경로에 연결됨 |
 | **의료기관** | `fixture` 모드로 네트워크 없이 실제 약국 3곳. 반경·영업중 계산, `INFERRED` 신뢰도 |
 | **의약품** | `ITEM_SEQ`로 e약은요+허가정보+DUR 병합. 타이레놀 7종, 이트라코나졸 DUR 21건 |
-| **알레르기** | 4-state 판정. `Acetaminophen Micronized`도 차단. `no_match_found`는 "안전"이 아님 |
+| **알레르기** | 4-state 판정. `Acetaminophen Micronized`도 차단. `no_match_found`는 "안전"이 아님. 챗에서는 `mermaid.exclude_ingredients[]`로 받습니다 |
 | **프로필 CRUD** | MariaDB 상대로 C/R/U/D 실증. 동의 없이는 알레르기 저장 불가, 동의 끄면 삭제 |
 | **에러 계약** | 13개 코드 + `X-Request-Id` + `retryable`. 내부 정보 미노출 |
 | **산출물** | ERD·테이블 명세서를 실제 DB에서 생성. `ddl-auto: validate` 통과 |
 
+> **챗 응답은 느립니다.** 콜드 캐시 112초, 웜 캐시는 훨씬 빠릅니다. LLM 왕복 2회(추출 + 요약)에
+> 콜드일 때 식약처 호출 약 29회가 붙습니다. `mermaid.llm.timeout`은 120초입니다.
+> FE는 **로딩 상태를 반드시 그려야 합니다** (DEV-408).
+
 ### 다음에 할 일 (BE-1, 순서대로)
 
-1. **DEV-403 — 2-패스 RAG 연결.** `DrugService.retrieve()`가 이미 `RetrievedContext(drugs, allowedProductNames)`를 반환합니다. 챗 흐름에서 이걸 호출해 DRUG_CONTEXT를 만들고, `ChatProxyController#blocking`의 `retrievedProductNames`(현재 `Set.of()`)에 넘기세요. **그래야 불변조건 6번이 살아납니다.**
-2. **DEV-102 — `response_format` 주입.** `ChatProxyService#prepare`의 TODO. `glm-5.2`는 `json_schema` strict를 정확히 지킵니다(`oneOf`/`$defs`/`const`/`format`까지 실측). 단 **검증용 스키마와 프로바이더 강제용 스키마는 별개**이고, 서버 런타임 검증기가 여전히 source of truth입니다.
-3. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9가 이미 있으니, 실제 엔드포인트와 대조만 하면 됩니다.
+1. **DEV-102 — `response_format` 주입.** `ChatProxyService#prepare`의 TODO. `glm-5.2`는 `json_schema` strict를 정확히 지킵니다(`oneOf`/`$defs`/`const`/`format`까지 실측). 단 `deepseek-v4-*`·`qwen3.7-max`는 `response_format` 자체에 400을 냅니다 → **모델별 capability 플래그**가 필요합니다. 그리고 **검증용 스키마와 프로바이더 강제용 스키마는 별개**이며, 서버 런타임 검증기가 여전히 source of truth입니다.
+2. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9를 실제 엔드포인트와 대조. **알려진 불일치:** 스펙 §5-3에 `GET /api/v1/health`가 있으나 실제로는 Actuator의 `/actuator/health`만 있습니다.
+3. **성능.** 콜드 112초는 시연에 쓰기 부담스럽습니다. `DrugService.retrieve()`의 상세 조회 3건이 순차이고, 각각 DUR 4회를 부릅니다. 병렬화하거나 DUR을 필요한 종류만 부르세요.
+
+> ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
+> `ChatProxyController#answer`. 설계 근거와 실측 함정은 스펙 §2-2에 전부 적어뒀습니다.
 
 ### ASQi만 풀 수 있는 것 (막혀 있음)
 

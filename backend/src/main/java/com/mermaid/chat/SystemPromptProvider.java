@@ -50,7 +50,7 @@ public class SystemPromptProvider {
               "schemaVersion": "1.0",
               "answerId": "<any short id>",
               "language": "en",
-              "dataStatus": "live" | "fixture" | "mixed" | "unavailable",
+              "dataStatus": "unavailable",
               "urgency": {
                 "level": "emergency" | "urgent" | "routine" | "unknown",
                 "title": "<short headline>",
@@ -69,6 +69,28 @@ public class SystemPromptProvider {
             }
 
             `summary` is the field the user reads. It must never be empty.
+
+            Leave `dataStatus` as "unavailable" and `sourceRefs` as an empty array. The server \
+            overwrites both — it is the only party that knows where the data came from.
+
+            Each entry of `drugs` uses exactly these keys. Field names are camelCase; a misspelt key \
+            is dropped silently and the answer is then rejected:
+
+            {
+              "productNameKo": "<copy verbatim from DRUG_CONTEXT>",
+              "productNameEn": null,
+              "ingredients": [{"nameEn": "Acetaminophen", "nameKo": null, "amount": null, "unit": null}],
+              "indicationSummary": "<what officialTextKo.efficacy says, in English>",
+              "directionsSummary": "<what officialTextKo.useMethod says, in English>",
+              "warnings": ["<every durWarnings entry, plus anything in caution/warning>"],
+              "prescriptionStatus": "otc" | "prescription" | "unknown",
+              "allergyCheck": {"status": "<copy from DRUG_CONTEXT>", "matchedIngredients": [], "message": "<copy>"},
+              "sourceRefId": "<copy verbatim from DRUG_CONTEXT>"
+            }
+
+            Each entry of `guidance` uses: `id`, `title`, `body`, `evidence` \
+            ("official_data" | "general_safety" | "model_summary"), and `sourceRefIds`. \
+            Use "official_data" only with at least one id copied from DRUG_CONTEXT.
 
             Put an entry in `uiActions` when the user would benefit from seeing nearby facilities:
 
