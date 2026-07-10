@@ -69,6 +69,12 @@ jobs:
         working-directory: frontend
         run: pnpm lint
 
+      # jsdom, no browser, no network. The chat's `baseURL` bug survived a green backend
+      # suite because nothing here constructed a request the way a browser does.
+      - name: Test
+        working-directory: frontend
+        run: pnpm test
+
       # `pnpm build` runs `tsc -b` first, so this typechecks too.
       - name: Typecheck and build
         working-directory: frontend
