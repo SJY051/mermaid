@@ -145,16 +145,29 @@ public class FacilityService {
      * <ol>
      *   <li>{@code hospInfoServicev2/getHospBasisList?xPos=&yPos=&radius=} — this one <i>does</i> take
      *       a radius, in metres. It gives you {@code ykiho} and coordinates, but no hours.
-     *       <b>It currently returns HTTP 403</b>; 활용신청 승인이 필요합니다.
-     *   <li>{@code MadmDtlInfoService2.8/getDtlInfo?ykiho=} — per hospital, for {@code trmtMonStart}…
-     *       {@code trmtSunEnd}, {@code lunchWeek}, {@code noTrmtSun}, {@code emyNgtYn}.
+     *   <li>{@code MadmDtlInfoService2.7/getDtlInfo2.7?ykiho=} — per hospital, for {@code trmtMonStart}…
+     *       {@code trmtSunEnd}, {@code lunchWeek}, {@code noTrmtSun}, {@code emyNgtYn}. <b>The version
+     *       suffix appears twice</b>: on the service and on the operation. {@code …2.8} and {@code
+     *       …2.7/getDtlInfo} both answer 404.
      * </ol>
+     *
+     * <p><b>Both services answer HTTP 403 today</b> — the key is valid (a bogus one gets 401) and the
+     * 활용신청 has not been approved. Run {@code ./bin/check-api-access.py} before starting; it tells
+     * 403 (unapproved) from 404 (wrong path). Note the two are a pair: the detail service has no
+     * search operation, and only the list service issues a {@code ykiho}.
+     *
+     * <p>Nothing here has ever returned 200, so the field names above came out of documentation. Do
+     * not trust them until you have seen a live response (spec §3).
      *
      * <p>That second step is one call per hospital: a classic N+1. Cache it per {@code ykiho} — a
      * hospital's opening hours change about once a year. Namespace the id as {@code
      * facility:hira:<ykiho>}.
      */
     private List<Facility> hospitals(double lat, double lng, int radiusMeters, boolean openNow) {
-        return List.of();
+        // Returning an empty list here told the caller "there are no hospitals near you" when the
+        // truth is "we cannot look". That is the same lie as rendering no_match_found as "safe": an
+        // absence of data presented as a fact about the world. 501 says which one it is.
+        throw new UnsupportedOperationException(
+                "Hospital search is not implemented — see FacilityService#hospitals (DEV-203)");
     }
 }

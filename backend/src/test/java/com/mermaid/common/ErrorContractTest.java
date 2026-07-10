@@ -86,6 +86,18 @@ class ErrorContractTest {
     }
 
     @Test
+    @DisplayName("an unbuilt endpoint is 501 NOT_IMPLEMENTED, not a 500 that reads like a crash")
+    void unbuiltEndpointIsNotImplemented() throws Exception {
+        // GET /facilities/{id} is a TODO(team) stub. Reported as INTERNAL_ERROR it sent the caller
+        // hunting a bug that does not exist, and hid from us that the feature was simply missing.
+        mvc.perform(get("/api/v1/facilities/facility:nmc:C1110693"))
+                .andExpect(status().isNotImplemented())
+                .andExpect(jsonPath("$.error.code").value("NOT_IMPLEMENTED"))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(jsonPath("$.error.message").value("That feature is not built yet."));
+    }
+
+    @Test
     @DisplayName("every response carries X-Request-Id, and the body echoes it")
     void requestIdOnHeaderAndBody() throws Exception {
         mvc.perform(get("/api/v1/facilities").param("lat", "999").param("lng", "126.97"))

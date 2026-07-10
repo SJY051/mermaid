@@ -156,6 +156,7 @@ export type ErrorCode =
   | 'DRUG_PROVIDER_TIMEOUT'
   | 'SOURCE_UNAVAILABLE'
   | 'SOURCE_PAYLOAD_INVALID'
+  | 'NOT_IMPLEMENTED'
   | 'INTERNAL_ERROR'
 
 export interface ApiError {

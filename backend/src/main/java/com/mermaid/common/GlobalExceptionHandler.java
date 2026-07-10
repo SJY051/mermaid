@@ -90,9 +90,10 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(UnsupportedOperationException.class)
     public ResponseEntity<Map<String, Object>> notImplemented(UnsupportedOperationException e) {
-        // A TODO(team) stub was called. Say so plainly rather than pretending it worked.
+        // A TODO(team) stub was called. Say so plainly rather than pretending it worked — and say it
+        // as 501, not 500. Both are our fault; only one of them means something is broken.
         log.warn("not implemented yet: {}", e.getMessage());
-        return body(ErrorCode.INTERNAL_ERROR, "That feature is not built yet.", Map.of());
+        return body(ErrorCode.NOT_IMPLEMENTED, userMessageFor(ErrorCode.NOT_IMPLEMENTED), Map.of());
     }
 
     @ExceptionHandler(Exception.class)
@@ -118,6 +119,7 @@ public class GlobalExceptionHandler {
             case UNSUPPORTED_MODEL -> "That model is not available.";
             case INVALID_REQUEST -> "That request was not valid.";
             case SOURCE_PAYLOAD_INVALID -> "A government data service returned something unexpected.";
+            case NOT_IMPLEMENTED -> "That feature is not built yet.";
             case INTERNAL_ERROR -> "Something went wrong on our side.";
         };
     }

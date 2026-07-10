@@ -43,7 +43,10 @@ public class FacilityController {
      * TODO(team): single-facility detail (UI-03).
      *
      * <p>{@code id} is an {@code hpid} for a pharmacy ({@code getParmacyBassInfoInqire}) or a {@code
-     * ykiho} for a hospital ({@code MadmDtlInfoService2.8/getDtlInfo}).
+     * ykiho} for a hospital ({@code MadmDtlInfoService2.7/getDtlInfo2.7}).
+     *
+     * <p>Until it is written this answers <b>501 NOT_IMPLEMENTED</b>, which is the honest status: our
+     * fault, but nothing is broken.
      */
     @GetMapping("/{id}")
     public Facility detail(@PathVariable String id) {

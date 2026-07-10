@@ -30,7 +30,16 @@ public enum ErrorCode {
     SOURCE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, true),
     SOURCE_PAYLOAD_INVALID(HttpStatus.BAD_GATEWAY, true),
 
-    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, false);
+    INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, false),
+
+    /**
+     * A stub nobody has written yet — {@code GET /facilities/{id}} today.
+     *
+     * <p>Distinct from {@link #INTERNAL_ERROR} on purpose. Both are our fault, but only one of them
+     * means something is broken. Reporting an unbuilt endpoint as a crash sends the caller hunting a
+     * bug that does not exist, and hides from us that the feature is simply missing.
+     */
+    NOT_IMPLEMENTED(HttpStatus.NOT_IMPLEMENTED, false);
 
     private final HttpStatus status;
     private final boolean retryable;

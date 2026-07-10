@@ -1,6 +1,7 @@
 package com.mermaid.facility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.FixtureLoader;
@@ -134,9 +135,14 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("hospitals are not implemented yet and return nothing rather than lying")
-    void hospitalsEmpty() {
-        assertThat(serviceAt(FRIDAY_AFTERNOON).findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL))
-                .isEmpty();
+    @DisplayName("hospital search refuses rather than returning an empty list that reads as 'none nearby'")
+    void hospitalsAreNotImplemented() {
+        // This test used to assert the empty list and call it "not lying". It was the lie: a caller
+        // cannot tell "no hospitals here" from "we never looked". 501 NOT_IMPLEMENTED tells them.
+        assertThatThrownBy(
+                        () -> serviceAt(FRIDAY_AFTERNOON)
+                                .findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("DEV-203");
     }
 }
