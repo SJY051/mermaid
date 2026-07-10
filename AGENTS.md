@@ -196,7 +196,7 @@ The diff already says *what* changed. The subject line is for *why*.
 - Review for: does this route around a §2 invariant; does new logic have tests; if it diverges from the spec, was `docs/specs/` updated with it.
 - "Why did you do it this way?" in review is a request for a comment or commit message, not an attack.
 
-An automated Codex review runs on every pull request. To aim one at a specific worry, comment `@codex review for <what to look at>` — for example `@codex review for a §2 invariant routed around`.
+An automated Codex review runs on every pull request. To aim one at a specific worry, comment `@codex review for <what to look at>` — for example `@codex review for a §2 invariant routed around`. It reviews inside a container that can run our tests but cannot open a browser, call a public API, or reach the network at all; what that container is, and why it holds no secrets, is in [`docs/codex-cloud-environment.md`](docs/codex-cloud-environment.md).
 
 ---
 
