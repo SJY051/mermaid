@@ -24,6 +24,7 @@ Closes #
 - [ ] UI를 바꿨다면 **브라우저에서 직접 눌러 봤다** — `curl`은 클라이언트 절반을 건너뜁니다
 - [ ] `.env`나 키를 커밋하지 않았다
 - [ ] 스펙과 어긋나는 변경이면 `docs/specs/`도 함께 고쳤다
+- [ ] **올리기 전에 내 diff를 [AGENTS.md의 Review guidelines](../blob/main/AGENTS.md#review-guidelines)에 대고 읽었다** — 리뷰어와 같은 P0/P1 렌즈로, 내가 먼저
 
 ## 스크린샷 / 로그
 

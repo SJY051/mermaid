@@ -191,10 +191,63 @@ The diff already says *what* changed. The subject line is for *why*.
 ## 7. Pull requests
 
 - One PR, one concern, small enough to review in one sitting.
+- **Before you open it, read your own diff against the [Review guidelines](#review-guidelines).** They are written for the author as much as the reviewer — the same P0/P1 lens, run by you first. This is the cheap catch: the reviewer and CI are the last line, not the first.
 - Fill the [PR template](.github/pull_request_template.md) checklist **by actually checking each item**. Ticking an unverified box is the same lie as §2-6.
 - Merge only on green CI (backend tests / frontend tests + typecheck + build / secret scan).
 - Review for: does this route around a §2 invariant; does new logic have tests; if it diverges from the spec, was `docs/specs/` updated with it.
 - "Why did you do it this way?" in review is a request for a comment or commit message, not an attack.
+
+An automated Codex review runs on every pull request. To aim one at a specific worry, comment `@codex review for <what to look at>` — for example `@codex review for a §2 invariant routed around`. It reviews inside a container that can run our tests but cannot open a browser, call a public API, or reach the network at all; what that container is, and why it holds no secrets, is in [`docs/codex-cloud-environment.md`](docs/codex-cloud-environment.md).
+
+---
+
+## Review guidelines
+
+*This heading is unnumbered on purpose: Codex looks for a section named exactly this, and applies the guidance from the `AGENTS.md` closest to each changed file. It surfaces only P0 and P1 findings, so the severity budget belongs on things that hurt someone.*
+
+*One list, two readers. The reviewer runs it against your diff after you open the PR; you run it against your own diff before you do. They are not the same pass — you catch what you can see (a §2 invariant you knowingly touched, a test you didn't break to confirm), the reviewer catches what you're blind to (the logic error you'd not have written had you seen it). Doing both is not redundant; each layer stops a different class of mistake. Human reviewers read it too.*
+
+**Everything in §2 is P0.** An invariant routed around in code is the highest-priority finding in this repository, above any bug.
+
+Flag, in this order:
+
+1. **A §2 invariant weakened or bypassed.** Anything that diagnoses rather than informs, or that lets a client-sent `system` message reach the model. A disclaimer that can be absent from a response or from the screen. Chat written to `localStorage`. `no_match_found` rendered as reassurance, or the word "safe" anywhere near an allergy state. `isOpenNow: null` drawn as "Closed". An LLM call placed before `EmergencyTriage`. A `reviewer` column filled by anything but a person. A secret behind a `VITE_` prefix, or a `.env` reaching a commit. A `sourceRef` written by the model rather than the server, or fixture data presented as live.
+2. **A test that cannot fail.** A test asserting an operation the code under test never performs; a test whose assertion holds for both the correct and the broken implementation; a `toThrow()` that would pass for the wrong reason. Say which mutation should turn it red — if none would, the test is decoration. This repository shipped one: it asserted `new URL(path, baseURL)` while the SDK concatenates, so it stayed green while the client silently bypassed the `/api/v1` route.
+3. **A claim the code does not support.** A comment, javadoc, README line, or WBS status describing behaviour that is not there. Doubly so for a measured number with no date, or a task marked done whose code does not exist. Stale documentation here has cost real afternoons.
+4. **Public-API traps (§11) reintroduced.** `distance` parsed with the wrong unit for its agency. `type=json` where `_type=json` is required. A 404 read as "the service is gone" rather than "the operation name is wrong". A radius parameter omitted.
+5. **Correctness where the language hides it.** A Java `record` cached into Redis's JDK serializer. A function passed to `Parallel.map` that can return `null` — `Mono.fromCallable` drops it and shifts every later index. `IllegalArgumentException` mapped to a client error.
+
+**Treated as P1 in this repository.** Codex surfaces only P0 and P1 on GitHub — the filter is fixed, not something these guidelines can widen. But a concern classified here as P1 rides that channel, so a few things that are ordinarily P2/P3 are declared P1 *because of what this app is*. The test is one question: does it decide whether care information reaches someone who is unwell and reading in a second language?
+
+- **Wrong or confusing English in a safety state** (error, blocked, emergency, empty). Ordinarily a P3 wording nit; here the reader decides whether to take a drug from it. A `no_match_found` or `blocked` message that reads as reassurance is P1.
+- **An accessibility defect that hides safety information.** If the allergy badge or the emergency banner is unreadable to a screen reader or too low-contrast to see, the safeguard never reaches the person it is for. P1.
+- **No loading or progress state on the cold path** (chat answers exceed 100s cold). Ordinarily a P2 UX gap; here the user reads a frozen screen as broken, leaves, and gets no information. P1.
+
+Keep this list short. Everything escalated to P1 spends the signal budget the filter exists to protect; if it grows, that is the filter being defeated, not widened. A new entry earns its place only by passing the same question — would a maintainer block merge on it here?
+
+Do not flag:
+
+- Formatting, import order, or naming that matches the surrounding code (§8).
+- Missing defensive checks for cases that cannot happen. We validate at system boundaries only, on purpose (§8).
+- Korean prose in issue bodies, PR descriptions, or domain comments — that is the convention (§8).
+- The mistakes preserved on purpose in commit messages and comments. They are documentation, not debt.
+- Test count drift in prose. Assert against the runner, not the README.
+
+**Worked examples — where the tiers actually land.** Each is a hypothetical pull request. The lesson is the boundary, so near-identical cases are paired: what separates them is the point.
+
+| A pull request that… | Tier | Why |
+|---|---|---|
+| renders `no_match_found` as plain text, no badge, no "safe" | *none* | Correct (§2-2). The state is not the finding; the rendering is. |
+| renders `no_match_found` with a green badge, or the word "safe" | **P0** | Reads as permission to take a drug the user may react to (§2-2). |
+| reads `VITE_NAVER_MAP_CLIENT_ID` in browser code | *none* | Public by design — the client ID, not the secret (§2-7 table). Flagging it is a false positive. |
+| puts a real secret behind a `VITE_` name (`…_SECRET`, `…_TOKEN`) | **P0** | Vite inlines it into the shipped bundle (§2-7). The build already refuses; the review says why. |
+| asserts something that holds for both the correct and the broken code | **P1** | A test that cannot fail. Our chat shipped exactly this — it asserted a URL operation the SDK never runs. Name the mutation that should turn it red; if none would, it guards nothing. |
+| replaces that with an assertion a real regression turns red | *none* | It now guards the invariant. |
+| renders `isOpenNow: null` as "Closed" | **P0** | Walks a sick person past an open pharmacy (§2-3). "Hours unknown" is the correct label. |
+| ships the chat's cold path (>100s) with no loading or progress state | **P1** | Escalated: the user reads a frozen screen as broken and leaves. A missing spinner on an instant local toggle is *none*. |
+| writes its description, or a domain comment, in Korean | *none* | The convention (§8). Not every difference is a defect. |
+
+When a finding is uncertain, say so, and name the single observation that would settle it. A confident wrong finding costs more than an honest "I could not tell".
 
 ---
 
@@ -306,6 +359,7 @@ Everything above applies unchanged. In addition:
 - **Never fill the reviewer column** (§2-6) or any field meaning "a human checked this". Instead, gather the evidence that makes the human's check cheap.
 - **Stay in scope.** Tests, docs, fixtures, and git history are edited only when they are the named target of the task. Never `git add -A` — unrelated work gets swept into commits (it happened here).
 - **Report faithfully.** Failing tests are reported with their output; skipped steps are named as skipped. Audit each progress claim against an actual tool result before stating it.
+- **Self-review before you open a PR.** Walk your own diff through the [Review guidelines](#review-guidelines) — the same P0/P1 lens the Codex reviewer will use — and fix what you find before pushing. It will not catch what you're blind to; that is the reviewer's job. It will catch the invariant you knowingly touched and the half of a pair you fixed while missing the other.
 
 ### 13-2. How to brief a model on a task
 
