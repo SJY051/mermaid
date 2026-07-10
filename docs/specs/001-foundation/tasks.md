@@ -33,7 +33,7 @@ tags: [wbs, backlog, team]
 | **의약품** | `ITEM_SEQ`로 e약은요+허가정보+DUR 병합. 타이레놀 7종, 이트라코나졸 DUR 21건 |
 | **알레르기** | 4-state 판정. `Acetaminophen Micronized`도 차단. `no_match_found`는 "안전"이 아님. 챗에서는 `mermaid.exclude_ingredients[]`로 받습니다 |
 | **프로필 CRUD** | MariaDB 상대로 C/R/U/D 실증. 동의 없이는 알레르기 저장 불가, 동의 끄면 삭제 |
-| **에러 계약** | 13개 코드 + `X-Request-Id` + `retryable`. 내부 정보 미노출 |
+| **에러 계약** | 15개 코드 + `X-Request-Id` + `retryable`. 내부 정보 미노출. **그중 실제로 발생하는 건 5개** — 나머지는 정의만 돼 있습니다 |
 | **산출물** | ERD·테이블 명세서를 실제 DB에서 생성. `ddl-auto: validate` 통과 |
 
 > **챗 응답은 느립니다.** 콜드 100초 이상. 조회는 이미 4.7초로 줄였고(병렬화 완료), **나머지는 전부 LLM
@@ -42,8 +42,9 @@ tags: [wbs, backlog, team]
 
 ### 다음에 할 일 (BE-1, 순서대로)
 
-1. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9를 실제 엔드포인트와 대조. **알려진 불일치:** 스펙 §5-3에 `GET /api/v1/health`가 있으나 실제로는 Actuator의 `/actuator/health`만 있습니다.
-2. **DEV-203 병원 검색 / DEV-003·206·207 지도.** ASQi가 키를 채우고 활용신청을 넣었습니다. **먼저 실제로 호출해보고** 승인 반영 여부와 네이버맵 무료량을 확인하세요.
+1. **DEV-203 병원 검색.** 심평원 **두 서비스 모두** 활용신청 승인 대기입니다(`./bin/check-api-access.py`). 승인되면 실제 응답부터 보고 파서를 쓰세요 — 지금 가진 필드명은 전부 문서에서 옮겨 적은 것입니다.
+2. **DEV-003·206·207 지도.** 네이버맵 키는 채워져 있습니다. **`maps.js`는 가짜 키에도 200을 돌려주므로** 서버에서 curl로 검증할 수 없습니다. 브라우저에서 `authFailure` 콜백을 봐야 합니다.
+3. **문서화.** `AGENTS.md`, 직군별 브랜치 규칙, 코드 표기법, Conventional Commits 안내. 비개발자 팀원 대상.
 
 > ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
 > `ChatProxyController#answer`. 설계 근거와 실측 함정은 스펙 §2-2에 전부 적어뒀습니다.
@@ -54,6 +55,11 @@ tags: [wbs, backlog, team]
 > ✅ **DEV-102 (`response_format` 주입) 완료.** 스키마는 `resources/schemas/mermaid-answer.provider.schema.json`.
 > **허용목록**(`mermaid.llm.structured-output-models`)에 있는 모델에만 붙이고, 400이 나면 스키마 없이 1회 재시도합니다.
 > **`AnswerValidator`는 그대로 돕니다** — 스키마를 완벽히 지키면서도 없는 약을 지어낼 수 있으니까요.
+>
+> ✅ **API 명세서 완료.** [`docs/deliverables/API_명세서.md`](../../deliverables/API_명세서.md).
+> 코드 주석이 아니라 **실행 중인 서버의 응답**에서 만들었고, `./bin/verify-api-doc.sh`가 32개 검사로 지킵니다.
+> 그 과정에서 병원 검색이 `200 []`(= "근처에 병원 없음"이라는 거짓말)을 돌려주던 것과, 미구현 스텁이
+> `500`을 내던 것을 **`501 NOT_IMPLEMENTED`**로 고쳤습니다.
 
 ### ASQi만 풀 수 있는 것 (막혀 있음)
 

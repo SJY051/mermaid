@@ -113,7 +113,7 @@ cd frontend && pnpm build        # tsc -b 포함
 | ERD | [`docs/deliverables/ERD.md`](docs/deliverables/ERD.md) — **실제 DB에서 생성** |
 | 테이블 명세서 | [`docs/deliverables/테이블_명세서.md`](docs/deliverables/테이블_명세서.md) |
 | WBS | [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md) |
-| API 명세서 | 스펙 §5 + 요구사항 명세서 §9 |
+| API 명세서 | [`docs/deliverables/API_명세서.md`](docs/deliverables/API_명세서.md) — **실행 중인 서버에서 검증** (`./bin/verify-api-doc.sh`) |
 | 요구사항 명세서 · 수행계획서 | `docs/deliverables/*.docx` |
 
 ---
