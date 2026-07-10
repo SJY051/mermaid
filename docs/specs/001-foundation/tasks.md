@@ -41,12 +41,16 @@ tags: [wbs, backlog, team]
 > 왕복 2회**입니다. 같은 웜 요청이 215초 → 87초로 튈 만큼 프로바이더 편차가 큽니다.
 > FE는 **로딩 상태를 반드시 그려야 합니다** (DEV-408).
 
-### 다음에 할 일 (BE-1, 순서대로)
+### 다음에 할 일 (윤서진 = BE-1 + FE-1, 순서대로)
 
-1. **DEV-203 병원 검색.** **공공 API 8종 전부 승인되어 200입니다** (`./bin/check-api-access.py`). 목록·상세 실제 응답이 `fixtures/hospital_list.json`, `hospital_detail.json`에 있습니다.
-   함정은 `fixtures/README.md` **12~17번** — 특히 **`distance`가 심평원은 미터·국립중앙의료원은 km**(반대!), **`radius` 필수**, **`XPos`=경도/`YPos`=위도**, **오퍼레이션 이름에도 버전 접미사**(`getDtlInfo2.8`).
-   시간표가 없는 기관은 `isOpenNow`를 `null`로 두세요. `false`로 쓰지 마세요.
-2. **프론트 테스트 확장.** 47개가 붙었지만 `App.tsx`(챗 전체 흐름)와 `NearbyFacilities`는 아직 안 덮였습니다.
+> 이 목록은 혼자 일하던 때 쓴 것이라 남의 레인을 가리키고 있었습니다. 팀이 합류했으니 **자기 레인만** 적습니다.
+> **DEV-203 병원 검색은 BE-2(임수혁) 몫입니다.** 대신 해주지 마세요 — 그분의 첫 작업이 사라집니다.
+
+1. **DEV-408 메인 챗 UI.** 지금 `App.tsx`는 걸어다니는 뼈대입니다. 콜드 응답이 **100초를 넘는데 화면엔 "Thinking…" 버튼 하나뿐**입니다. 진짜 로딩·진행 상태가 필요합니다.
+2. **DEV-308 의약품 카드.** `AllergyBadge`는 완성돼 있고, 카드는 이름 + 경고 나열이 전부입니다.
+3. **프론트 테스트 확장.** 47개가 붙었지만 `App.tsx`(챗 전체 흐름)와 `NearbyFacilities`는 안 덮였습니다.
+4. **CI 결정 두 가지 (Lead 몫).** `oxlint`이 경고에도 `exit 0`이라 **CI의 lint 단계는 구조적으로 실패할 수 없습니다**(지금 경고 0이라 `--max-warnings=0`은 안전). 그리고 `tsconfig.app.json`에 `strict`가 없습니다. 둘 다 팀 PR을 갑자기 빨갛게 만들 수 있으니 합류 직후에 정하세요.
+5. **DEV-004** NCP 대표 계정 무료량 확인.
 
 > ✅ **문서화 완료.** [`AGENTS.md`](../../../AGENTS.md) — 안전 규칙과 그 근거, 브랜치·커밋 규약, 코드·주석 표기법,
 > 자주 밟는 함정, 비개발자 안내까지. 사람과 AI 에이전트가 같은 문서를 봅니다.
@@ -93,12 +97,14 @@ tags: [wbs, backlog, team]
 
 ### 팀원이 지금 바로 시작할 수 있는 것
 
-| 레인 | 첫 작업 | 왜 지금 가능한가 |
-|---|---|---|
-| BE-2 | DEV-202 주간 시간표 | `PublicApiResponse`가 봉투 두 종류를 다 풉니다. fixture로 개발하세요 |
-| FE-1 | DEV-408 챗 UI | astryx 셋업 완료. `MermAidAnswer` 타입이 `lib/types.ts`에 있습니다 |
-| FE-2 | DEV-207 상세 드로어 | DEV-106이 끝나 막힌 게 없습니다. `storage.ts`는 이미 `sessionStorage`를 쓰고 테스트가 지킵니다 |
-| PM/QA | 동의어 사전 검토 | 검토자 칸이 전부 `TODO`입니다. **판정만 하면 되게 시트를 준비해뒀습니다** → [DEV-305 검토 시트](DEV-305-synonym-review.md) |
+| 레인 | 담당 | 첫 작업 | 왜 지금 가능한가 |
+|---|---|---|---|
+| BE-2 | 임수혁 | **DEV-202 주간 시간표** → 그다음 DEV-203 병원 | `PublicApiResponse`가 봉투 두 종류를 다 풉니다. 병원 API 8종은 이미 승인됐고 실제 응답이 fixture에 있습니다. fixture로 개발하세요 |
+| FE-1 | 윤서진 | **DEV-408 챗 UI** (로딩 상태 먼저) | astryx 셋업 완료. `MermAidAnswer` 타입이 `lib/types.ts`에 있습니다 |
+| FE-2 | 박주형 | **DEV-207 상세 드로어** | DEV-106이 끝나 막힌 게 없습니다. 지도(DEV-206)와 저장소(DEV-501/502)는 **이미 끝나 있고 테스트가 지킵니다** — 다시 만들지 마세요 |
+| PM/QA | 최정민 | **동의어 사전 검토** → 그다음 영어 문구 세트 | 검토자 칸이 전부 `TODO`입니다. **판정만 하면 되게 시트를 준비해뒀습니다** → [DEV-305 검토 시트](DEV-305-synonym-review.md) |
+
+> 손이 비면: **DEV-601 계약 테스트**와 **DEV-604 접근성·모바일·영문 UX**가 선행작업이 풀려 지금 시작 가능합니다.
 
 > ✅ **[2026-07-10 결정됨] 나프록센 건 — 계열 표를 만들지 않고 생성기를 묶었습니다.**
 > "이부프로펜 알레르기"를 선언한 사용자에게 **나프록센**이 추천되던 문제입니다. 원인은 알레르기 판정이 아니라
@@ -241,7 +247,7 @@ flowchart LR
 | DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫**. 판정만 하면 되게 근거를 모아뒀습니다 → [검토 시트](DEV-305-synonym-review.md) |
 | DEV-306 | 알레르기 4-state 비교 서비스 | P0 | M | BE-1 | ✅ `AllergyChecker` |
 | DEV-307 | `GET /drugs`, `GET /drugs/{id}` | P0 | M | BE-1 | ✅ |
-| DEV-308 | 의약품 카드 UI + 4-state 시각 구분 | P0 | M | FE-1, PM/UX | ⛔ DEV-307 |
+| DEV-308 | 의약품 카드 UI + 4-state 시각 구분 | P0 | M | FE-1, PM/UX | 🔧 DEV-307 끝남. `AllergyBadge`는 완성, 카드는 이름+경고 나열 뿐 |
 | DEV-309 | **동의어 사전 서명 + 아스피린 표준명 교정** (스펙 §7-1 **AR-02**) | P1 | S | 윤서진, PM/QA, BE-1 | 📋 **백로그.** 함께 검토·결정하고 서명한다. 아래 참고 |
 
 > **DEV-309 — 무엇을 결정해야 하나.** [검토 시트](DEV-305-synonym-review.md)에 실측 근거가 다 있습니다. 세 덩어리입니다.
@@ -262,20 +268,20 @@ flowchart LR
 |---|---|---|---|---|---|
 | DEV-401 | Chat Completions 프록시 (키 은닉, system 제거) | P0 | M | BE-1 | ✅ |
 | DEV-402 | 시스템 프롬프트 + 프롬프트 인젝션 방어 | P0 | M | BE-1, PM/UX | 🔧 부분 완료 |
-| DEV-403 | 2-패스 RAG 조립 | P0 | L | BE-1 | 🔧 `DrugService.retrieve()` 준비됨. 챗 흐름에 연결만 남음 |
+| DEV-403 | 2-패스 RAG 조립 | P0 | L | BE-1 | ✅ `SearchTermExtractor` → `DrugContextRetriever` → `ChatProxyController` |
 | DEV-404 | **서버 후처리 불변조건 7개** | P0 | M | BE-1 | ✅ 요청 경로에 연결됨 |
 | DEV-405 | **규칙 기반 응급 선별** (LLM보다 먼저) | P0 | M | BE-1, PM/UX | ✅ 문구·패턴 검수는 PM/UX 남음 |
 | DEV-406 | `ui_actions[]` allowlist 검증 | P0 | M | BE-1 | ✅ sealed interface + Jackson subtype |
 | DEV-407 | Safe fallback 응답 | P0 | S | BE-1 | ✅ 부분 (`StructuredOutputFallback`) |
-| DEV-408 | 메인 챗 UI + 개인정보 경고 + 응급 배너 | P0 | L | FE-1 | ⛔ DEV-106 |
+| DEV-408 | 메인 챗 UI + 개인정보 경고 + 응급 배너 | P0 | L | FE-1 | 🔧 DEV-106 끝남. 골격만 있음 — **로딩 상태 필수**(콜드 100초 이상) |
 | DEV-409 | 스트리밍 UX (조립 후 검증) | P1 | M | BE-1, FE-1 | ✅ 백엔드 완료 |
 
 ### EPIC 5 — CRUD·저장·개인정보
 
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
-| DEV-501 | 버전형 브라우저 저장소 어댑터 (`schema_version`) | P0 | M | FE-2 | 🔧 |
-| DEV-502 | **채팅을 `sessionStorage`로** | P0 | S | FE-2 | 🔧 스펙 §2-16 |
+| DEV-501 | 버전형 브라우저 저장소 어댑터 (`schema_version`) | P0 | M | FE-2 | ✅ `lib/storage.ts`. 버전 불일치·손상 blob은 리셋 |
+| DEV-502 | **채팅을 `sessionStorage`로** | P0 | S | FE-2 | ✅ `storage.test.ts`가 지킵니다 (§2-16) |
 | DEV-503 | 서버 프로필 CRUD (JPA) | P0 | M | BE-1 | ✅ MariaDB에서 C/R/U/D 실증 |
 | DEV-504 | 즐겨찾기 C/R/U/D UI | P0 | M | FE-2 | ⛔ DEV-207 |
 | DEV-505 | 알레르기 opt-in (기본 OFF) | P0 | M | FE-1, BE-1 | ✅ 백엔드. UI는 FE-1 |
@@ -285,10 +291,10 @@ flowchart LR
 
 | ID | 작업 | P | Size | 담당 | 상태 |
 |---|---|---|---|---|---|
-| DEV-601 | 계약 테스트 (스키마 유효·무효 fixture) | P0 | M | QA, BE-1 | ⛔ DEV-102 |
+| DEV-601 | 계약 테스트 (스키마 유효·무효 fixture) | P0 | M | QA, BE-1 | 🔧 DEV-102 끝남. 지금 시작 가능 |
 | DEV-602 | E2E 6종 (fixture 모드) | P0 | L | QA, FE, BE | ⛔ |
 | DEV-603 | 보안·프롬프트 인젝션 점검 | P0 | M | BE-1, QA | 🔧 |
-| DEV-604 | 접근성·모바일·영문 UX | P0 | M | FE, PM/UX | ⛔ DEV-106 |
+| DEV-604 | 접근성·모바일·영문 UX | P0 | M | FE, PM/UX | 🔧 DEV-106 끝남. 지금 시작 가능 |
 | DEV-605 | 발표·시연 패키지 (대본·고정 데이터·리허설) | P0 | M | PM/QA + 전원 | ⛔ |
 | DEV-606 | 배포·문서 동기화·릴리스 태그 | P0 | M | Lead, PM | ⛔ |
 

@@ -82,6 +82,8 @@ These are not style preferences. Each one marks a place where being wrong can hu
 
 **2-8. Never commit `.env`.** This repository is public; a leaked key is scraped within minutes. The pre-commit hook and CI's gitleaks are the last line of defence, not the first.
 
+The hook only runs when `core.hooksPath` points at `.githooks`, and that setting lives in `.git/config` — per-clone, never committed. `pnpm install` sets it for you (`bin/install-hooks.mjs`, via `prepare`), so a clone that skipped `bin/setup.sh` is still guarded. Verify yours: `git config core.hooksPath` must print `.githooks`.
+
 **2-9. Provenance is server-owned.** Every fact card carries a `sourceRef` (which agency, when). The server writes it; the model only references a `sourceRefId`. Fixture data is never presented as live — when `dataStatus` is `fixture`, the UI says so.
 
 ---
@@ -101,6 +103,24 @@ These are not style preferences. Each one marks a place where being wrong can hu
 **Develop offline:** `DATA_MODE=fixture ./gradlew bootRun` serves real captured responses without touching the network. The pharmacy API allows **1,000 calls per day** — four people refreshing a map can spend that before lunch, so fixture mode is the default working style. Note that fixture mode **ignores query parameters**; test filtering logic with `hybrid` or unit tests.
 
 **Check API access:** `./bin/check-api-access.py` — all 8 endpoints must print `[OK]`.
+
+### On Windows
+
+Everything works, with one rule: **run this repo's own scripts from Git Bash**, which ships with Git for Windows. PowerShell and `cmd` are fine for everything else.
+
+| What you run | Where |
+|---|---|
+| `./bin/setup.sh`, `./bin/verify-api-doc.sh` | Git Bash (they are bash scripts) |
+| `python bin/check-api-access.py` | anywhere — standard library only, but the `python3` shebang is a Unix thing, so name the interpreter |
+| `gradlew.bat bootRun` | anywhere (`./gradlew` in Git Bash also works) |
+| `pnpm dev`, `docker compose up -d` | anywhere |
+
+Two traps we defused rather than documented, so you should never meet them:
+
+- **Line endings.** Git for Windows rewrites LF to CRLF on checkout by default, and a shell script with CRLF dies on its own shebang: `bad interpreter: No such file or directory`. The pre-commit hook fails the same way, which would silently remove the secret guard. The root `.gitattributes` pins `*.sh`, `.githooks/*`, `*.py`, and `*.tsv` to LF. Don't remove it.
+- **Symlinks.** `CLAUDE.md` used to be a symlink to this file. Windows checks a symlink out as a plain text file containing the target's path unless you have Developer Mode on, so it became a 9-byte file reading `AGENTS.md` — which Claude Code would then load as its entire instruction set. It is now a one-line `@AGENTS.md` import, which Anthropic recommends for exactly this reason. Don't reintroduce the symlink.
+
+> **This path has not been exercised on a real Windows machine.** If you are the first to clone here on Windows, run `./bin/setup.sh` in Git Bash, then `cd backend && ./gradlew test` and `cd frontend && pnpm test`, and tell us what broke. Fixing it is a `fix(config)` commit and a favour to whoever comes next.
 
 ---
 

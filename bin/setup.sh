@@ -8,6 +8,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 echo "▸ Enabling the pre-commit secret guard"
+# `pnpm install` below sets this too, via bin/install-hooks.mjs, for anyone who never runs
+# this file. Done here as well so the guard is on before we touch anything else — and with
+# plain git, because node may not be installed yet.
 git config core.hooksPath .githooks
 chmod +x .githooks/pre-commit
 

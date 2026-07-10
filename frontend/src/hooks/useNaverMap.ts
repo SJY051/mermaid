@@ -132,10 +132,9 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
 }
 
 /**
- * TODO(team): render facility pins.
+ * Pins are `FacilityMap`'s job, not this hook's — it owns only the SDK and the map instance.
  *
- * Custom HTML markers are native — pass `icon: { content: '<div>…</div>', anchor }` to
- * `new naver.maps.Marker(...)`. For clustering there is no npm package; copy
- * `MarkerClustering.js` out of github.com/navermaps/marker-tools.js. With a 500m radius you
- * will have tens of markers, so clustering can wait.
+ * If the pin count ever grows: there is no npm package for Naver marker clustering, so copy
+ * `MarkerClustering.js` out of github.com/navermaps/marker-tools.js. A 500m radius yields tens of
+ * markers, so it can wait.
  */
