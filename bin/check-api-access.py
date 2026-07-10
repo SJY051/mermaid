@@ -14,7 +14,7 @@ The gateway answers before the API does, and it answers differently:
 
     401  it does not recognise the key
     403  it recognises the key but this SERVICE is not approved for it
-    404  no such path or operation
+    404  no such OPERATION — see the warning below
     500  "Unexpected errors" — routed nowhere. Returns 500 for a WRONG key too,
          so it happens before authentication and tells you nothing about approval.
     200  approved, and the API answered
@@ -25,7 +25,21 @@ is fine, the paperwork is not. `real=500, bogus=500` means we have the path wron
 and no amount of approval will help.
 
 Approval is granted per SERVICE, not per agency: 국립중앙의료원's pharmacy service
-answers 200 while its hospital and emergency-room services answer 403 on the same key.
+answers 200 while its hospital service answered 403 on the same key for weeks.
+
+A 404 is about the operation, not the service
+---------------------------------------------
+This one cost us. `MadmDtlInfoService2.8/getDtlInfo` answers 404, so we concluded
+the 2.8 service did not exist and "corrected" the config to 2.7 — which does exist,
+and was never approved, and answered 403, which we then read as more evidence.
+
+The real endpoint is `MadmDtlInfoService2.8/getDtlInfo2.8`. The version suffix is on
+the SERVICE and on the OPERATION, and we had only ever tried the unsuffixed operation
+under 2.8.
+
+So: a 404 tells you that one operation name is wrong. It never tells you the service is
+absent. Before declaring a path dead, vary the operation name — including the version
+suffix — and only then believe it.
 """
 
 import pathlib
@@ -67,18 +81,24 @@ ENDPOINTS = [
     ),
     (
         "의료기관별상세정보 (진료시간)",
-        "B551182/MadmDtlInfoService2.7/getDtlInfo2.7",
+        "B551182/MadmDtlInfoService2.8/getDtlInfo2.8",
         {"ykiho": "x", "_type": "json"},
     ),
     (
-        "NMC 병원 목록",
+        "NMC 병·의원 목록",
         "B552657/HsptlAsembySearchService/getHsptlMdcncListInfoInqire",
         {"pageNo": 1, "numOfRows": 1, "_type": "json"},
     ),
     (
-        "NMC 응급실 목록",
-        "B552657/ErmctInfoInqireService/getEgytListInfoInqire",
-        {"pageNo": 1, "numOfRows": 1, "_type": "json"},
+        "NMC 응급실 좌표 조회",
+        "B552657/ErmctInfoInqireService/getEgytLcinfoInqire",
+        {
+            "WGS84_LON": "126.9779",
+            "WGS84_LAT": "37.5663",
+            "pageNo": 1,
+            "numOfRows": 1,
+            "_type": "json",
+        },
     ),
 ]
 
@@ -114,7 +134,10 @@ def verdict(real: int | None, bogus: int | None) -> tuple[str, str]:
     if real == 403 and bogus == 401:
         return "WAIT", "활용신청 승인 대기 (키는 유효)"
     if real == 404:
-        return "PATH", "경로/오퍼레이션 없음 — 승인과 무관"
+        return (
+            "PATH",
+            "이 오퍼레이션 이름이 없음 — 서비스가 없다는 뜻이 아님 (버전 접미사 확인)",
+        )
     if real == 500 and bogus == 500:
         return "PATH", "존재하지 않는 서비스 경로 (인증 이전에 실패)"
     if real is None:

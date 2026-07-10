@@ -144,24 +144,29 @@ public class FacilityService {
      *
      * <ol>
      *   <li>{@code hospInfoServicev2/getHospBasisList?xPos=&yPos=&radius=} — this one <i>does</i> take
-     *       a radius, in metres. It gives you {@code ykiho} and coordinates, but no hours.
-     *   <li>{@code MadmDtlInfoService2.7/getDtlInfo2.7?ykiho=} — per hospital, for {@code trmtMonStart}…
-     *       {@code trmtSunEnd}, {@code lunchWeek}, {@code noTrmtSun}, {@code emyNgtYn}. <b>The version
-     *       suffix appears twice</b>: on the service and on the operation. {@code …2.8} and {@code
-     *       …2.7/getDtlInfo} both answer 404.
+     *       a radius, in metres. It gives you {@code ykiho} and coordinates, but no hours. {@code
+     *       radius} is not optional: omit it and you get all 79,727 hospitals in the country.
+     *   <li>{@code MadmDtlInfoService2.8/getDtlInfo2.8?ykiho=} — per hospital, for {@code trmtMonStart}…
+     *       {@code trmtSatEnd}, {@code lunchWeek}, {@code noTrmtSun}, {@code emyNgtYn}. <b>The version
+     *       suffix appears twice</b>: on the service and on the operation. {@code …2.8/getDtlInfo}
+     *       answers 404 — which means that operation name is wrong, not that the service is absent.
      * </ol>
      *
-     * <p><b>Both services answer HTTP 403 today</b> — the key is valid (a bogus one gets 401) and the
-     * 활용신청 has not been approved. Run {@code ./bin/check-api-access.py} before starting; it tells
-     * 403 (unapproved) from 404 (wrong path). Note the two are a pair: the detail service has no
-     * search operation, and only the list service issues a {@code ykiho}.
+     * <p>Both are approved and answer 200 (2026-07-10). Real responses are in {@code
+     * fixtures/hospital_list.json} and {@code hospital_detail.json}; read {@code fixtures/README.md}
+     * items 12-17 before writing the parser. In particular: this API reports {@code distance} in
+     * <b>metres</b> while the pharmacy API reports <b>kilometres</b>, and {@code XPos} is longitude.
      *
-     * <p>Nothing here has ever returned 200, so the field names above came out of documentation. Do
-     * not trust them until you have seen a live response (spec §3).
+     * <p>Run {@code ./bin/check-api-access.py} if a call starts failing; it separates 401 (unknown
+     * key) from 403 (unapproved service) from 404 (wrong operation name).
      *
-     * <p>That second step is one call per hospital: a classic N+1. Cache it per {@code ykiho} — a
-     * hospital's opening hours change about once a year. Namespace the id as {@code
+     * <p>The two are a pair: the detail service has no search operation, and only the list service
+     * issues a {@code ykiho}. That second step is one call per hospital: a classic N+1. Cache it per
+     * {@code ykiho} — a hospital's opening hours change about once a year. Namespace the id as {@code
      * facility:hira:<ykiho>}.
+     *
+     * <p>Hospitals with no timetable must keep {@code isOpenNow == null}. Sunday has no field at all:
+     * {@code trmtSunStart} is absent and {@code noTrmtSun: "휴진"} is what you get instead.
      */
     private List<Facility> hospitals(double lat, double lng, int radiusMeters, boolean openNow) {
         // Returning an empty list here told the caller "there are no hospitals near you" when the

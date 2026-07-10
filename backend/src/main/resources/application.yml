@@ -113,20 +113,18 @@ mermaid:
     pharmacy-base-url: https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService
 
     # 건강보험심사평가원 병원정보서비스 — getHospBasisList(xPos/yPos/radius) is its ONLY operation,
-    # and it is the only place a ykiho comes from.
+    # and it is the only place a ykiho comes from. Approved 2026-07-10; see fixtures/hospital_list.json.
     #
-    # 2026-07-10: answers 403 with our key and 401 with a wrong one, so the path is right and the
-    # 활용신청 has not been approved. Nothing below this line has ever returned 200; the field names
-    # are still UNKNOWN. Do not write a parser from documentation alone — see spec §3.
+    # `distance` here is METRES. The pharmacy API (B552657) reports KILOMETRES. Same portal.
     hospital-base-url: https://apis.data.go.kr/B551182/hospInfoServicev2
 
-    # 건강보험심사평가원 의료기관별상세정보서비스 — keyed by ykiho. No search operation of its own,
-    # so it is useless without the service above.
+    # 건강보험심사평가원 의료기관별상세정보서비스 — keyed by ykiho, gives trmtMonStart…, lunchWeek,
+    # noTrmtSun, emyNgtYn. No search operation of its own, so it is useless without the service above.
     #
-    # The version suffix appears TWICE: service `…2.7`, operation `getDtlInfo2.7`. `…2.8` answers
-    # 404 "API not found", and `…2.7/getDtlInfo` (unsuffixed operation) answers 404 as well. Both
-    # were in this file. Verified by probing: 403 means the operation exists, 404 means it does not.
-    hospital-detail-base-url: https://apis.data.go.kr/B551182/MadmDtlInfoService2.7
+    # The version suffix appears TWICE: service `…2.8` AND operation `getDtlInfo2.8`. Calling
+    # `…2.8/getDtlInfo` (unsuffixed operation) answers 404 "API not found" — which says nothing about
+    # the service, only about that operation. Approved 2026-07-10; see fixtures/hospital_detail.json.
+    hospital-detail-base-url: https://apis.data.go.kr/B551182/MadmDtlInfoService2.8
 
     # 식약처 의약품개요정보 e약은요 (data.go.kr 15075057) — narrative text, NO ingredients
     # NOTE: this one uses `type=json`, not `_type=json`.

@@ -14,6 +14,7 @@
 | `dur_usjnt.json` | `DURPrdlstInfoService03/getUsjntTabooInfoList03` | 병용금기. `MIXTURE_*` 블록, `PROHBT_CONTENT` |
 | `dur_age.json` | `…/getSpcifyAgrdeTabooInfoList03` | 연령금기. **나이 필드가 없습니다.** `PROHBT_CONTENT` 한국어 자유 텍스트 |
 | `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCdNm`. **진료시간이 없습니다** |
+| `hospital_detail.json` | `MadmDtlInfoService2.8/`**`getDtlInfo2.8`** | `ykiho` 단건. **여기에 `trmtMonStart`~`trmtSatEnd`, `lunchWeek`, `noTrmtSun`, `emyNgtYn`이 있습니다** |
 
 ## 실물을 열어보고 알게 된 것 (조사 문서와 달랐던 것)
 
@@ -30,15 +31,16 @@
 ```
 `startTime`/`endTime`도 그렇습니다. Java DTO를 `String`으로 잡으면 Jackson이 터집니다. `JsonNode.asText()`로 읽으세요.
 
-**3. `distance`의 단위가 API마다 다릅니다. 반대로요.**
+**3. `distance`의 단위가 발급기관마다 다릅니다. 반대로요.**
 
-| API | `distance` | 확인 방법 |
-|---|---|---|
-| 약국 `getParmacyLcinfoInqire` | **km** (`0.14` = 140m) | |
-| 병원 `getHospBasisList` | **미터** (`865.68…` = 866m) | Haversine과 대조, 오차 0.6% 이내 |
+| 기관 | API | `distance` | 좌표 필드 |
+|---|---|---|---|
+| 국립중앙의료원 `B552657` | 약국·응급실 | **km** (`0.14` = 140m) | `latitude`/`longitude` |
+| 심평원 `B551182` | 병원 목록 | **미터** (`865.68…` = 866m) | `XPos`/`YPos` |
 
-같은 포털, 같은 종류의 "가까운 곳 찾기"인데 단위가 다릅니다. 하나를 보고 다른 하나를 짐작하지 마세요.
-병원 쪽 `distance`는 **39자리 문자열**로 옵니다(`"865.68688945254311272999118456133305877"`). `asDouble()`로 읽으세요.
+둘 다 Haversine과 대조해 확인했습니다(오차 0.6% 이내). 같은 포털, 같은 "가까운 곳 찾기"인데 단위가 반대입니다.
+하나를 보고 다른 하나를 짐작하지 마세요. 병원 쪽 `distance`는 **39자리 문자열**로 옵니다
+(`"865.68688945254311272999118456133305877"`). `asDouble()`로 읽으세요.
 
 **4. 없는 요일은 필드 자체가 없습니다.** 이 약국은 일요일·공휴일에 쉬어서 `dutyTime7*`, `dutyTime8*`이 아예 없습니다. `WeeklyHours`가 없는 인덱스를 CLOSED로 처리하는 건 그래서 맞습니다.
 
@@ -70,7 +72,13 @@
 
 **14. 병원 `postNo`는 문자열입니다** (`"06132"`). 정수로 파싱하면 앞의 0이 사라집니다. `drTotCnt`(의사 수)는 정수, `telno`는 문자열, `XPos`/`YPos`는 실수, `distance`는 문자열 — **한 행 안에서 네 가지 타입**이 섞입니다.
 
-**15. 병원 목록에는 진료시간이 없습니다.** `trmtMonStart` 같은 필드는 `MadmDtlInfoService2.7/getDtlInfo2.7`(의료기관별상세정보서비스)에 있고, **그건 아직 403입니다**. 그래서 병원의 `isOpenNow`는 당분간 `null`(모름)이어야 합니다 — `false`(닫힘)가 아니라.
+**15. 병원 목록에는 진료시간이 없습니다.** `trmtMonStart`~`trmtSatEnd`, `lunchWeek`, `noTrmtSun`, `emyNgtYn`은 `MadmDtlInfoService2.8/`**`getDtlInfo2.8`**에 있습니다. **`ykiho` 단건이라 N+1입니다** — 병원의 진료시간은 1년에 한 번 바뀌니 하드하게 캐싱하세요.
+
+**16. 버전 접미사가 서비스와 오퍼레이션 둘 다에 붙습니다.** `MadmDtlInfoService2.8/getDtlInfo2.8`.
+`…2.8/getDtlInfo`는 **404 `API not found`**입니다 — 그런데 이건 **오퍼레이션 이름이 틀렸다는 뜻이지, 서비스가 없다는 뜻이 아닙니다.**
+우리는 이 404를 보고 "2.8은 없다"고 단정해 설정을 `2.7`로 바꿨습니다. `2.7`은 실재하지만 승인되지 않은 구버전이라 403을 냈고, 그 403을 다시 "승인 대기"의 증거로 읽었습니다. **틀린 전제가 그럴듯한 증거를 만들어냅니다.**
+
+**17. 병원 상세도 일요일 필드가 없습니다.** `trmtSunStart`가 아예 없고 `noTrmtSun: "휴진"`만 옵니다. 4번(약국의 `dutyTime7*` 부재)과 같은 패턴입니다. `lunchWeek`은 `"12:30 ~ 13:30"` 자유 텍스트라 파싱해야 합니다.
 
 ## 재수집
 
