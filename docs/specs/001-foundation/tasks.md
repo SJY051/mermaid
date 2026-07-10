@@ -128,7 +128,7 @@ flowchart LR
 | DEV-302 | 허가정보 어댑터 (성분, `MAIN_INGR_ENG`) | P0 | M | BE-1 | ⛔ DEV-002 |
 | DEV-303 | **DUR 어댑터** (병용·연령·임부·노인) | P1 | L | BE-1 | ⛔ DEV-002 · 스펙 §2-10 |
 | DEV-304 | `ITEM_SEQ` 기반 3종 병합 | P0 | M | BE-1 | ⛔ DEV-301~303 |
-| DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | 🔧 |
+| DEV-305 | 성분 정규화 + 검증된 동의어 사전 | P0 | M | BE-1, QA | ✅ 코드. **사전 검토는 QA 몫** (`resources/ingredients/synonyms.tsv`) |
 | DEV-306 | 알레르기 4-state 비교 서비스 | P0 | M | BE-1 | ⛔ DEV-305 |
 | DEV-307 | `GET /drugs`, `GET /drugs/{id}` | P0 | M | BE-1 | ⛔ DEV-304 |
 | DEV-308 | 의약품 카드 UI + 4-state 시각 구분 | P0 | M | FE-1, PM/UX | ⛔ DEV-307 |
@@ -155,10 +155,10 @@ flowchart LR
 |---|---|---|---|---|---|
 | DEV-501 | 버전형 브라우저 저장소 어댑터 (`schema_version`) | P0 | M | FE-2 | 🔧 |
 | DEV-502 | **채팅을 `sessionStorage`로** | P0 | S | FE-2 | 🔧 스펙 §2-16 |
-| DEV-503 | 서버 프로필 CRUD (JPA) | P0 | M | BE-1 | ✅ |
+| DEV-503 | 서버 프로필 CRUD (JPA) | P0 | M | BE-1 | ✅ MariaDB에서 C/R/U/D 실증 |
 | DEV-504 | 즐겨찾기 C/R/U/D UI | P0 | M | FE-2 | ⛔ DEV-207 |
-| DEV-505 | 알레르기 opt-in (기본 OFF) | P0 | M | FE-1, BE-1 | 🔧 스펙 §2-5 |
-| DEV-506 | **ERD + 테이블 명세서 산출** | P0 | S | BE-1 | 🔧 **채점 산출물 6·7번** |
+| DEV-505 | 알레르기 opt-in (기본 OFF) | P0 | M | FE-1, BE-1 | ✅ 백엔드. UI는 FE-1 |
+| DEV-506 | **ERD + 테이블 명세서 산출** | P0 | S | BE-1 | ✅ `docs/deliverables/` — 실제 DB에서 생성 |
 
 ### EPIC 6 — 테스트·보안·발표
 

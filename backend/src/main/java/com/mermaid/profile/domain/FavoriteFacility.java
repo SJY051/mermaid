@@ -26,12 +26,17 @@ public class FavoriteFacility {
     @JoinColumn(name = "profile_id", nullable = false)
     private UserProfile profile;
 
-    @Column(name = "facility_id", nullable = false, length = 100)
+    /** Provider-namespaced, e.g. {@code facility:nmc:C1110693} (spec §4-3). Never a name. */
+    @Column(name = "facility_id", nullable = false, length = 120)
     private String facilityId;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "facility_type", nullable = false, length = 20)
     private FacilityType facilityType;
+
+    /** What the user calls it: "Near my hotel". The Korean name is not how they find it again. */
+    @Column(name = "alias", length = 100)
+    private String alias;
 
     @Column(name = "memo", length = 500)
     private String memo;
@@ -44,13 +49,16 @@ public class FavoriteFacility {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    public FavoriteFacility(String facilityId, FacilityType facilityType, String memo) {
+    public FavoriteFacility(String facilityId, FacilityType facilityType, String alias, String memo) {
         this.facilityId = facilityId;
         this.facilityType = facilityType;
+        this.alias = alias;
         this.memo = memo;
     }
 
-    public void changeMemo(String memo) {
+    /** Alias and memo are the only mutable parts; the facility itself is a reference. */
+    public void edit(String alias, String memo) {
+        this.alias = alias;
         this.memo = memo;
     }
 

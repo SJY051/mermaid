@@ -34,18 +34,30 @@ cd frontend && pnpm dev             # http://localhost:5173
 ## 구조
 
 ```
-backend/    Spring Boot 3.5 · Java 21 · JPA · Flyway · Redis
-frontend/   React 19 · Vite · TypeScript · Tailwind · 네이버맵
-docs/       스펙. 코드보다 먼저 읽으세요.
+backend/    Spring Boot 3.5 · Java 21 · JPA · Flyway · MariaDB · Redis
+frontend/   React 19 · Vite · TypeScript · Tailwind · astryx · 네이버맵
+docs/specs/       스펙과 WBS. 코드보다 먼저 읽으세요
+docs/deliverables/ 제출 산출물 (ERD, 테이블 명세서, 요구사항 명세서, 수행계획서)
+backend/src/main/resources/fixtures/   실제 공공 API 응답. 이걸로 개발하세요
 ```
+
+### 네트워크 없이 개발하기
+
+```bash
+DATA_MODE=fixture ./gradlew bootRun
+```
+
+공공 API를 한 번도 부르지 않고 실제 약국 데이터가 나옵니다.
+**약국 API는 하루 1,000회**뿐이니 기본값(`hybrid`)으로도 캐시가 걸립니다.
 
 요청은 이렇게 흐릅니다.
 
 ```
 브라우저 ──(openai JS SDK, baseURL=/api/v1)──▶ Spring 프록시 ──▶ LLM
    │                                              │
-   │                                              └──▶ 공공 API 4종
-   └── LocalStorage: 대화 기록 (서버로 절대 가지 않음)
+   │                                              └──▶ 공공 API 6종
+   ├── sessionStorage: 대화 기록 (탭을 닫으면 사라짐. 서버로 절대 가지 않음)
+   └── localStorage:   deviceId, 즐겨찾기 스냅샷
 ```
 
 ---
@@ -57,7 +69,8 @@ docs/       스펙. 코드보다 먼저 읽으세요.
 - **§2 원본 문서에서 달라진 점.** 요구사항 명세서 v0.1에는 실제로 구현 불가능한 요구가 몇 개 있었습니다. 무엇이 왜 바뀌었는지 근거와 함께 적혀 있습니다.
 - **§3 검증된 외부 제약.** 이 표를 안 읽으면 각각 반나절씩 날립니다. 요약하면:
 
-  - 약국 API는 **하루 1,000회**입니다. 다섯 명이 지도를 새로고침하면 점심 전에 소진됩니다. 캐시가 걸려 있으니 끄지 마세요.
+  - 약국 API는 **하루 1,000회**입니다. 다섯 명이 지도를 새로고침하면 점심 전에 소진됩니다. `DATA_MODE=fixture`로 개발하세요.
+  - 조사 문서가 틀렸던 여섯 곳은 [`fixtures/README.md`](backend/src/main/resources/fixtures/README.md)에 있습니다. 파서를 쓰기 전에 읽으세요.
   - JSON을 요청하는 파라미터가 API마다 다릅니다. 약국·심평원은 `_type=json`, 식약처는 `type=json`. 언더스코어 하나 차이로 조용히 XML이 옵니다.
   - 네이버맵 키 파라미터는 `ncpKeyId`입니다. 인터넷 예제의 `ncpClientId`는 인증 실패합니다.
   - **어떤 공공 API에도 "지금 영업 중" 필터가 없습니다.** 우리가 계산합니다.
@@ -70,11 +83,14 @@ docs/       스펙. 코드보다 먼저 읽으세요.
 
 | 파일 | 할 일 |
 |---|---|
-| `PharmacyApiClient#parse` | 약국 API 응답 파싱. **실제 응답을 `src/test/resources/`에 저장하고 테스트부터 쓰세요.** 하루 1,000회를 디버깅에 쓰지 마세요 |
-| `FacilityService#hospitals` | 병원은 API 두 개를 엮어야 합니다. 좌표+반경 검색 → `ykiho` → 상세 시간. N+1이니 캐시하세요 |
-| `DrugService` | e약은요(안내문) + 허가정보(성분)를 병합. 성분은 e약은요에 **없습니다** |
+| `PharmacyApiClient#weeklyHours` | 주간 시간표(`getParmacyBassInfoInqire`). 이게 붙어야 영업 상태가 `INFERRED`에서 `OFFICIAL_SCHEDULE`이 됩니다 |
+| `FacilityService#hospitals` | 병원은 API 두 개를 엮습니다. **다만 심평원 API가 지금 403** — 활용신청 승인이 필요합니다 |
+| `DrugService` | e약은요(안내문) + 허가정보(성분) + DUR(금기)를 `ITEM_SEQ`로 병합. 성분은 e약은요에 **없습니다** |
 | `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
 | `App.tsx`, `useNaverMap.ts` | UI-01 의약품 카드, UI-02 지도, UI-03 상세 |
+| `ChatProxyController#blocking` | `retrievedProductNames` — 2-패스 RAG가 조회한 제품명. 지금은 비어 있어서 **모든 약 이름이 거부**됩니다 |
+
+누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
 
 ---
 
@@ -86,9 +102,19 @@ docs/       스펙. 코드보다 먼저 읽으세요.
 - 이슈와 PR을 잘게 쪼개세요. **작업 추적성 자체가 채점 항목입니다** (NFR-05).
 
 ```bash
-cd backend  && ./gradlew test    # 28 tests
+cd backend  && ./gradlew test    # 131 tests
 cd frontend && pnpm build        # tsc -b 포함
 ```
+
+## 제출 산출물
+
+| 산출물 | 위치 |
+|---|---|
+| ERD | [`docs/deliverables/ERD.md`](docs/deliverables/ERD.md) — **실제 DB에서 생성** |
+| 테이블 명세서 | [`docs/deliverables/테이블_명세서.md`](docs/deliverables/테이블_명세서.md) |
+| WBS | [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md) |
+| API 명세서 | 스펙 §5 + 요구사항 명세서 §9 |
+| 요구사항 명세서 · 수행계획서 | `docs/deliverables/*.docx` |
 
 ---
 

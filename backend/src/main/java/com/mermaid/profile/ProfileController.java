@@ -34,7 +34,18 @@ public class ProfileController {
         return profileService.updateCountry(deviceId, request);
     }
 
-    /** CREATE — an ingredient to avoid (FR-04) */
+    /**
+     * UPDATE — consent to remember allergies across sessions (spec §2-5).
+     *
+     * <p>Default off. Turning it off deletes what was stored, rather than hiding it.
+     */
+    @PatchMapping("/consent")
+    public ProfileResponse updateConsent(
+            @PathVariable String deviceId, @Valid @RequestBody ConsentUpdateRequest request) {
+        return profileService.updateConsent(deviceId, request);
+    }
+
+    /** CREATE — an ingredient to avoid (FR-04). Requires consent above. */
     @PostMapping("/allergies")
     @ResponseStatus(HttpStatus.CREATED)
     public AllergyResponse addAllergy(

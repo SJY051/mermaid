@@ -2,19 +2,24 @@
 --
 -- Scope note (docs/specs/001-foundation/spec.md §4):
 --   Medical consultation CHAT HISTORY is deliberately NOT stored here.
---   It lives only in the browser's LocalStorage. Do not add a `chat_message`
---   table without revisiting §2-4 and §7 of the spec first.
+--   It lives only in the browser's sessionStorage and dies with the tab.
+--   Do not add a `chat_message` table without revisiting §2-4, §2-16 and §7.
 --
 --   Public-API response caching is Redis's job, not a table's.
 --
 -- These three tables are the source of the ERD and 테이블 명세서 deliverables.
+--
+-- Column types are VARCHAR rather than CHAR even where the length is fixed. Hibernate's
+-- `ddl-auto: validate` maps a `@Column(length = n)` String to VARCHAR, and a CHAR column
+-- fails startup with "wrong column type encountered". Fixed-width storage buys nothing
+-- here, and a schema the entities disagree with is a schema nobody can boot.
 
 -- An anonymous profile. There is no login (FR-01). The browser generates a
 -- UUID on first visit, keeps it in LocalStorage, and sends it as a header.
 CREATE TABLE user_profile (
     id           BIGINT       NOT NULL AUTO_INCREMENT,
-    device_id    CHAR(36)     NOT NULL COMMENT 'Client-generated UUID. Not a user account.',
-    country_code CHAR(2)      NULL     COMMENT 'ISO 3166-1 alpha-2, drives FR-05 guidance.',
+    device_id    VARCHAR(36)  NOT NULL COMMENT 'Client-generated UUID. Not a user account.',
+    country_code VARCHAR(2)   NULL     COMMENT 'ISO 3166-1 alpha-2, drives FR-05 guidance.',
     created_at   DATETIME(6)  NOT NULL,
     updated_at   DATETIME(6)  NOT NULL,
     PRIMARY KEY (id),

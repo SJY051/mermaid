@@ -1,0 +1,23 @@
+# Reviewed ingredient synonyms.
+#
+# A row here lets an allergy BLOCK a medicine. Nothing else does — an unreviewed
+# guess produces `warning` at most (spec §2-12). Every row therefore needs a
+# reviewer and a source; "it looked similar" is not a source.
+#
+# Format (tab-separated):
+#   alias <TAB> canonical <TAB> reviewer <TAB> source
+#
+# Matching is done on the normalised form (lower case, no dose, no parentheses),
+# so write both columns in that form.
+#
+# TODO(BE-1 + QA, DEV-305): review and extend before the demo. The list below is
+# a seed covering the ingredients our personas actually mention. Do not add a row
+# without checking it against 식약처 허가정보 `MAIN_INGR_ENG` values.
+
+paracetamol	acetaminophen	TODO	INN name; USAN uses acetaminophen. 허가정보 uses "Acetaminophen".
+apap	acetaminophen	TODO	Common US abbreviation on labels.
+acetaminophen granules	acetaminophen	TODO	허가정보 MAIN_INGR_ENG for 어린이타이레놀산: "Acetaminophen Granules".
+ibuprofen lysine	ibuprofen	TODO	Salt form; same allergen.
+ibuprofen arginine	ibuprofen	TODO	Salt form; same allergen.
+asa	acetylsalicylic acid	TODO	Standard abbreviation.
+aspirin	acetylsalicylic acid	TODO	Brand-turned-generic; identical substance.

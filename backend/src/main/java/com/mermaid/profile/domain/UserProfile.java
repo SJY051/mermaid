@@ -38,6 +38,15 @@ public class UserProfile {
     @Column(name = "country_code", length = 2)
     private String countryCode;
 
+    /**
+     * Opt-in, default off (spec §2-5).
+     *
+     * <p>Allergies are a session input unless the user asks us to keep them. While this is false the
+     * {@link #allergies} list must stay empty — a promise {@link #forgetAllergies()} enforces.
+     */
+    @Column(name = "remember_allergies", nullable = false)
+    private boolean rememberAllergies = false;
+
     @OneToMany(mappedBy = "profile", cascade = CascadeType.ALL, orphanRemoval = true)
     private final List<AllergyIngredient> allergies = new ArrayList<>();
 
@@ -60,7 +69,31 @@ public class UserProfile {
         this.countryCode = countryCode;
     }
 
+    public boolean remembersAllergies() {
+        return rememberAllergies;
+    }
+
+    /** Turning memory off is not a preference change; it is a deletion. */
+    public void setRememberAllergies(boolean remember) {
+        this.rememberAllergies = remember;
+        if (!remember) {
+            forgetAllergies();
+        }
+    }
+
+    public void forgetAllergies() {
+        allergies.clear(); // orphanRemoval deletes the rows
+    }
+
+    /**
+     * @throws IllegalStateException when the user has not opted in — storing an allergy they did not
+     *     ask us to keep would break the promise this column exists to make
+     */
     public void addAllergy(AllergyIngredient ingredient) {
+        if (!rememberAllergies) {
+            throw new IllegalStateException(
+                    "profile has not opted in to remembering allergies (spec §2-5)");
+        }
         allergies.add(ingredient);
         ingredient.assignTo(this);
     }

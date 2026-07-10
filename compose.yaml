@@ -1,11 +1,16 @@
 # Local development infrastructure for mermAid.
 #
 #   docker compose up -d      # start MariaDB + Redis
-#   docker compose down       # stop
-#   docker compose down -v    # stop AND wipe data
+#   docker compose down       # stop, keep data
+#   docker compose down -v    # stop AND wipe data (use after editing a migration)
 #
 # Spring Boot does NOT start these automatically — that is deliberate.
 # You run them, you can see them, you can debug them.
+#
+# Named volumes, not bind mounts to ./.data. `down -v` only removes named volumes,
+# so with a bind mount the "wipe data" above would have been a lie — and editing an
+# already-applied migration would greet you with a Flyway checksum mismatch you
+# could not clear.
 
 services:
   mariadb:
@@ -20,7 +25,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - ./.data/mariadb:/var/lib/mysql
+      - mariadb-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
@@ -34,9 +39,13 @@ services:
     ports:
       - "6379:6379"
     volumes:
-      - ./.data/redis:/data
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 12
+
+volumes:
+  mariadb-data:
+  redis-data:

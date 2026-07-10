@@ -1,6 +1,9 @@
 package com.mermaid.profile;
 
+import com.mermaid.common.ApiException;
+import com.mermaid.common.ErrorCode;
 import com.mermaid.common.NotFoundException;
+import com.mermaid.drug.IngredientNormalizer;
 import com.mermaid.profile.domain.AllergyIngredient;
 import com.mermaid.profile.domain.FavoriteFacility;
 import com.mermaid.profile.domain.UserProfile;
@@ -10,7 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * CRUD over the anonymous profile (spec §4-3).
+ * CRUD over the anonymous profile (spec §4-5).
  *
  * <p>{@link #getOrCreate} is the reason there is no signup screen: the first request carrying a new
  * {@code deviceId} silently creates the row.
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class ProfileService {
 
     private final ProfileRepository profileRepository;
+    private final IngredientNormalizer normalizer;
 
     @Transactional
     public UserProfile getOrCreate(String deviceId) {
@@ -40,13 +44,42 @@ public class ProfileService {
         return ProfileResponse.from(profile);
     }
 
+    /**
+     * Grants or withdraws consent to remember allergies (spec §2-5).
+     *
+     * <p>Withdrawing deletes the stored rows immediately. A user who turns this off has asked us to
+     * forget, not to hide.
+     */
+    @Transactional
+    public ProfileResponse updateConsent(String deviceId, ConsentUpdateRequest request) {
+        UserProfile profile = getOrCreate(deviceId);
+        profile.setRememberAllergies(Boolean.TRUE.equals(request.rememberAllergies()));
+        return ProfileResponse.from(profile);
+    }
+
+    /**
+     * CREATE — an ingredient to avoid.
+     *
+     * <p>The normalised key is computed here, once, so every later comparison uses the same form.
+     */
     @Transactional
     public AllergyResponse addAllergy(String deviceId, AllergyCreateRequest request) {
         UserProfile profile = getOrCreate(deviceId);
-        AllergyIngredient ingredient =
-                new AllergyIngredient(request.ingredientNameEn(), request.ingredientNameKo());
-        profile.addAllergy(ingredient);
+        if (!profile.remembersAllergies()) {
+            throw new ApiException(
+                    ErrorCode.INVALID_REQUEST,
+                    "profile " + deviceId + " has not opted in to remembering allergies");
+        }
+
+        var normalized = normalizer.normalize(request.ingredientNameEn());
+        profile.addAllergy(
+                new AllergyIngredient(
+                        request.ingredientNameEn(),
+                        request.ingredientNameKo(),
+                        normalized.key(),
+                        normalized.confidence()));
         profileRepository.flush(); // assign the id before we map it out
+
         return ProfileResponse.from(profile).allergies().stream()
                 .filter(a -> a.ingredientNameEn().equals(request.ingredientNameEn()))
                 .findFirst()
@@ -56,8 +89,7 @@ public class ProfileService {
     @Transactional
     public void deleteAllergy(String deviceId, Long allergyId) {
         UserProfile profile = getOrCreate(deviceId);
-        boolean removed =
-                profile.getAllergies().removeIf(a -> a.getId().equals(allergyId)); // orphanRemoval
+        boolean removed = profile.getAllergies().removeIf(a -> a.getId().equals(allergyId));
         if (!removed) {
             throw new NotFoundException("No allergy " + allergyId + " on this profile");
         }
@@ -67,8 +99,10 @@ public class ProfileService {
     public FavoriteResponse addFavorite(String deviceId, FavoriteCreateRequest request) {
         UserProfile profile = getOrCreate(deviceId);
         profile.addFavorite(
-                new FavoriteFacility(request.facilityId(), request.facilityType(), request.memo()));
+                new FavoriteFacility(
+                        request.facilityId(), request.facilityType(), request.alias(), request.memo()));
         profileRepository.flush();
+
         return ProfileResponse.from(profile).favorites().stream()
                 .filter(f -> f.facilityId().equals(request.facilityId()))
                 .findFirst()
@@ -85,7 +119,8 @@ public class ProfileService {
                         .findFirst()
                         .orElseThrow(
                                 () -> new NotFoundException("No favorite " + favoriteId + " on this profile"));
-        favorite.changeMemo(request.memo());
+        favorite.edit(request.alias(), request.memo());
+
         return ProfileResponse.from(profile).favorites().stream()
                 .filter(f -> f.id().equals(favoriteId))
                 .findFirst()
