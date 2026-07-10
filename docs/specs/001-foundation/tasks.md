@@ -42,14 +42,18 @@ tags: [wbs, backlog, team]
 
 ### 다음에 할 일 (BE-1, 순서대로)
 
-1. **DEV-102 — `response_format` 주입.** `ChatProxyService#prepare`의 TODO. `glm-5.2`는 strict `json_schema`를 정확히 지킵니다 — 전체 `MermAidAnswer` 스키마(`$defs`/`$ref`/`const`/nullable union 포함)를 실측으로 통과시켰습니다. 단 `deepseek-v4-flash`는 같은 요청에 **400**을 냅니다 → **모델별 capability 플래그**가 필요합니다. 그리고 **검증용 스키마와 프로바이더 강제용 스키마는 별개**이며, 서버 런타임 검증기가 여전히 source of truth입니다.
-2. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9를 실제 엔드포인트와 대조. **알려진 불일치:** 스펙 §5-3에 `GET /api/v1/health`가 있으나 실제로는 Actuator의 `/actuator/health`만 있습니다.
+1. **DEV-506 후속 — API 명세서.** 스펙 §5와 요구사항 명세서 §9를 실제 엔드포인트와 대조. **알려진 불일치:** 스펙 §5-3에 `GET /api/v1/health`가 있으나 실제로는 Actuator의 `/actuator/health`만 있습니다.
+2. **DEV-203 병원 검색 / DEV-003·206·207 지도.** ASQi가 키를 채우고 활용신청을 넣었습니다. **먼저 실제로 호출해보고** 승인 반영 여부와 네이버맵 무료량을 확인하세요.
 
 > ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
 > `ChatProxyController#answer`. 설계 근거와 실측 함정은 스펙 §2-2에 전부 적어뒀습니다.
 >
 > ✅ **조회 병렬화 완료.** `detail()` 8.79초 → 4.23초, `retrieve()` 콜드 4.68초.
 > **동시성을 더 올리지 마세요** — 식약처가 서비스키 단위로 조입니다(DUR 4회: 순차 5.77초, 동시 2.70초 = 2.1배).
+>
+> ✅ **DEV-102 (`response_format` 주입) 완료.** 스키마는 `resources/schemas/mermaid-answer.provider.schema.json`.
+> **허용목록**(`mermaid.llm.structured-output-models`)에 있는 모델에만 붙이고, 400이 나면 스키마 없이 1회 재시도합니다.
+> **`AnswerValidator`는 그대로 돕니다** — 스키마를 완벽히 지키면서도 없는 약을 지어낼 수 있으니까요.
 
 ### ASQi만 풀 수 있는 것 (막혀 있음)
 

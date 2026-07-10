@@ -57,7 +57,7 @@ class ChatProxyControllerTest {
         final AtomicReference<JsonNode> sentRequest = new AtomicReference<>();
 
         FakeUpstream(String replyContent) {
-            super(null, null, null, new ObjectMapper());
+            super(null, null, null, null, new ObjectMapper());
             this.replyContent = replyContent;
         }
 
@@ -225,6 +225,38 @@ class ChatProxyControllerTest {
                     .completions(request("hello"));
 
             assertThat(answerOf(response).dataStatus()).isEqualTo(MermAidAnswer.DataStatus.UNAVAILABLE);
+        }
+
+        @Test
+        @DisplayName("the same action asked for three times is one action")
+        void duplicateUiActionsCollapse() throws Exception {
+            // A live answer really did carry OPEN_FACILITY_MAP once per drug it described.
+            String threeMaps = """
+                [{"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}},
+                 {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}},
+                 {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}}]
+                """;
+            var response = controller(
+                            modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + threeMaps),
+                            emptyContext())
+                    .completions(request("where is the nearest pharmacy?"));
+
+            assertThat(answerOf(response).uiActions()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("two map requests that differ are both kept")
+        void differentActionsSurvive() throws Exception {
+            String twoMaps = """
+                [{"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}},
+                 {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":3000}}]
+                """;
+            var response = controller(
+                            modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + twoMaps),
+                            emptyContext())
+                    .completions(request("pharmacies near me"));
+
+            assertThat(answerOf(response).uiActions()).hasSize(2);
         }
 
         @Test

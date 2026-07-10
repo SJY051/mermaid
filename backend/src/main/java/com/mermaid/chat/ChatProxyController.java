@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.dto.MermAidAnswer;
+import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -194,10 +195,22 @@ public class ChatProxyController {
                 answer.clarifyingQuestions(),
                 answer.guidance(),
                 answer.drugs(),
-                answer.uiActions(),
+                distinct(answer.uiActions()),
                 context.sources(),
                 answer.warnings(),
                 answer.disclaimer());
+    }
+
+    /**
+     * The same action, asked for twice, is one action.
+     *
+     * <p>A live answer really did carry {@code OPEN_FACILITY_MAP} three times — once per drug it
+     * described — and the UI would have drawn three identical buttons. {@link UiAction} and its
+     * payloads are records, so equality is structural and this is exact: two map requests with
+     * different radii both survive.
+     */
+    private static List<UiAction> distinct(List<UiAction> actions) {
+        return actions == null ? List.of() : actions.stream().distinct().toList();
     }
 
     /** No sources means we grounded nothing — {@code unavailable} is the honest word for that. */

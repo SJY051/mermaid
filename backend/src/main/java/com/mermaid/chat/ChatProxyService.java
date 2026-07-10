@@ -9,9 +9,11 @@ import java.util.List;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
 /**
@@ -32,6 +34,8 @@ public class ChatProxyService {
 
     private static final String COMPLETIONS_PATH = "/chat/completions";
 
+    private static final String RESPONSE_FORMAT = "response_format";
+
     /**
      * OpenAI-compatible streams terminate with this literal. It is not JSON.
      *
@@ -44,6 +48,7 @@ public class ChatProxyService {
     private final WebClient llmWebClient;
     private final LlmProperties llmProperties;
     private final SystemPromptProvider systemPromptProvider;
+    private final AnswerSchemaProvider answerSchema;
     private final ObjectMapper objectMapper;
 
     /**
@@ -56,15 +61,42 @@ public class ChatProxyService {
      */
     public Mono<JsonNode> complete(JsonNode clientRequest, List<String> extraSystemMessages) {
         ObjectNode upstream = prepare(clientRequest, false, extraSystemMessages);
+        boolean schemaEnforced = upstream.has(RESPONSE_FORMAT);
+
+        return post(upstream)
+                .onErrorResume(
+                        e -> schemaEnforced && isBadRequest(e),
+                        e -> {
+                            // `model` is an environment variable and support for strict schemas is not
+                            // advertised. A model missing from the allowlist should degrade, not take
+                            // the chat endpoint down: the prompt and the validator still stand.
+                            log.warn("Model '{}' rejected response_format; retrying without it. "
+                                            + "Remove it from mermaid.llm.structured-output-models.",
+                                    llmProperties.model());
+                            return post(withoutSchema(upstream));
+                        });
+    }
+
+    private Mono<JsonNode> post(ObjectNode body) {
         return llmWebClient
                 .post()
                 .uri(COMPLETIONS_PATH)
                 .header(HttpHeaders.AUTHORIZATION, "Bearer " + llmProperties.apiKey())
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(upstream)
+                .bodyValue(body)
                 .retrieve()
                 .bodyToMono(JsonNode.class)
                 .timeout(llmProperties.timeout());
+    }
+
+    private static ObjectNode withoutSchema(ObjectNode body) {
+        ObjectNode copy = body.deepCopy();
+        copy.remove(RESPONSE_FORMAT);
+        return copy;
+    }
+
+    static boolean isBadRequest(Throwable e) {
+        return e instanceof WebClientResponseException w && w.getStatusCode() == HttpStatus.BAD_REQUEST;
     }
 
     /**
@@ -77,17 +109,10 @@ public class ChatProxyService {
      * @return the assistant's raw {@code content}, or empty if the provider failed or ignored us
      */
     public Mono<String> completeJson(String systemPrompt, String userText, String schemaName, JsonNode schema) {
-        ObjectNode format = objectMapper.createObjectNode();
-        format.put("type", "json_schema");
-        ObjectNode jsonSchema = format.putObject("json_schema");
-        jsonSchema.put("name", schemaName);
-        jsonSchema.put("strict", true);
-        jsonSchema.set("schema", schema);
-
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", llmProperties.model());
         body.put("stream", false);
-        body.set("response_format", format);
+        body.set(RESPONSE_FORMAT, responseFormat(schemaName, schema));
         ArrayNode messages = body.putArray("messages");
         messages.addObject().put("role", "system").put("content", systemPrompt);
         messages.addObject().put("role", "user").put("content", userText);
@@ -129,7 +154,7 @@ public class ChatProxyService {
      * our system prompt and <i>before</i> the conversation, so the rules that constrain the context are
      * already in force when the model reads it.
      */
-    private ObjectNode prepare(JsonNode clientRequest, boolean stream, List<String> extraSystemMessages) {
+    ObjectNode prepare(JsonNode clientRequest, boolean stream, List<String> extraSystemMessages) {
         ObjectNode req = clientRequest.deepCopy();
 
         req.put("model", llmProperties.model());
@@ -157,17 +182,29 @@ public class ChatProxyService {
         }
         req.set("messages", sanitized);
 
-        // TODO(BE-1, DEV-102): force the answer schema here with `req.set("response_format", …)`.
-        //
-        // glm-5.2 honours strict json_schema — measured, including `oneOf`, `$defs`, `const` and
-        // `format` (see fixtures/README.md). Other models on the same endpoint reject it outright:
-        // deepseek-v4-* and qwen3.7-max answer 400. So this cannot be switched on unconditionally
-        // while the model is configurable; it needs a per-model capability flag.
-        //
-        // The validation schema is NOT the same artifact as the provider-coercion schema. The
-        // server's runtime validator stays the source of truth either way. See spec §3.
+        // Force the answer's shape when the configured model is known to honour it (DEV-102). This
+        // constrains generation, not truth: AnswerValidator still runs on the result, because a model
+        // obeying a schema perfectly can still name a medicine that does not exist.
+        if (llmProperties.supportsStructuredOutput()) {
+            req.set(RESPONSE_FORMAT, responseFormat(AnswerSchemaProvider.SCHEMA_NAME, answerSchema.get()));
+        } else {
+            log.debug("Model '{}' is not on the structured-output allowlist; relying on the prompt",
+                    llmProperties.model());
+            req.remove(RESPONSE_FORMAT); // the client does not get to ask for one either
+        }
 
         return req;
+    }
+
+    /** OpenAI's {@code response_format} envelope for a strict JSON Schema. */
+    private ObjectNode responseFormat(String schemaName, JsonNode schema) {
+        ObjectNode format = objectMapper.createObjectNode();
+        format.put("type", "json_schema");
+        ObjectNode jsonSchema = format.putObject("json_schema");
+        jsonSchema.put("name", schemaName);
+        jsonSchema.put("strict", true);
+        jsonSchema.set("schema", schema);
+        return format;
     }
 
     private ObjectNode systemMessage(String content) {

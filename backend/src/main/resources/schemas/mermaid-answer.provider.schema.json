@@ -1,0 +1,366 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "answerId",
+    "language",
+    "dataStatus",
+    "urgency",
+    "summary",
+    "clarifyingQuestions",
+    "guidance",
+    "drugs",
+    "uiActions",
+    "sourceRefs",
+    "warnings",
+    "disclaimer"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "answerId": {
+      "type": "string"
+    },
+    "language": {
+      "type": "string",
+      "const": "en"
+    },
+    "dataStatus": {
+      "type": "string",
+      "enum": [
+        "live",
+        "fixture",
+        "mixed",
+        "unavailable"
+      ]
+    },
+    "urgency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "title",
+        "message",
+        "reasonCodes",
+        "actions"
+      ],
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "emergency",
+            "urgent",
+            "routine",
+            "unknown"
+          ]
+        },
+        "title": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "reasonCodes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/uiAction"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string"
+    },
+    "clarifyingQuestions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "guidance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title",
+          "body",
+          "evidence",
+          "sourceRefIds"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string",
+            "enum": [
+              "official_data",
+              "general_safety",
+              "model_summary"
+            ]
+          },
+          "sourceRefIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "drugs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "productNameKo",
+          "productNameEn",
+          "ingredients",
+          "indicationSummary",
+          "directionsSummary",
+          "warnings",
+          "prescriptionStatus",
+          "allergyCheck",
+          "sourceRefId"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "productNameKo": {
+            "type": "string"
+          },
+          "productNameEn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ingredients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "nameKo",
+                "nameEn",
+                "normalizedKey",
+                "amount",
+                "unit"
+              ],
+              "properties": {
+                "nameKo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "nameEn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "normalizedKey": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              }
+            }
+          },
+          "indicationSummary": {
+            "type": "string"
+          },
+          "directionsSummary": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "prescriptionStatus": {
+            "type": "string",
+            "enum": [
+              "prescription",
+              "otc",
+              "unknown"
+            ]
+          },
+          "allergyCheck": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "matchedIngredients",
+              "message"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "blocked",
+                  "warning",
+                  "no_match_found",
+                  "unknown"
+                ]
+              },
+              "matchedIngredients": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          },
+          "sourceRefId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "uiActions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/uiAction"
+      }
+    },
+    "sourceRefs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "disclaimer": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "uiAction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "payload"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "OPEN_FACILITY_MAP",
+            "APPLY_FACILITY_FILTERS",
+            "OPEN_DRUG_DETAIL",
+            "SHOW_EMERGENCY_CALL",
+            "ASK_CLARIFYING_QUESTION"
+          ]
+        },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "types",
+            "openNow",
+            "radiusM",
+            "drugId",
+            "phone",
+            "label",
+            "question"
+          ],
+          "properties": {
+            "types": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "openNow": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "radiusM": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "drugId": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "phone": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "question": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

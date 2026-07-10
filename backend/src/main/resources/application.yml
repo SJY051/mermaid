@@ -91,6 +91,17 @@ mermaid:
     # provider can burn three minutes before we even start retrieving. On timeout the drug context is
     # empty, so the answer names no medicine and says to visit a pharmacy — degraded, never wrong.
     extraction-timeout: ${LLM_EXTRACTION_TIMEOUT:30s}
+    # Models measured to accept `response_format: {type: json_schema, strict: true}` with our full
+    # answer schema — $defs, $ref, const, enums and nullable type unions (2026-07-10, opencode zen).
+    #
+    # Support is not advertised and cannot be inferred from the model name, so this is an allowlist,
+    # not a guess. deepseek-v4-flash answers 400 to the identical request; minimax-m3 answers 200 and
+    # returns <think> prose anyway. A model absent from this list is still perfectly usable — it just
+    # gets the system prompt instead of a schema, and the server validates the answer either way.
+    #
+    # If the provider rejects the schema anyway we retry once without it and log a warning. Add or
+    # remove a model here rather than editing code.
+    structured-output-models: ${LLM_STRUCTURED_OUTPUT_MODELS:glm-5.2,kimi-k2.6}
 
   public-api:
     # IMPORTANT: this must be the DECODING key from data.go.kr.

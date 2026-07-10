@@ -1,6 +1,7 @@
 package com.mermaid.config;
 
 import java.time.Duration;
+import java.util.Set;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
@@ -17,10 +18,27 @@ public record LlmProperties(
         /** Pass 2 of the RAG flow: the model writes a whole grounded answer, thousands of characters. */
         Duration timeout,
         /** Pass 1a: the model writes two short arrays. It has no business taking as long. */
-        Duration extractionTimeout) {
+        Duration extractionTimeout,
+        /** Models measured to accept {@code response_format: json_schema, strict: true}. */
+        Set<String> structuredOutputModels) {
 
     public boolean isConfigured() {
         return apiKey != null && !apiKey.isBlank();
+    }
+
+    /**
+     * Whether to send {@code response_format} at all.
+     *
+     * <p>An allowlist rather than a guess, because {@code model} is an environment variable and
+     * support is not advertised anywhere: {@code glm-5.2} honours a strict schema, {@code
+     * deepseek-v4-flash} answers 400 to the identical request, and {@code minimax-m3} answers 200 with
+     * {@code <think>} prose. A model absent from this list simply does not get the schema — the system
+     * prompt, {@code StructuredOutputFallback} and {@code AnswerValidator} still apply.
+     */
+    public boolean supportsStructuredOutput() {
+        return model != null
+                && structuredOutputModels != null
+                && structuredOutputModels.contains(model);
     }
 
     /**
