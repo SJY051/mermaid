@@ -75,6 +75,17 @@ class ErrorContractTest {
     }
 
     @Test
+    @DisplayName("an unknown path is a 404 RESOURCE_NOT_FOUND, not a 500")
+    void unknownPathIsNotFound() throws Exception {
+        mvc.perform(get("/api/v1/does-not-exist"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(header().exists(RequestIdFilter.HEADER))
+                .andExpect(jsonPath("$.error.request_id").value(not(is(""))));
+    }
+
+    @Test
     @DisplayName("every response carries X-Request-Id, and the body echoes it")
     void requestIdOnHeaderAndBody() throws Exception {
         mvc.perform(get("/api/v1/facilities").param("lat", "999").param("lng", "126.97"))
