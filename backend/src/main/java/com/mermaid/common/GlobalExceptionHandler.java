@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * One place where every failure becomes the error envelope of spec §5-2.
@@ -42,6 +43,20 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> notFound(NotFoundException e) {
         log.warn("not found: {}", e.getMessage());
         return body(ErrorCode.RESOURCE_NOT_FOUND, "We could not find that.", Map.of());
+    }
+
+    /**
+     * A path no controller claims.
+     *
+     * <p>DispatcherServlet finds no handler mapping, falls through to the static-resource handler,
+     * and that throws. Without this method the request lands in {@link #unexpected} and a typo in a
+     * URL is reported to the client as our server having crashed — a 500 the frontend would offer to
+     * escalate, when the honest answer is that the path does not exist.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> noResource(NoResourceFoundException e) {
+        log.warn("no handler for {}", e.getResourcePath());
+        return body(ErrorCode.RESOURCE_NOT_FOUND, userMessageFor(ErrorCode.RESOURCE_NOT_FOUND), Map.of());
     }
 
     @ExceptionHandler(PublicApiException.class)
