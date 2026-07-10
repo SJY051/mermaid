@@ -13,6 +13,7 @@
 | `permission_detail.json` | `…/getDrugPrdtPrmsnDtlInq06` | 상세. `MAIN_INGR_ENG`, `MAIN_ITEM_INGR`(`[M######]…`) |
 | `dur_usjnt.json` | `DURPrdlstInfoService03/getUsjntTabooInfoList03` | 병용금기. `MIXTURE_*` 블록, `PROHBT_CONTENT` |
 | `dur_age.json` | `…/getSpcifyAgrdeTabooInfoList03` | 연령금기. **나이 필드가 없습니다.** `PROHBT_CONTENT` 한국어 자유 텍스트 |
+| `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCdNm`. **진료시간이 없습니다** |
 
 ## 실물을 열어보고 알게 된 것 (조사 문서와 달랐던 것)
 
@@ -29,7 +30,15 @@
 ```
 `startTime`/`endTime`도 그렇습니다. Java DTO를 `String`으로 잡으면 Jackson이 터집니다. `JsonNode.asText()`로 읽으세요.
 
-**3. `distance`는 km입니다.** `0.14` = 140m. Haversine 계산값(미터)과 단위가 다릅니다.
+**3. `distance`의 단위가 API마다 다릅니다. 반대로요.**
+
+| API | `distance` | 확인 방법 |
+|---|---|---|
+| 약국 `getParmacyLcinfoInqire` | **km** (`0.14` = 140m) | |
+| 병원 `getHospBasisList` | **미터** (`865.68…` = 866m) | Haversine과 대조, 오차 0.6% 이내 |
+
+같은 포털, 같은 종류의 "가까운 곳 찾기"인데 단위가 다릅니다. 하나를 보고 다른 하나를 짐작하지 마세요.
+병원 쪽 `distance`는 **39자리 문자열**로 옵니다(`"865.68688945254311272999118456133305877"`). `asDouble()`로 읽으세요.
 
 **4. 없는 요일은 필드 자체가 없습니다.** 이 약국은 일요일·공휴일에 쉬어서 `dutyTime7*`, `dutyTime8*`이 아예 없습니다. `WeeklyHours`가 없는 인덱스를 CLOSED로 처리하는 건 그래서 맞습니다.
 
@@ -53,6 +62,15 @@
 **10. 같은 성분이 두 번 옵니다.** `타이레놀8시간이알서방정`의 `ITEM_INGR_NAME`은 `"Acetaminophen/Acetaminophen"`, `ITEM_INGR_CNT=2`. 이중층 정제라서요.
 
 **11. 모든 약이 e약은요에 있는 건 아닙니다.** 수출용 의약품은 안내문이 없습니다. `Optional.empty()`가 정상이며, `@Cacheable`에 `unless = "#result == null"`이 없으면 Redis가 예외를 던집니다.
+
+**12. 병원 목록의 `radius`는 선택이 아니라 필수입니다.** 빼면 좌표를 줘도 **전국 79,727건**이 옵니다. 거르는 게 아니라 아예 무시합니다.
+
+**13. 병원 좌표 필드는 대문자 `XPos`/`YPos`입니다.** 약국은 소문자 `latitude`/`longitude`이고, `getParmacyBassInfoInqire`는 또 `wgs84Lat`/`wgs84Lon`입니다. 세 API가 세 가지 이름을 씁니다.
+그리고 `XPos`가 **경도**, `YPos`가 **위도**입니다(x=lon, y=lat). 요청 파라미터도 `xPos`=경도, `yPos`=위도입니다. 뒤집으면 조용히 엉뚱한 곳을 검색합니다.
+
+**14. 병원 `postNo`는 문자열입니다** (`"06132"`). 정수로 파싱하면 앞의 0이 사라집니다. `drTotCnt`(의사 수)는 정수, `telno`는 문자열, `XPos`/`YPos`는 실수, `distance`는 문자열 — **한 행 안에서 네 가지 타입**이 섞입니다.
+
+**15. 병원 목록에는 진료시간이 없습니다.** `trmtMonStart` 같은 필드는 `MadmDtlInfoService2.7/getDtlInfo2.7`(의료기관별상세정보서비스)에 있고, **그건 아직 403입니다**. 그래서 병원의 `isOpenNow`는 당분간 `null`(모름)이어야 합니다 — `false`(닫힘)가 아니라.
 
 ## 재수집
 
