@@ -196,6 +196,34 @@ The diff already says *what* changed. The subject line is for *why*.
 - Review for: does this route around a §2 invariant; does new logic have tests; if it diverges from the spec, was `docs/specs/` updated with it.
 - "Why did you do it this way?" in review is a request for a comment or commit message, not an attack.
 
+An automated Codex review runs on every pull request. To aim one at a specific worry, comment `@codex review for <what to look at>` — for example `@codex review for a §2 invariant routed around`.
+
+---
+
+## Review guidelines
+
+*This heading is unnumbered on purpose: Codex looks for a section named exactly this, and applies the guidance from the `AGENTS.md` closest to each changed file. It surfaces only P0 and P1 findings, so the severity budget belongs on things that hurt someone. Human reviewers should read it too.*
+
+**Everything in §2 is P0.** An invariant routed around in code is the highest-priority finding in this repository, above any bug.
+
+Flag, in this order:
+
+1. **A §2 invariant weakened or bypassed.** Anything that diagnoses rather than informs, or that lets a client-sent `system` message reach the model. A disclaimer that can be absent from a response or from the screen. Chat written to `localStorage`. `no_match_found` rendered as reassurance, or the word "safe" anywhere near an allergy state. `isOpenNow: null` drawn as "Closed". An LLM call placed before `EmergencyTriage`. A `reviewer` column filled by anything but a person. A secret behind a `VITE_` prefix, or a `.env` reaching a commit. A `sourceRef` written by the model rather than the server, or fixture data presented as live.
+2. **A test that cannot fail.** A test asserting an operation the code under test never performs; a test whose assertion holds for both the correct and the broken implementation; a `toThrow()` that would pass for the wrong reason. Say which mutation should turn it red — if none would, the test is decoration. This repository shipped one: it asserted `new URL(path, baseURL)` while the SDK concatenates, so it stayed green while the client silently bypassed the `/api/v1` route.
+3. **A claim the code does not support.** A comment, javadoc, README line, or WBS status describing behaviour that is not there. Doubly so for a measured number with no date, or a task marked done whose code does not exist. Stale documentation here has cost real afternoons.
+4. **Public-API traps (§11) reintroduced.** `distance` parsed with the wrong unit for its agency. `type=json` where `_type=json` is required. A 404 read as "the service is gone" rather than "the operation name is wrong". A radius parameter omitted.
+5. **Correctness where the language hides it.** A Java `record` cached into Redis's JDK serializer. A function passed to `Parallel.map` that can return `null` — `Mono.fromCallable` drops it and shifts every later index. `IllegalArgumentException` mapped to a client error.
+
+Do not flag:
+
+- Formatting, import order, or naming that matches the surrounding code (§8).
+- Missing defensive checks for cases that cannot happen. We validate at system boundaries only, on purpose (§8).
+- Korean prose in issue bodies, PR descriptions, or domain comments — that is the convention (§8).
+- The mistakes preserved on purpose in commit messages and comments. They are documentation, not debt.
+- Test count drift in prose. Assert against the runner, not the README.
+
+When a finding is uncertain, say so, and name the single observation that would settle it. A confident wrong finding costs more than an honest "I could not tell".
+
 ---
 
 ## 8. Code style
