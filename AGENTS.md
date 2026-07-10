@@ -230,6 +230,20 @@ Do not flag:
 - The mistakes preserved on purpose in commit messages and comments. They are documentation, not debt.
 - Test count drift in prose. Assert against the runner, not the README.
 
+**Worked examples — where the tiers actually land.** Each is a hypothetical pull request. The lesson is the boundary, so near-identical cases are paired: what separates them is the point.
+
+| A pull request that… | Tier | Why |
+|---|---|---|
+| renders `no_match_found` as plain text, no badge, no "safe" | *none* | Correct (§2-2). The state is not the finding; the rendering is. |
+| renders `no_match_found` with a green badge, or the word "safe" | **P0** | Reads as permission to take a drug the user may react to (§2-2). |
+| reads `VITE_NAVER_MAP_CLIENT_ID` in browser code | *none* | Public by design — the client ID, not the secret (§2-7 table). Flagging it is a false positive. |
+| puts a real secret behind a `VITE_` name (`…_SECRET`, `…_TOKEN`) | **P0** | Vite inlines it into the shipped bundle (§2-7). The build already refuses; the review says why. |
+| asserts something that holds for both the correct and the broken code | **P1** | A test that cannot fail. Our chat shipped exactly this — it asserted a URL operation the SDK never runs. Name the mutation that should turn it red; if none would, it guards nothing. |
+| replaces that with an assertion a real regression turns red | *none* | It now guards the invariant. |
+| renders `isOpenNow: null` as "Closed" | **P0** | Walks a sick person past an open pharmacy (§2-3). "Hours unknown" is the correct label. |
+| ships the chat's cold path (>100s) with no loading or progress state | **P1** | Escalated: the user reads a frozen screen as broken and leaves. A missing spinner on an instant local toggle is *none*. |
+| writes its description, or a domain comment, in Korean | *none* | The convention (§8). Not every difference is a defect. |
+
 When a finding is uncertain, say so, and name the single observation that would settle it. A confident wrong finding costs more than an honest "I could not tell".
 
 ---
