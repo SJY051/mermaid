@@ -117,8 +117,18 @@ class IngredientNormalizerTest {
             assertThat(normalizer.toSearchTerm("sodium chloride")).isEqualTo("Sodium Chloride");
         }
 
+        /**
+         * The second assertion pins a <b>known defect</b>, not a requirement.
+         *
+         * <p>허가정보 publishes {@code Aspirin} (119 products) and has never published {@code
+         * Acetylsalicylic Acid} (0). So the term this produces finds nothing, and {@code GET
+         * /drugs?ingredient=Aspirin} returns an empty list. The row is still in {@code synonyms.tsv}
+         * and unsigned, so nobody may flip it yet — DEV-309, spec §7-1 AR-02.
+         *
+         * <p>Do not "fix" the code to satisfy this line. Fix the dictionary, then this line.
+         */
         @Test
-        @DisplayName("a synonym is resolved before capitalisation")
+        @DisplayName("a synonym is resolved before capitalisation (the Aspirin case is a bug: DEV-309)")
         void resolvesSynonym() {
             assertThat(normalizer.toSearchTerm("paracetamol")).isEqualTo("Acetaminophen");
             assertThat(normalizer.toSearchTerm("Aspirin")).isEqualTo("Acetylsalicylic Acid");
