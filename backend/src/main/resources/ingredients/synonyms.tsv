@@ -13,6 +13,15 @@
 # row for "Acetaminophen Granules"; you DO need one for a different chemical name
 # or a salt that shares the allergen.
 #
+# The reviewer column is READ (IngredientNormalizer.isSigned). `TODO` or a blank
+# is not a name, and every unsigned row is listed in a WARN on every boot.
+#
+# An unsigned row still blocks, on purpose. Refusing to load it is the DANGEROUS
+# direction: drop `paracetamol` and a paracetamol allergy stops matching
+# Acetaminophen; drop `dexibuprofen` and word-boundary matching cannot see
+# "ibuprofen" inside it. These rows protect people. The risk in an unsigned
+# dictionary is the row that ISN'T HERE. See spec §7-1 AR-02.
+#
 # TODO(BE-1 + QA, DEV-305): review and extend before the demo. The list below is
 # a seed covering the ingredients our personas actually mention. Do not add a row
 # without checking it against 식약처 허가정보 `MAIN_INGR_ENG` / `ITEM_INGR_NAME` values.
@@ -21,6 +30,6 @@ paracetamol	acetaminophen	TODO	INN name; USAN and 허가정보 both use "Acetami
 apap	acetaminophen	TODO	Common US abbreviation on labels.
 ibuprofen lysine	ibuprofen	TODO	Salt form; same allergen. 허가정보 lists both.
 ibuprofen arginine	ibuprofen	TODO	Salt form; same allergen.
-dexibuprofen	ibuprofen	TODO	S-enantiomer of ibuprofen; cross-reactivity is expected. 허가정보 lists it separately.
+dexibuprofen	ibuprofen	TODO	S-enantiomer of ibuprofen — the same molecule, not a related drug. Basis is chemical identity, NOT drug-class cross-reactivity (we do no class reasoning: spec §7-1 AR-01). 허가정보 lists it separately, and word-boundary matching cannot see "ibuprofen" inside "dexibuprofen", so without this row the product is never blocked.
 asa	acetylsalicylic acid	TODO	Standard abbreviation.
 aspirin	acetylsalicylic acid	TODO	Brand-turned-generic; identical substance.

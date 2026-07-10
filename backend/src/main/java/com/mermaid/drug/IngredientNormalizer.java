@@ -6,7 +6,9 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -79,6 +81,9 @@ public class IngredientNormalizer {
                     "uncoated");
 
     private final Map<String, String> synonyms = new HashMap<>();
+
+    /** Rows loaded from a dictionary nobody has signed. See {@link #warnIfUnreviewed()}. */
+    private final List<String> unreviewedAliases = new ArrayList<>();
 
     public IngredientNormalizer() {
         loadSynonyms();
@@ -216,7 +221,8 @@ public class IngredientNormalizer {
                         .filter(line -> !line.isEmpty() && !line.startsWith("#"))
                         .forEach(this::putRow);
             }
-            log.info("loaded {} reviewed ingredient synonyms", synonyms.size());
+            log.info("loaded {} ingredient synonyms", synonyms.size());
+            warnIfUnreviewed();
         } catch (Exception e) {
             // A missing dictionary must not stop the app: it degrades matching, it does not break it.
             log.error("could not read {}", SYNONYMS, e);
@@ -230,6 +236,46 @@ public class IngredientNormalizer {
             return;
         }
         synonyms.put(canonicalize(cols[0]), canonicalize(cols[1]));
+        if (!isSigned(cols)) {
+            unreviewedAliases.add(cols[0].trim());
+        }
+    }
+
+    /** Column three is the reviewer's name. A blank, or the word {@code TODO}, is not a name. */
+    static boolean isSigned(String[] cols) {
+        return cols.length >= 3 && !cols[2].isBlank() && !"TODO".equalsIgnoreCase(cols[2].trim());
+    }
+
+    /**
+     * Says out loud what the file has been quietly admitting.
+     *
+     * <p>This column used to be parsed away and dropped, so a row nobody had checked behaved exactly
+     * like a row a pharmacist had signed. It still does — <b>deliberately.</b> Refusing to load an
+     * unsigned row is the dangerous direction, not the safe one: without {@code paracetamol →
+     * acetaminophen}, a paracetamol allergy silently fails to match {@code Acetaminophen} and the
+     * product is offered; without {@code dexibuprofen → ibuprofen}, word-boundary matching cannot see
+     * "ibuprofen" inside "dexibuprofen" and that product is offered too. These rows protect people.
+     * The danger in an unsigned dictionary is the row that <i>is not there</i>.
+     *
+     * <p>So they load, they block, and this warning fires on every boot until someone signs them.
+     * Spec §7-1 AR-02, task DEV-305.
+     */
+    private void warnIfUnreviewed() {
+        if (unreviewedAliases.isEmpty()) {
+            return;
+        }
+        log.warn(
+                "{} of {} synonym rows have no reviewer ({}). They still block — removing them would "
+                        + "stop blocking real allergens — but nobody has checked them, and nobody has "
+                        + "checked what is missing. See spec §7-1 AR-02.",
+                unreviewedAliases.size(),
+                synonyms.size(),
+                String.join(", ", unreviewedAliases));
+    }
+
+    /** Aliases whose reviewer column still reads {@code TODO}. They block anyway; see the warning. */
+    public List<String> unreviewedAliases() {
+        return List.copyOf(unreviewedAliases);
     }
 
     /**

@@ -2,6 +2,10 @@ package com.mermaid.drug;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.mermaid.profile.domain.MatchConfidence;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -9,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
 
 /**
  * The rule this class exists to enforce (spec §2-12): an allergy may block a medicine only on an
@@ -150,6 +155,75 @@ class IngredientNormalizerTest {
         @DisplayName("a name already canonical is EXACT")
         void alreadyCanonical() {
             assertThat(normalizer.normalize("ibuprofen").confidence()).isEqualTo(MatchConfidence.EXACT);
+        }
+    }
+
+    /**
+     * The dictionary claims every blocking row is human-reviewed (spec §2-12). Every reviewer column
+     * in it still reads {@code TODO}, and until now the loader parsed that column away and never
+     * looked at it — so an unchecked row and a signed one were indistinguishable to the code.
+     *
+     * <p>They still block. That is the safe direction and the tests below pin it: an unsigned row is
+     * the only thing standing between a paracetamol allergy and a box of acetaminophen. The danger in
+     * an unsigned dictionary is the row nobody wrote. Spec §7-1 AR-02.
+     */
+    @Nested
+    @DisplayName("unsigned rows are reported, and still block")
+    class Unreviewed {
+
+        @Test
+        @DisplayName("TODO is not a name, and neither is a blank")
+        void todoIsNotASignature() {
+            assertThat(IngredientNormalizer.isSigned("a\tb\tTODO\tsrc".split("\t"))).isFalse();
+            assertThat(IngredientNormalizer.isSigned("a\tb\ttodo\tsrc".split("\t"))).isFalse();
+            assertThat(IngredientNormalizer.isSigned("a\tb\t \tsrc".split("\t"))).isFalse();
+            assertThat(IngredientNormalizer.isSigned("a\tb".split("\t"))).isFalse();
+            assertThat(IngredientNormalizer.isSigned("a\tb\t김약사\tsrc".split("\t"))).isTrue();
+        }
+
+        @Test
+        @DisplayName("every unsigned alias still resolves — refusing to load it would un-block an allergen")
+        void unsignedRowsStillBlock() {
+            for (String alias : normalizer.unreviewedAliases()) {
+                assertThat(normalizer.normalize(alias).confidence())
+                        .as("'%s' has no reviewer, but dropping it would stop blocking a real allergen", alias)
+                        .isEqualTo(MatchConfidence.SYNONYM);
+            }
+        }
+
+        /**
+         * The whole point of this change is that the violation stops being silent, so the log line is
+         * the feature. Assert it, or a future tidy-up deletes it and nothing notices.
+         */
+        @Test
+        @DisplayName("boot says so out loud — the unsigned rows are named in a WARN")
+        void theWarningActuallyFires() {
+            Logger logger = (Logger) LoggerFactory.getLogger(IngredientNormalizer.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+            try {
+                new IngredientNormalizer();
+            } finally {
+                logger.detachAppender(appender);
+            }
+
+            assertThat(appender.list)
+                    .filteredOn(e -> e.getLevel() == Level.WARN)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message ->
+                            assertThat(message).contains("have no reviewer").contains("dexibuprofen"));
+        }
+
+        @Test
+        @DisplayName("the two rows whose absence would silently offer an allergen to the allergic")
+        void theLoadBearingRows() {
+            // Without `paracetamol → acetaminophen`, "Acetaminophen" never matches this user at all.
+            assertThat(normalizer.compare("Acetaminophen", normalizer.normalize("Paracetamol").key()).canBlock())
+                    .isTrue();
+            // Without `dexibuprofen → ibuprofen`, \b cannot see "ibuprofen" inside "dexibuprofen".
+            assertThat(normalizer.compare("Dexibuprofen", normalizer.normalize("Ibuprofen").key()).canBlock())
+                    .isTrue();
         }
     }
 
