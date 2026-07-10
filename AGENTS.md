@@ -191,6 +191,7 @@ The diff already says *what* changed. The subject line is for *why*.
 ## 7. Pull requests
 
 - One PR, one concern, small enough to review in one sitting.
+- **Before you open it, read your own diff against the [Review guidelines](#review-guidelines).** They are written for the author as much as the reviewer — the same P0/P1 lens, run by you first. This is the cheap catch: the reviewer and CI are the last line, not the first.
 - Fill the [PR template](.github/pull_request_template.md) checklist **by actually checking each item**. Ticking an unverified box is the same lie as §2-6.
 - Merge only on green CI (backend tests / frontend tests + typecheck + build / secret scan).
 - Review for: does this route around a §2 invariant; does new logic have tests; if it diverges from the spec, was `docs/specs/` updated with it.
@@ -202,7 +203,9 @@ An automated Codex review runs on every pull request. To aim one at a specific w
 
 ## Review guidelines
 
-*This heading is unnumbered on purpose: Codex looks for a section named exactly this, and applies the guidance from the `AGENTS.md` closest to each changed file. It surfaces only P0 and P1 findings, so the severity budget belongs on things that hurt someone. Human reviewers should read it too.*
+*This heading is unnumbered on purpose: Codex looks for a section named exactly this, and applies the guidance from the `AGENTS.md` closest to each changed file. It surfaces only P0 and P1 findings, so the severity budget belongs on things that hurt someone.*
+
+*One list, two readers. The reviewer runs it against your diff after you open the PR; you run it against your own diff before you do. They are not the same pass — you catch what you can see (a §2 invariant you knowingly touched, a test you didn't break to confirm), the reviewer catches what you're blind to (the logic error you'd not have written had you seen it). Doing both is not redundant; each layer stops a different class of mistake. Human reviewers read it too.*
 
 **Everything in §2 is P0.** An invariant routed around in code is the highest-priority finding in this repository, above any bug.
 
@@ -356,6 +359,7 @@ Everything above applies unchanged. In addition:
 - **Never fill the reviewer column** (§2-6) or any field meaning "a human checked this". Instead, gather the evidence that makes the human's check cheap.
 - **Stay in scope.** Tests, docs, fixtures, and git history are edited only when they are the named target of the task. Never `git add -A` — unrelated work gets swept into commits (it happened here).
 - **Report faithfully.** Failing tests are reported with their output; skipped steps are named as skipped. Audit each progress claim against an actual tool result before stating it.
+- **Self-review before you open a PR.** Walk your own diff through the [Review guidelines](#review-guidelines) — the same P0/P1 lens the Codex reviewer will use — and fix what you find before pushing. It will not catch what you're blind to; that is the reviewer's job. It will catch the invariant you knowingly touched and the half of a pair you fixed while missing the other.
 
 ### 13-2. How to brief a model on a task
 
