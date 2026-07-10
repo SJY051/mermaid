@@ -1,0 +1,42 @@
+# Local development infrastructure for mermAid.
+#
+#   docker compose up -d      # start MariaDB + Redis
+#   docker compose down       # stop
+#   docker compose down -v    # stop AND wipe data
+#
+# Spring Boot does NOT start these automatically — that is deliberate.
+# You run them, you can see them, you can debug them.
+
+services:
+  mariadb:
+    image: mariadb:11.4
+    container_name: mermaid-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-mermaid}
+      MARIADB_USER: ${MARIADB_USER:-mermaid}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-mermaid}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-root}
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./.data/mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  redis:
+    image: redis:7-alpine
+    container_name: mermaid-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./.data/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12

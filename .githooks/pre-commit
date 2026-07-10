@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# Blocks the two ways a key reaches a public repo: committing the file that holds it,
+# or pasting it into source. Enable once per clone:
+#
+#   git config core.hooksPath .githooks
+#
+# (bin/setup.sh does this for you.)
+
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+fail() {
+    echo ""
+    echo "  ✋ pre-commit blocked this commit."
+    echo "     $1"
+    echo ""
+    echo "     If you are certain it is a false positive:  git commit --no-verify"
+    echo "     Do not do that for anything that looks like a real key."
+    echo ""
+    exit 1
+}
+
+# 1. Files that must never be committed.
+for f in $staged; do
+    [ "$f" = ".env.example" ] && continue
+    case "$f" in
+        .env|.env.*|*/application-local.yml|*/application-local.yaml|*.pem|*.key|*.jks|*.p12)
+            fail "'$f' holds secrets. It should be gitignored — check .gitignore."
+            ;;
+    esac
+done
+
+# 2. Secret-shaped strings among the ADDED lines of the staged diff.
+added=$(git diff --cached -U0 | grep '^+' | grep -v '^+++' || true)
+[ -z "$added" ] && exit 0
+
+# Placeholders that appear in templates and docs are not credentials.
+placeholder='change-me|not-needed|YOUR_|example|xxxx|<.*>|\$\{'
+
+# NOTE: this loop must NOT be fed by a pipe. `... | while` runs in a subshell, so `fail`'s
+# `exit 1` would kill only the subshell and the hook would exit 0 — reporting the secret
+# and committing it anyway. A here-document keeps the loop in the current shell.
+while IFS= read -r pattern; do
+    [ -z "$pattern" ] && continue
+    hits=$(echo "$added" | grep -E "$pattern" || true)
+    [ -z "$hits" ] && continue
+    real=$(echo "$hits" | grep -Ev "$placeholder" || true)
+    [ -n "$real" ] && fail "A staged line looks like a real credential. Pattern: $pattern"
+done <<'PATTERNS'
+serviceKey=[A-Za-z0-9%+/=]{20,}
+sk-[A-Za-z0-9_-]{20,}
+gh[pousr]_[A-Za-z0-9]{30,}
+AIza[A-Za-z0-9_-]{30,}
+(API_KEY|SERVICE_KEY|SECRET|TOKEN|PASSWORD)[[:space:]]*[:=][[:space:]]*['"]?[A-Za-z0-9+/_-]{24,}
+PATTERNS
+
+exit 0

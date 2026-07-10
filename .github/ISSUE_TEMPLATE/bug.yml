@@ -1,0 +1,39 @@
+name: 버그 (Bug)
+description: 동작이 기대와 다릅니다
+title: '[Bug] '
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 무슨 일이 있었나요
+      description: 기대한 것과 실제로 일어난 것
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 재현 방법
+      placeholder: |
+        1. `docker compose up -d`
+        2. 백엔드 실행
+        3. GET /api/v1/facilities?lat=37.56&lng=126.97&type=pharmacy
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 로그 / 에러 메시지
+      description: 있는 그대로 붙여주세요. 잘라내지 말고요
+      render: text
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: 확인해봤나요
+      options:
+        - label: '`.env`를 채웠다'
+        - label: '`docker compose up -d`가 떠 있다'
+        - label: 스펙 §3의 함정 표를 읽었다 (`_type=json` vs `type=json`, Decoding 키, `ncpKeyId`)

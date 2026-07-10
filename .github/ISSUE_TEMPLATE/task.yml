@@ -1,0 +1,39 @@
+name: 작업 (Task)
+description: 구현해야 할 것을 하나 등록합니다
+title: '[Task] '
+labels: [task]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 무엇을 하나요
+      description: 완료했을 때 무엇이 달라지는지 한두 문장으로
+      placeholder: 약국 API 응답을 파싱해서 RawPharmacy 목록으로 만든다
+    validations:
+      required: true
+
+  - type: input
+    id: requirement
+    attributes:
+      label: 관련 요구사항
+      description: 스펙의 FR/NFR/SA 번호. 해당 없으면 비워두세요
+      placeholder: FR-02
+
+  - type: textarea
+    id: done
+    attributes:
+      label: 완료 기준
+      description: 무엇을 보면 끝난 줄 알 수 있나요. 가능하면 실행 가능한 명령으로
+      placeholder: |
+        - 실제 응답을 담은 테스트가 통과한다
+        - GET /api/v1/facilities?type=pharmacy 가 빈 배열이 아닌 것을 반환한다
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 참고
+      description: 함정, 관련 문서, 스펙의 어느 절
+      placeholder: |
+        스펙 §3 — 약국 API는 하루 1,000회. 실제 응답을 저장해두고 테스트하세요.

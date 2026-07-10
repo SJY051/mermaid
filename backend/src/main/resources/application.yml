@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: mermaid-backend
+
+  # Load the repo-root .env as a property source so ONE file feeds both
+  # `docker compose` and Spring. Optional: the app still starts without it
+  # (with empty keys) so `./gradlew test` works on a fresh clone and in CI.
+  # The `../` form is for running from backend/, the `./` form for the repo root.
+  config:
+    import:
+      - optional:file:../.env[.properties]
+      - optional:file:./.env[.properties]
+
+  datasource:
+    url: jdbc:mariadb://localhost:3306/${MARIADB_DATABASE:mermaid}
+    username: ${MARIADB_USER:mermaid}
+    password: ${MARIADB_PASSWORD:mermaid}
+    driver-class-name: org.mariadb.jdbc.Driver
+
+  jpa:
+    # Flyway owns the schema. JPA only checks that entities match it.
+    # Never set this to `update` — it silently drifts from the migrations,
+    # and our ERD deliverable is generated from the migrations.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+  cache:
+    type: redis
+    redis:
+      # Public API responses change slowly. 6h keeps us far under the
+      # 1,000/day pharmacy quota during a 5-person dev day.
+      time-to-live: 6h
+      cache-null-values: false
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: when-authorized
+
+logging:
+  level:
+    com.mermaid: DEBUG
+
+# ---------------------------------------------------------------
+# mermAid-specific configuration. Bound to typed @ConfigurationProperties
+# classes (LlmProperties, PublicApiProperties) — never read via @Value.
+# ---------------------------------------------------------------
+mermaid:
+  llm:
+    # Any OpenAI-compatible endpoint. See .env.example.
+    base-url: ${LLM_BASE_URL:https://opencode.ai/zen/go/v1}
+    api-key: ${LLM_API_KEY:}
+    model: ${LLM_MODEL:big-pickle}
+    timeout: 60s
+
+  public-api:
+    # IMPORTANT: this must be the DECODING key from data.go.kr.
+    # See PublicApiUriBuilder for why, and .env.example for the trap.
+    service-key: ${DATA_GO_KR_SERVICE_KEY:}
+
+    # 국립중앙의료원 전국 약국 정보 조회 서비스 (data.go.kr 15000576)
+    # NOTE: getParmacyLcinfoInqire has NO radius param. We clip by distance ourselves.
+    pharmacy-base-url: https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService
+
+    # 건강보험심사평가원 병원정보서비스 (data.go.kr 15001698) — has xPos/yPos/radius(m)
+    hospital-base-url: https://apis.data.go.kr/B551182/hospInfoServicev2
+
+    # 건강보험심사평가원 의료기관별상세정보서비스 (data.go.kr 15001699) — keyed by ykiho
+    # TODO(team): confirm the live version suffix (2.7 vs 2.8) on data.go.kr before
+    #             generating DTOs. See docs/specs/001-foundation/spec.md §3.
+    hospital-detail-base-url: https://apis.data.go.kr/B551182/MadmDtlInfoService2.8
+
+    # 식약처 의약품개요정보 e약은요 (data.go.kr 15075057) — narrative text, NO ingredients
+    # NOTE: this one uses `type=json`, not `_type=json`.
+    easy-drug-base-url: https://apis.data.go.kr/1471000/DrbEasyDrugInfoService
+
+    # 식약처 의약품 제품 허가정보 (data.go.kr 15095677) — structured ingredients (FR-04)
+    drug-permission-base-url: https://apis.data.go.kr/1471000/DrugPrdtPrmsnInfoService07
+
+---
+# Test profile: no external infra required.
+spring:
+  config:
+    activate:
+      on-profile: test
+  datasource:
+    url: jdbc:h2:mem:mermaid;MODE=MySQL;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+  flyway:
+    enabled: false
+  cache:
+    type: simple

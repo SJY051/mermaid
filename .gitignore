@@ -1,0 +1,62 @@
+# ---------------------------------------------------------------
+#  SECRETS — never commit these. This repo is PUBLIC.
+#  Real keys live in .env (root) and application-local.yml (backend).
+#  Both are ignored here. Templates are .env.example / *.example.
+# ---------------------------------------------------------------
+.env
+.env.*
+!.env.example
+**/application-local.yml
+**/application-local.yaml
+**/application-secret*.yml
+*.pem
+*.key
+*.p12
+*.jks
+
+# --- Java / Gradle ---
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/**/build/
+out/
+# NOTE: scoped to backend/. A bare `bin/` (the Eclipse convention) would swallow
+# our own bin/setup.sh at the repo root.
+backend/bin/
+*.log
+
+# --- Node ---
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+
+# --- IDE ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.classpath
+.project
+.settings/
+nbproject/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Tooling scratch ---
+.ruff_cache/
+.mypy_cache/
+__pycache__/
+*.pyc
+
+# --- Local data volumes (docker compose) ---
+.data/

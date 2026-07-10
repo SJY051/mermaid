@@ -1,0 +1,4 @@
+# Run `sdk env` in this directory to switch to the project's JDK.
+# If you don't use sdkman, ignore this file — Gradle's toolchain block
+# in backend/build.gradle pins Java 21 regardless of your local JDK.
+java=21.0.11-tem
