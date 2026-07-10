@@ -1,59 +1,134 @@
 /**
- * Mirrors the backend's `MedicalResponse` (spec §5-1).
+ * Mirrors the backend's `MermAidAnswerV1` contract (spec §5-4).
  *
- * Keep this in step with `backend/src/main/java/com/mermaid/chat/dto/MedicalResponse.java`.
- * If the two drift, the UI binds to fields that never arrive.
+ * Keep in step with `backend/src/main/java/com/mermaid/chat/dto/`. If the two drift,
+ * the UI binds to fields that never arrive.
  */
 
-export type Urgency = 'self_care' | 'see_pharmacist' | 'see_doctor' | 'emergency'
+export type UrgencyLevel = 'emergency' | 'urgent' | 'routine' | 'unknown'
+export type DataStatus = 'live' | 'fixture' | 'mixed' | 'unavailable'
+export type DataMode = 'live' | 'fixture'
+export type FacilityType = 'pharmacy' | 'hospital' | 'emergency_room'
+export type PrescriptionStatus = 'prescription' | 'otc' | 'unknown'
 
-export type FacilityType = 'pharmacy' | 'hospital'
+/**
+ * Four states, not a nullable warning (spec §2-12).
+ *
+ * `no_match_found` means "we did not find a match in the ingredient list we have".
+ * It does NOT mean the drug is safe. Never render it as reassurance.
+ */
+export type AllergyStatus = 'blocked' | 'warning' | 'no_match_found' | 'unknown'
 
-export interface Medication {
-  koreanName: string
-  englishIngredient: string
-  purpose: string
-  dosage: string
-  cautions: string[]
-  prescriptionRequired: boolean
-  /** Set when the drug hits one of the profile's avoided ingredients (FR-04). */
-  allergyWarning: string | null
+export interface AllergyCheck {
+  status: AllergyStatus
+  matchedIngredients: string[]
+  message: string
+}
+
+/** Where a fact came from. Every fact card carries one (spec §2-14). */
+export interface SourceRef {
+  id: string
+  provider: string
+  recordId: string | null
+  retrievedAt: string
+  dataMode: DataMode
+  title: string
+}
+
+export interface Ingredient {
+  nameKo: string | null
+  nameEn: string | null
+  normalizedKey: string | null
+  amount: number | string | null
+  unit: string | null
+}
+
+export interface DrugCard {
+  id: string
+  productNameKo: string
+  productNameEn: string | null
+  ingredients: Ingredient[]
+  indicationSummary: string | null
+  directionsSummary: string | null
+  /** Includes DUR contraindications (spec §2-10). */
+  warnings: string[]
+  prescriptionStatus: PrescriptionStatus
+  allergyCheck: AllergyCheck
+  sourceRefId: string
 }
 
 /**
- * Present when the assistant wants a map shown. `null` means no map.
+ * What the assistant asks the UI to do. An allowlist, not free-form (spec §2-11).
  *
- * This is a field rather than a tool call on purpose: a model that emits a tool call
- * leaves `content` empty, so a tool call and schema-constrained JSON can never share
- * one message. See spec §2-1.
+ * These are fields in the response, not provider tool calls: a tool-call message has
+ * empty `content` and so cannot also carry schema-constrained JSON.
  */
-export interface MapDirective {
-  type: FacilityType
-  radiusMeters: number
-  openNow: boolean
-  reason: string
+export type UiAction =
+  | { type: 'OPEN_FACILITY_MAP'; payload: { types: FacilityType[]; openNow: boolean; radiusM: number } }
+  | { type: 'APPLY_FACILITY_FILTERS'; payload: { types: FacilityType[]; openNow: boolean; radiusM: number } }
+  | { type: 'OPEN_DRUG_DETAIL'; payload: { drugId: string } }
+  | { type: 'SHOW_EMERGENCY_CALL'; payload: { phone: string; label: string } }
+  | { type: 'ASK_CLARIFYING_QUESTION'; payload: { question: string } }
+
+export interface Urgency {
+  level: UrgencyLevel
+  title: string
+  message: string
+  reasonCodes: string[]
+  actions: UiAction[]
 }
 
-export interface MedicalResponse {
-  reply: string
+export interface MermAidAnswer {
+  schemaVersion: '1.0'
+  answerId: string
+  language: 'en'
+  dataStatus: DataStatus
   urgency: Urgency
-  medications: Medication[]
-  map: MapDirective | null
+  summary: string
+  clarifyingQuestions: string[]
+  guidance: Array<{
+    id: string
+    title: string
+    body: string
+    evidence: 'official_data' | 'general_safety' | 'model_summary'
+    sourceRefIds: string[]
+  }>
+  drugs: DrugCard[]
+  uiActions: UiAction[]
+  sourceRefs: SourceRef[]
+  warnings: string[]
   /** Always present (SA-02). Render it. */
   disclaimer: string
 }
 
-/** What `GET /api/v1/facilities` returns. */
+// ---------------------------------------------------------------------------
+// GET /api/v1/facilities
+// ---------------------------------------------------------------------------
+
+export type OperationStatus = 'open' | 'closed' | 'unknown'
+export type StatusConfidence = 'official_realtime' | 'official_schedule' | 'inferred' | 'unknown'
+
+export interface FacilityOperation {
+  /** null means "we could not determine it" — never render null as "closed" (spec §2-13). */
+  isOpenNow: boolean | null
+  status: OperationStatus
+  statusConfidence: StatusConfidence
+  verifiedAt: string | null
+  notice: string
+}
+
 export interface Facility {
+  /** Provider-namespaced: `facility:nmc:12345` (spec §4-3). */
   id: string
   type: FacilityType
-  name: string
-  address: string
-  phone: string
-  latitude: number
-  longitude: number
+  nameKo: string
+  nameEn: string | null
+  addressKo: string | null
+  addressEn: string | null
+  phone: string | null
+  location: { lat: number; lng: number } | null
   /** Computed by the backend — no public API provides it. */
-  distanceMeters: number
-  /** Computed by the backend — no public API provides it either. */
-  openNow: boolean
+  distanceM: number | null
+  operation: FacilityOperation
+  source: SourceRef
 }

@@ -1,4 +1,26 @@
-@import 'tailwindcss';
+/* Astryx + Tailwind v4 coexistence.
+ *
+ * The layer order is the whole trick. Astryx's styles live in `astryx-base` and
+ * `astryx-theme`; Tailwind's utilities come last, so a `className="p-4 bg-surface"`
+ * override always wins without a specificity fight.
+ *
+ * `tailwind-theme.css` maps Astryx design tokens onto Tailwind utilities via
+ * `@theme inline` (a Tailwind v4 at-rule), which is why `bg-surface`, `text-primary`,
+ * and `rounded-lg` resolve to Astryx tokens rather than Tailwind's defaults.
+ *
+ * Do NOT collapse these back into the single `@import "tailwindcss"` form — that
+ * puts preflight and utilities in the wrong layers and Astryx components lose
+ * their styling. See node_modules/@astryxdesign/core/README.md.
+ */
+@layer reset, theme, base, astryx-base, astryx-theme, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import '@astryxdesign/core/reset.css';
+@import '@astryxdesign/core/astryx.css';
+@import '@astryxdesign/theme-neutral/theme.css';
+@import '@astryxdesign/core/tailwind-theme.css';
+@import 'tailwindcss/utilities.css' layer(utilities);
 
 :root {
   color-scheme: light dark;
