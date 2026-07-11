@@ -6,6 +6,12 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "frontend", "dev"],
       "port": 5173
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "backend/gradlew",
+      "runtimeArgs": ["-p", "backend", "bootRun"],
+      "port": 8080
     }
   ]
 }

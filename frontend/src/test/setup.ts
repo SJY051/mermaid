@@ -30,6 +30,25 @@ if (!globalThis.localStorage || !window.localStorage) {
   if (!window.localStorage) Object.defineProperty(window, 'localStorage', install)
 }
 
+/**
+ * jsdom implements no `matchMedia`, and astryx's theme hook calls it from `useSyncExternalStore`
+ * (any component that renders a Spinner or reads the theme). A minimal, standards-shaped stub is
+ * enough: never matches, supports both the modern and the legacy listener API.
+ */
+if (!window.matchMedia) {
+  window.matchMedia = (query: string): MediaQueryList =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList
+}
+
 // React Testing Library leaves the last render mounted. Two component tests in one file would
 // otherwise both match the same query, and the second would assert against the first one's DOM.
 afterEach(cleanup)

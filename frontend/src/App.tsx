@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type OpenAI from 'openai'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
+import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { Card } from '@astryxdesign/core/Card'
 import { parseAnswer, streamChat } from './lib/openaiClient'
@@ -24,15 +25,29 @@ export default function App() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [answer, setAnswer] = useState<MermAidAnswer | null>(null)
+  const [sendError, setSendError] = useState<string | null>(null)
+  const [elapsedS, setElapsedS] = useState(0)
 
   // Reserved so the profile endpoints have an identity to attach to (FR-04).
   void getDeviceId()
+
+  // A cold answer exceeds 100 seconds, and a screen that shows nothing moving for that long
+  // reads as broken — the user leaves and gets no care information (P1, Review guidelines).
+  // We cannot show real server progress (the proxy answers with a single validated chunk,
+  // spec §5-4), so the honest display is the one thing we actually know: elapsed time.
+  useEffect(() => {
+    if (!streaming) return
+    setElapsedS(0)
+    const timer = window.setInterval(() => setElapsedS((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [streaming])
 
   async function send() {
     if (!input.trim() || streaming) return
 
     setStreaming(true)
     setAnswer(null)
+    setSendError(null)
 
     const messages: OpenAI.ChatCompletionMessageParam[] = [{ role: 'user', content: input }]
 
@@ -45,7 +60,9 @@ export default function App() {
       // reach a medication card — see spec §5-4 and openaiClient.streamChat.
       setAnswer(parseAnswer(latest))
     } catch (e) {
-      setAnswer(parseAnswer(`Sorry — something went wrong. ${(e as Error).message}`))
+      // A failure is a failure — not an assistant answer. Dressing it up as one (the old
+      // behaviour) made errors look like medical responses with an "unavailable" badge.
+      setSendError((e as Error).message)
     } finally {
       setStreaming(false)
     }
@@ -80,12 +97,46 @@ export default function App() {
       />
 
       <Button
-        label={streaming ? 'Thinking…' : 'Ask'}
+        label={streaming ? 'Working…' : 'Ask'}
         variant="primary"
         isLoading={streaming}
         isDisabled={!input.trim()}
         onClick={send}
       />
+
+      {/* aria-live so a screen reader hears that something is happening — a silent wait
+          hides the safety information that an answer is on its way (P1, Review guidelines). */}
+      {streaming && (
+        <section data-testid="chat-progress" aria-live="polite" className="flex flex-col gap-2">
+          <ProgressBar isIndeterminate variant="accent" label="Waiting for the answer" />
+          <p className="text-sm text-primary">
+            Checking your symptoms against verified government drug data and writing an answer.
+          </p>
+          <p className="text-sm text-secondary">
+            {/* tabular-nums: the counter must not jitter as digits change. */}
+            <span className="tabular-nums">{elapsedS}s</span> — a first answer can take a minute
+            or two. Nothing is stuck.
+            {elapsedS >= 90 && (
+              <>
+                {' '}
+                Still working: the AI service is slow right now, but your question was received
+                and this screen will update by itself.
+              </>
+            )}
+          </p>
+        </section>
+      )}
+
+      {sendError && !streaming && (
+        <section data-testid="chat-error" className="flex flex-col gap-3">
+          <Banner
+            status="error"
+            title="We could not get an answer."
+            description={`Your question was not lost — it is still in the box above. Technical detail: ${sendError}`}
+          />
+          <Button label="Try again" variant="secondary" onClick={send} />
+        </section>
+      )}
 
       {answer && (
         <section className="flex flex-col gap-3">
