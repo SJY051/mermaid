@@ -57,16 +57,16 @@
   .seg { display:flex; border:1.5px solid var(--ink); border-radius:99px; overflow:hidden; margin:10px 12px 6px; font-size:10.5px; }
   .seg div { flex:1; text-align:center; padding:6px; }
   .seg .on { background:var(--ink); color:#fff; font-weight:700; }
-  .maplegend { display:flex; gap:8px; padding:0 14px 8px; font-size:9px; color:var(--dim); align-items:center; flex-wrap:wrap; }
+  .maplegend { display:flex; gap:8px; padding:0 14px 8px; font-size:10.5px; color:var(--mark); align-items:center; flex-wrap:wrap; }
   .sheet { border-top:2px solid var(--ink); border-radius:16px 16px 0 0; background:#fff; padding:10px 14px 12px; }
   .grab { width:36px; height:4px; border-radius:99px; background:var(--line); margin:0 auto 8px; }
   .li { display:flex; justify-content:space-between; padding:8px 2px; border-bottom:1px solid var(--soft); font-size:11px; align-items:center; }
   .st { color:var(--dim); font-size:10px; }
   .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
-  .empty { text-align:center; color:var(--dim); font-size:11px; padding:30px 20px; line-height:1.6; }
+  .empty { text-align:center; color:var(--mark); font-size:11px; padding:30px 20px; line-height:1.6; }
   .menu { position:absolute; right:10px; top:44px; width:170px; background:#fff; border:1.5px solid var(--ink); border-radius:10px; padding:6px; font-size:10.5px; box-shadow:0 6px 18px rgba(0,0,0,.12); z-index:2; }
   .menu div { padding:7px 8px; border-radius:6px; }
-  .menu .mut { color:var(--dim); font-size:9px; padding-top:2px; border-top:1px solid var(--soft); margin-top:4px; }
+  .menu .mut { color:var(--mark); font-size:10px; padding-top:3px; border-top:1px solid var(--soft); margin-top:4px; }
   .lbl { position:relative; }
   em { font-style:normal; background:#fff3c2; font-size:9.5px; padding:1px 4px; border-radius:4px; }
   /* dark frame */
@@ -155,6 +155,7 @@
           Your symptoms need immediate care. Do not wait for this app.
           <a class="call" href="tel:119">📞 Call 119</a>
           <div style="font-size:11px;color:var(--mark);margin-top:6px">nearest ER: 서울대병원 응급실 1.2km — tap for map</div>
+          <div class="prov" style="margin-top:4px">국립중앙의료원 · today</div>
         </div>
       </div>
       <div class="disc">General information, not medical advice · Emergency? Call 119</div>
