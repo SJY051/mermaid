@@ -153,11 +153,11 @@ describe('when the request fails', () => {
     expect(screen.getByRole('textbox')).toHaveValue('I have a headache')
   })
 
-  it('hides Try again when the backend says the failure is not retryable', async () => {
+  it('blocks resending an unchanged question the backend called non-retryable — until it is edited', async () => {
     const { stream, fail } = pendingStream()
     streamChatMock.mockReturnValue(stream())
     render(<App />)
-    await ask()
+    const user = await ask()
     fail(
       Object.assign(new Error('500'), {
         error: { code: 'INTERNAL_ERROR', message: 'Something broke on our side.', retryable: false, request_id: 'req-42' },
@@ -165,12 +165,19 @@ describe('when the request fails', () => {
     )
 
     const error = await screen.findByTestId('chat-error')
-    // The backend said retrying cannot help — offering the button anyway would be a lie
-    // that loops a sick person (types.ts: "Whether offering a 'try again' button is honest").
-    expect(error).toHaveTextContent(/trying again will not fix this one/i)
+    // The backend said resending this exact request cannot help — offering any resend button
+    // would be a lie that loops a sick person (types.ts: "Whether offering a 'try again'
+    // button is honest"). That covers the primary Ask button too, not just Try again.
+    expect(error).toHaveTextContent(/sending the same question again will not fix/i)
     expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /ask/i })).toBeDisabled()
     // The id that finds the server log, for the bug report.
     expect(error).toHaveTextContent('req-42')
+
+    // "Non-retryable" is about the unchanged request — editing the question is the recovery
+    // path (INPUT_TOO_LARGE: shorten it), so the block must lift on edit.
+    await user.type(screen.getByRole('textbox'), ' since yesterday')
+    expect(screen.getByRole('button', { name: /ask/i })).toBeEnabled()
   })
 
   it('retries from the error state and succeeds', async () => {

@@ -25,7 +25,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [answer, setAnswer] = useState<MermAidAnswer | null>(null)
-  const [sendError, setSendError] = useState<SendFailure | null>(null)
+  const [sendError, setSendError] = useState<(SendFailure & { forInput: string }) | null>(null)
   const [elapsedS, setElapsedS] = useState(0)
 
   // Reserved so the profile endpoints have an identity to attach to (FR-04).
@@ -42,8 +42,14 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [streaming])
 
+  // `retryable: false` means "this exact request will not succeed if resent" — so the block
+  // lifts the moment the question is edited. Locking Ask outright would trap the user whose
+  // correct next move IS an edit (INPUT_TOO_LARGE: shorten it and ask again).
+  const askBlocked =
+    sendError !== null && !sendError.retryable && input === sendError.forInput
+
   async function send() {
-    if (!input.trim() || streaming) return
+    if (!input.trim() || streaming || askBlocked) return
 
     setStreaming(true)
     setAnswer(null)
@@ -62,7 +68,7 @@ export default function App() {
     } catch (e) {
       // A failure is a failure — not an assistant answer. Dressing it up as one (the old
       // behaviour) made errors look like medical responses with an "unavailable" badge.
-      setSendError(describeSendFailure(e))
+      setSendError({ ...describeSendFailure(e), forInput: input })
     } finally {
       setStreaming(false)
     }
@@ -100,7 +106,7 @@ export default function App() {
         label={streaming ? 'Working…' : 'Ask'}
         variant="primary"
         isLoading={streaming}
-        isDisabled={!input.trim()}
+        isDisabled={!input.trim() || askBlocked}
         onClick={send}
       />
 
@@ -135,8 +141,9 @@ export default function App() {
             description={
               (sendError.retryable
                 ? 'Your question was not lost — it is still in the box above. '
-                : 'Trying again will not fix this one — the problem is on our side, not yours. ' +
-                  'Your question was not lost. ') + `Technical detail: ${sendError.message}`
+                : 'Sending the same question again will not fix this one. ' +
+                  'Edit your question to ask something different, or come back later. ') +
+              `Technical detail: ${sendError.message}`
             }
           />
           {sendError.requestId && (
