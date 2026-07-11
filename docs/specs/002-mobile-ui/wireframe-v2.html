@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>mermAid 모바일 와이어프레임 v2</title>
+<style>
+  :root { --ink:#2a2d33; --line:#c9ccd2; --soft:#eef0f3; --dim:#8a8f98; --mark:#5b6472;
+          --em:#c62828; --open:#2f9e44; --closed:#9aa0a8; --unk:#e0a800; }
+  * { box-sizing:border-box; margin:0; font-family:system-ui,'Apple SD Gothic Neo',sans-serif; }
+  body { background:#f7f8fa; color:var(--ink); padding:28px; }
+  h1 { font-size:18px; margin-bottom:4px; }
+  .note { font-size:12.5px; color:var(--dim); margin-bottom:10px; max-width:980px; line-height:1.5; }
+  .legend { display:flex; gap:14px; align-items:center; font-size:11px; margin-bottom:20px; flex-wrap:wrap; }
+  .legend b { font-size:11px; }
+  .sw { display:inline-block; width:11px; height:11px; border-radius:3px; vertical-align:-1px; margin-right:4px; }
+  .row { display:flex; gap:26px; overflow-x:auto; padding-bottom:20px; }
+  .frame { flex:0 0 300px; }
+  .frame h2 { font-size:13px; margin-bottom:8px; color:var(--mark); }
+  .phone { width:300px; height:640px; border:2px solid var(--ink); border-radius:22px;
+           background:#fff; display:flex; flex-direction:column; overflow:hidden; }
+  .top { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+  .top b { font-size:14px; }
+  .chip { font-size:9.5px; border:1px solid var(--line); border-radius:99px; padding:2px 7px; color:var(--dim); }
+  .spacer { flex:1; }
+  .icon { width:22px; height:22px; border:1.5px solid var(--mark); border-radius:6px; flex:none; }
+  .body { flex:1; overflow:hidden; padding:12px; display:flex; flex-direction:column; gap:10px; background:var(--soft); }
+  .bubble { max-width:82%; border:1px solid var(--line); background:#fff; border-radius:14px; padding:9px 11px; font-size:11.5px; line-height:1.45; }
+  .me { align-self:flex-end; background:#e3e6ea; border-radius:14px 14px 3px 14px; }
+  .ai { align-self:flex-start; border-radius:14px 14px 14px 3px; }
+  .card { border:1.5px solid var(--mark); border-radius:12px; background:#fff; padding:10px; font-size:11px; }
+  .card .nm { font-weight:700; font-size:12.5px; }
+  .card .en { color:var(--dim); font-size:10.5px; margin-bottom:6px; }
+  .allergy { border:1px dashed var(--dim); border-radius:8px; padding:5px 7px; font-size:10px; color:var(--mark); margin:6px 0; }
+  .blocked { border:1.5px solid var(--em); background:#fdf1f1; color:var(--em); font-weight:600; border-style:solid; }
+  .prov { display:inline-flex; align-items:center; gap:4px; font-size:9px; border:1px solid var(--ink);
+          border-radius:99px; padding:2px 8px; margin-top:7px; font-weight:600; }
+  .prov::before { content:"✓"; }
+  .disc { border-top:1px solid var(--line); background:#fff; padding:6px 12px; font-size:9.5px; color:var(--dim); text-align:center; }
+  .composer { display:flex; gap:8px; padding:10px 12px; background:#fff; }
+  .input { flex:1; border:1.5px solid var(--line); border-radius:99px; padding:9px 12px; font-size:11px; color:var(--dim); }
+  .send { width:36px; height:36px; border-radius:99px; background:var(--ink); flex:none; }
+  .tabs { display:flex; border-top:1.5px solid var(--ink); background:#fff; }
+  .tab { flex:1; text-align:center; padding:9px 0 11px; font-size:9.5px; color:var(--dim); }
+  .tab.on { color:var(--ink); font-weight:700; }
+  .tab .ic { width:19px; height:19px; border:1.5px solid currentColor; border-radius:6px; margin:0 auto 3px; }
+  .wait { align-self:flex-start; width:82%; }
+  .bar { height:4px; border-radius:99px; background:repeating-linear-gradient(90deg,var(--mark) 0 14px,var(--line) 14px 28px); margin:8px 0 6px; }
+  .sec { color:var(--dim); font-size:10px; font-variant-numeric:tabular-nums; }
+  .er { border:2.5px solid var(--em); background:#fff; border-radius:12px; padding:10px; font-size:11px; }
+  .er b { display:block; font-size:13px; margin-bottom:3px; color:var(--em); }
+  .call { display:block; text-align:center; border-radius:99px; background:var(--em); color:#fff; padding:10px; font-size:12.5px; font-weight:700; margin-top:8px; }
+  .map { flex:1; background:repeating-conic-gradient(var(--soft) 0 25%, #fff 0 50%) 0 0/26px 26px; position:relative; }
+  .pin { position:absolute; width:14px; height:14px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); }
+  .pharm { border-radius:50%; }
+  .hosp  { border-radius:3px; }
+  .er-pin{ transform:rotate(45deg); border-radius:2px; }
+  .seg { display:flex; border:1.5px solid var(--ink); border-radius:99px; overflow:hidden; margin:10px 12px 6px; font-size:10.5px; }
+  .seg div { flex:1; text-align:center; padding:6px; }
+  .seg .on { background:var(--ink); color:#fff; font-weight:700; }
+  .maplegend { display:flex; gap:8px; padding:0 14px 8px; font-size:9px; color:var(--dim); align-items:center; flex-wrap:wrap; }
+  .sheet { border-top:2px solid var(--ink); border-radius:16px 16px 0 0; background:#fff; padding:10px 14px 12px; }
+  .grab { width:36px; height:4px; border-radius:99px; background:var(--line); margin:0 auto 8px; }
+  .li { display:flex; justify-content:space-between; padding:8px 2px; border-bottom:1px solid var(--soft); font-size:11px; align-items:center; }
+  .st { color:var(--dim); font-size:10px; }
+  .dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:5px; }
+  .empty { text-align:center; color:var(--dim); font-size:11px; padding:30px 20px; line-height:1.6; }
+  .menu { position:absolute; right:10px; top:44px; width:170px; background:#fff; border:1.5px solid var(--ink); border-radius:10px; padding:6px; font-size:10.5px; box-shadow:0 6px 18px rgba(0,0,0,.12); z-index:2; }
+  .menu div { padding:7px 8px; border-radius:6px; }
+  .menu .mut { color:var(--dim); font-size:9px; padding-top:2px; border-top:1px solid var(--soft); margin-top:4px; }
+  .lbl { position:relative; }
+  em { font-style:normal; background:#fff3c2; font-size:9.5px; padding:1px 4px; border-radius:4px; }
+  /* dark frame */
+  .dark { background:#17191d; color:#e8eaee; }
+  .dark .top { border-color:#33363c; }
+  .dark .body { background:#1e2126; }
+  .dark .li { border-color:#2a2d33; }
+  .dark .st, .dark .disc { color:#8a8f98; }
+  .dark .disc { background:#17191d; border-color:#33363c; }
+  .dark .tabs { background:#17191d; border-color:#e8eaee; }
+  .dark .tab.on { color:#fff; }
+  .dark .set { border:1px solid #33363c; border-radius:12px; padding:10px 12px; font-size:11px; }
+  .dark .set b { font-size:11.5px; display:block; margin-bottom:2px; }
+  .tog { float:right; width:30px; height:17px; border-radius:99px; background:#4a4f57; position:relative; }
+  .tog.on { background:var(--mark); }
+  .tog::after { content:""; position:absolute; top:2px; left:2px; width:13px; height:13px; border-radius:50%; background:#fff; }
+  .tog.on::after { left:auto; right:2px; }
+</style>
+</head>
+<body>
+<h1>mermAid 모바일 와이어프레임 v2 — 무채색 바탕 + 의미 컬러</h1>
+<p class="note">
+  v1 피드백 반영: <em>색 = 의미, 장식 금지.</em> 탭 4개(Settings 추가 — 다크 토글·언어·알레르기 프로필), 지도 핀은 <em>모양=종류 / 채움=영업 상태</em>.
+</p>
+<div class="legend">
+  <b>컬러 규칙:</b>
+  <span><span class="sw" style="background:var(--em)"></span>빨강 = 응급·알레르기 차단 <b>뿐</b></span>
+  <span><span class="sw" style="background:var(--open)"></span>초록 = "지금 영업 중" <b>뿐</b> — 알레르기 근처 금지(§2-2 "안전"으로 읽힘)</span>
+  <span><span class="sw" style="background:var(--unk)"></span>호박 = 불확실(시간 미상·확인 불가)</span>
+  <span><span class="sw" style="background:var(--mark)"></span>나머지 전부 무채색</span>
+  <span style="color:var(--dim)">| 핀 모양: ● 약국 · ■ 병원 · ◆ 응급실</span>
+</div>
+<div class="row">
+
+  <!-- 1. 챗 -->
+  <div class="frame"><h2>1 · 챗 (차단 카드 = 빨강의 두 번째 용처)</h2>
+    <div class="phone">
+      <div class="top"><b>mermAid</b><span class="chip">sample data</span><span class="spacer"></span><div class="icon"></div></div>
+      <div class="body">
+        <div class="bubble me">I have a headache, allergic to ibuprofen</div>
+        <div class="bubble ai">One option is safe to look at with a pharmacist… another contains an ingredient you listed.</div>
+        <div class="card">
+          <div class="nm">삼남아세트아미노펜정</div>
+          <div class="en">Acetaminophen · OTC</div>
+          <div class="allergy">No match found in your listed allergies — not a guarantee, confirm with a pharmacist.</div>
+          <div class="prov">식약처 · 2026-07-11</div>
+        </div>
+        <div class="card" style="border-color:var(--em)">
+          <div class="nm">나르펜정400</div>
+          <div class="en">Ibuprofen · OTC</div>
+          <div class="allergy blocked">⛔ Contains Ibuprofen — an allergy you listed</div>
+          <div class="prov">식약처 · 2026-07-11</div>
+        </div>
+      </div>
+      <div class="disc">General information, not medical advice · Emergency? Call 119</div>
+      <div class="composer"><div class="input">Describe your symptoms…</div><div class="send"></div></div>
+      <div class="tabs"><div class="tab on"><div class="ic"></div>Chat</div><div class="tab"><div class="ic"></div>Map</div><div class="tab"><div class="ic"></div>Saved</div><div class="tab"><div class="ic"></div>Settings</div></div>
+    </div>
+  </div>
+
+  <!-- 2. 챗 대기 -->
+  <div class="frame"><h2>2 · 챗 (100초 대기 — 무채색 유지)</h2>
+    <div class="phone">
+      <div class="top"><b>mermAid</b><span class="spacer"></span><div class="icon"></div></div>
+      <div class="body">
+        <div class="bubble me">I have a headache and mild fever</div>
+        <div class="bubble ai wait">
+          Checking government drug data and writing your answer.
+          <div class="bar"></div>
+          <div class="sec">17s — a first answer can take a minute or two. Nothing is stuck.</div>
+        </div>
+      </div>
+      <div class="disc">General information, not medical advice · Emergency? Call 119</div>
+      <div class="composer"><div class="input" style="opacity:.5">Working…</div><div class="send" style="opacity:.4"></div></div>
+      <div class="tabs"><div class="tab on"><div class="ic"></div>Chat</div><div class="tab"><div class="ic"></div>Map</div><div class="tab"><div class="ic"></div>Saved</div><div class="tab"><div class="ic"></div>Settings</div></div>
+    </div>
+  </div>
+
+  <!-- 3. 응급 -->
+  <div class="frame"><h2>3 · 응급 (빨강의 첫 번째 용처)</h2>
+    <div class="phone">
+      <div class="top"><b>mermAid</b><span class="spacer"></span><div class="icon"></div></div>
+      <div class="body">
+        <div class="bubble me">crushing chest pain, can't breathe</div>
+        <div class="er">
+          <b>⚠ Call 119 now</b>
+          Your symptoms need immediate care. Do not wait for this app.
+          <span class="call">📞 Call 119</span>
+          <div style="font-size:9.5px;color:var(--dim);margin-top:6px">nearest ER: 서울대병원 응급실 1.2km — tap for map</div>
+        </div>
+      </div>
+      <div class="disc">General information, not medical advice · Emergency? Call 119</div>
+      <div class="composer"><div class="input">Describe your symptoms…</div><div class="send"></div></div>
+      <div class="tabs"><div class="tab on"><div class="ic"></div>Chat</div><div class="tab"><div class="ic"></div>Map</div><div class="tab"><div class="ic"></div>Saved</div><div class="tab"><div class="ic"></div>Settings</div></div>
+    </div>
+  </div>
+
+  <!-- 4. 지도 -->
+  <div class="frame"><h2>4 · 지도 (모양=종류 · 채움=상태)</h2>
+    <div class="phone">
+      <div class="top"><b>Map</b><span class="chip">Centred on you</span><span class="spacer"></span><div class="icon"></div></div>
+      <div class="seg"><div class="on">Pharmacies</div><div>Hospitals</div><div>Open now ✓</div></div>
+      <div class="maplegend">
+        <span><span class="dot" style="background:var(--open)"></span>open</span>
+        <span><span class="dot" style="background:var(--unk)"></span>hours unknown</span>
+        <span><span class="dot" style="background:var(--closed)"></span>closed</span>
+      </div>
+      <div class="map">
+        <div class="pin pharm" style="left:34%;top:26%;background:var(--open)"></div>
+        <div class="pin pharm" style="left:60%;top:38%;background:var(--unk)"></div>
+        <div class="pin hosp"  style="left:46%;top:52%;background:var(--open)"></div>
+        <div class="pin er-pin" style="left:70%;top:60%;background:var(--open)"></div>
+        <div class="pin pharm" style="left:28%;top:64%;background:var(--closed)"></div>
+      </div>
+      <div class="sheet">
+        <div class="grab"></div>
+        <div style="font-weight:700;font-size:12.5px"><span class="dot" style="background:var(--open)"></span>가나약국</div>
+        <div class="st">Open now · 140m · 02-000-0000</div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <span class="chip" style="border-color:var(--ink);color:var(--ink)">📞 Call</span>
+          <span class="chip" style="border-color:var(--ink);color:var(--ink)">☆ Save</span>
+          <span class="chip">Directions ↗</span>
+        </div>
+        <div class="prov">국립중앙의료원 · today</div>
+      </div>
+      <div class="tabs"><div class="tab"><div class="ic"></div>Chat</div><div class="tab on"><div class="ic"></div>Map</div><div class="tab"><div class="ic"></div>Saved</div><div class="tab"><div class="ic"></div>Settings</div></div>
+    </div>
+  </div>
+
+  <!-- 5. Saved -->
+  <div class="frame"><h2>5 · Saved (상태 점 재사용)</h2>
+    <div class="phone">
+      <div class="top lbl"><b>Saved</b><span class="spacer"></span><div class="icon"></div>
+        <div class="menu">
+          <div>＋ New conversation</div>
+          <div>This tab's conversation</div>
+          <div class="mut">Conversations live only in this tab and are never uploaded. Closing the tab deletes them.</div>
+        </div>
+      </div>
+      <div class="body" style="background:#fff;padding:0 14px">
+        <div class="li"><div><b style="font-size:11.5px">가나약국</b><div class="st">집 앞 · pharmacy</div></div><div class="st"><span class="dot" style="background:var(--unk)"></span>Hours unknown</div></div>
+        <div class="li"><div><b style="font-size:11.5px">서울대병원</b><div class="st">hospital</div></div><div class="st"><span class="dot" style="background:var(--open)"></span>Open now</div></div>
+        <div class="empty">저장 목록은 이 기기에 남습니다.<br>운영시간은 열 때마다 다시 확인합니다.</div>
+      </div>
+      <div class="tabs"><div class="tab"><div class="ic"></div>Chat</div><div class="tab"><div class="ic"></div>Map</div><div class="tab on"><div class="ic"></div>Saved</div><div class="tab"><div class="ic"></div>Settings</div></div>
+    </div>
+  </div>
+
+  <!-- 6. Settings (다크) -->
+  <div class="frame"><h2>6 · Settings — 다크 모드로 렌더 (토글 시연 겸)</h2>
+    <div class="phone dark">
+      <div class="top"><b>Settings</b><span class="spacer"></span></div>
+      <div class="body">
+        <div class="set"><b>Appearance <span class="tog on"></span></b><span class="st">Dark — follows your device unless you choose</span></div>
+        <div class="set"><b>Language</b><span class="st">English (한국어 — coming later)</span></div>
+        <div class="set">
+          <b>Remember my allergies <span class="tog"></span></b>
+          <span class="st">OFF by default. When off, nothing is stored or sent.</span>
+          <div style="margin-top:6px;font-size:10px;color:#c9ccd2">ibuprofen · aspirin <span class="st">(this session only)</span></div>
+        </div>
+        <div class="set"><b>About</b><span class="st">Sources: 식약처 · 심평원 · 국립중앙의료원. This app informs — it never diagnoses.</span></div>
+      </div>
+      <div class="disc">General information, not medical advice · Emergency? Call 119</div>
+      <div class="tabs"><div class="tab"><div class="ic"></div>Chat</div><div class="tab"><div class="ic"></div>Map</div><div class="tab"><div class="ic"></div>Saved</div><div class="tab on"><div class="ic"></div>Settings</div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
