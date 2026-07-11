@@ -400,6 +400,14 @@ Both vendors now recommend the same structure for larger work: one model **plans
 
 **Both families.** Leaner prompts measurably win: OpenAI reports 10–15% better evaluations with 41–66% fewer tokens from trimming system prompts; Anthropic reports over-prescriptive prompts written for older models actively degrade current ones. State each instruction once, point at documents instead of pasting them, and always give the autonomy boundary (§13-2).
 
+### 13-6. Three rules when the agent writes the code
+
+An agent amplifies skill in both directions: it also lets you ship a plausible PR you cannot explain. Three rules keep that from happening here:
+
+1. **Understanding before output.** Your first task with an agent in a new area is to have it *explain* the code — then summarize it back in your own words. If you can't, you're not ready to change it.
+2. **The PR description is yours.** Write what changed and why in your own language; a pasted agent summary is not a description, and reviewers treat it as an unreviewed change. This is a merge condition.
+3. **A red test means the code is suspect, not the test.** Never let an agent weaken, skip, or delete a test to get green (§10). If you believe the test itself is wrong, say so to the lead before touching it.
+
 ---
 
 ## 14. When stuck
