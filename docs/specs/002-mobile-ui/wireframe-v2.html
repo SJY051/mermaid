@@ -50,10 +50,12 @@
   .er b { display:block; font-size:13px; margin-bottom:3px; color:var(--em); }
   .call { display:block; text-align:center; border-radius:99px; background:var(--em); color:#fff; padding:10px; font-size:12.5px; font-weight:700; margin-top:8px; }
   .map { flex:1; background:repeating-conic-gradient(var(--soft) 0 25%, #fff 0 50%) 0 0/26px 26px; position:relative; }
-  .pin { position:absolute; width:14px; height:14px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); }
+  .pin { position:absolute; width:18px; height:18px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; }
+  .pin span { color:var(--ink); font-size:10px; font-weight:800; line-height:1; }
   .pharm { border-radius:50%; }
   .hosp  { border-radius:3px; }
   .er-pin{ transform:rotate(45deg); border-radius:2px; }
+  .er-pin span { transform:rotate(-45deg); }
   .seg { display:flex; border:1.5px solid var(--ink); border-radius:99px; overflow:hidden; margin:10px 12px 6px; font-size:10.5px; }
   .seg div { flex:1; text-align:center; padding:6px; }
   .seg .on { background:var(--ink); color:#fff; font-weight:700; }
@@ -172,18 +174,18 @@
       <div class="seg"><div class="on">All</div><div>Pharmacies</div><div>Hospitals</div><div>ER</div></div>
       <div class="maplegend" style="justify-content:space-between">
         <span style="display:flex;gap:8px">
-          <span><span class="dot" style="background:var(--open)"></span>open</span>
-          <span><span class="dot" style="background:var(--unk)"></span>hours unknown</span>
-          <span><span class="dot" style="background:var(--closed)"></span>closed</span>
+          <span><span class="dot" style="background:var(--open)"></span>✓ open</span>
+          <span><span class="dot" style="background:var(--unk)"></span>? hours unknown</span>
+          <span><span class="dot" style="background:var(--closed)"></span>✕ closed</span>
         </span>
         <span class="chip">Open now: off</span>
       </div>
       <div class="map">
-        <div class="pin pharm" style="left:34%;top:26%;background:var(--open)"></div>
-        <div class="pin pharm" style="left:60%;top:38%;background:var(--unk)"></div>
-        <div class="pin hosp"  style="left:46%;top:52%;background:var(--open)"></div>
-        <div class="pin er-pin" style="left:70%;top:60%;background:var(--open)"></div>
-        <div class="pin pharm" style="left:28%;top:64%;background:var(--closed)"></div>
+        <div class="pin pharm"  style="left:34%;top:26%;background:var(--open)"   aria-label="가나약국, pharmacy, open now"><span>✓</span></div>
+        <div class="pin pharm"  style="left:60%;top:38%;background:var(--unk)"    aria-label="pharmacy, hours unknown"><span>?</span></div>
+        <div class="pin hosp"   style="left:46%;top:52%;background:var(--open)"   aria-label="hospital, open now"><span>✓</span></div>
+        <div class="pin er-pin" style="left:70%;top:60%;background:var(--open)"   aria-label="서울대병원 응급실, ER, open now"><span>✓</span></div>
+        <div class="pin pharm"  style="left:28%;top:64%;background:var(--closed)" aria-label="pharmacy, closed"><span>✕</span></div>
       </div>
       <div class="sheet">
         <div class="grab"></div>
@@ -212,9 +214,9 @@
         </div>
       </div>
       <div class="body" style="background:#fff;padding:0 14px">
-        <div class="li"><div><b style="font-size:11.5px">가나약국</b><div class="st">집 앞 · pharmacy</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--unk)"></span>Hours unknown</div></div>
-        <div class="li"><div><b style="font-size:11.5px">서울대병원</b><div class="st">hospital</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--open)"></span>Open now</div></div>
-        <div class="empty">저장 목록은 이 기기에 남습니다.<br>운영시간은 열 때마다 다시 확인합니다.</div>
+        <div class="li"><div><b style="font-size:11.5px">가나약국</b><div class="st">Near home · pharmacy</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--unk)"></span>? Hours unknown</div></div>
+        <div class="li"><div><b style="font-size:11.5px">서울대병원</b><div class="st">hospital</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--open)"></span>✓ Open now</div></div>
+        <div class="empty">Your saved places stay on this device. We re-check opening hours each time you open one.</div>
       </div>
       <div class="disc">General information, not medical advice · Emergency? Call 119</div>
       <div class="tabs"><div class="tab"><div class="ic"></div>Chat</div><div class="tab"><div class="ic"></div>Map</div><div class="tab on"><div class="ic"></div>Saved</div><div class="tab"><div class="ic"></div>Settings</div></div>
