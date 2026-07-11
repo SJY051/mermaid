@@ -5,7 +5,7 @@
 <title>mermAid 모바일 와이어프레임 v2</title>
 <style>
   :root { --ink:#2a2d33; --line:#c9ccd2; --soft:#eef0f3; --dim:#8a8f98; --mark:#5b6472;
-          --em:#c62828; --open:#2f9e44; --closed:#9aa0a8; --unk:#e0a800; }
+          --em:#c62828; --open:#1a7a34; --closed:#9aa0a8; --unk:#e0a800; }
   * { box-sizing:border-box; margin:0; font-family:system-ui,'Apple SD Gothic Neo',sans-serif; }
   body { background:#f7f8fa; color:var(--ink); padding:28px; }
   h1 { font-size:18px; margin-bottom:4px; }
@@ -52,6 +52,9 @@
   .map { flex:1; background:repeating-conic-gradient(var(--soft) 0 25%, #fff 0 50%) 0 0/26px 26px; position:relative; }
   .pin { position:absolute; width:18px; height:18px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; }
   .pin span { color:var(--ink); font-size:10px; font-weight:800; line-height:1; }
+  .pin:focus { outline:2px solid var(--ink); outline-offset:2px; }
+  .st-open { background:var(--open); } .st-open span { color:#fff; } /* white on deep green ≥4.5:1 */
+  .st-unk { background:var(--unk); } .st-closed { background:var(--closed); }
   .pharm { border-radius:50%; }
   .hosp  { border-radius:3px; }
   .er-pin{ transform:rotate(45deg); border-radius:2px; }
@@ -181,11 +184,11 @@
         <span class="chip">Open now: off</span>
       </div>
       <div class="map">
-        <div class="pin pharm"  style="left:34%;top:26%;background:var(--open)"   aria-label="가나약국, pharmacy, open now"><span>✓</span></div>
-        <div class="pin pharm"  style="left:60%;top:38%;background:var(--unk)"    aria-label="pharmacy, hours unknown"><span>?</span></div>
-        <div class="pin hosp"   style="left:46%;top:52%;background:var(--open)"   aria-label="hospital, open now"><span>✓</span></div>
-        <div class="pin er-pin" style="left:70%;top:60%;background:var(--open)"   aria-label="서울대병원 응급실, ER, open now"><span>✓</span></div>
-        <div class="pin pharm"  style="left:28%;top:64%;background:var(--closed)" aria-label="pharmacy, closed"><span>✕</span></div>
+        <div class="pin pharm st-open"   role="button" tabindex="0" style="left:34%;top:26%" aria-label="가나약국, pharmacy, open now"><span>✓</span></div>
+        <div class="pin pharm st-unk"    role="button" tabindex="0" style="left:60%;top:38%" aria-label="pharmacy, hours unknown"><span>?</span></div>
+        <div class="pin hosp st-open"    role="button" tabindex="0" style="left:46%;top:52%" aria-label="hospital, open now"><span>✓</span></div>
+        <div class="pin er-pin st-open"  role="button" tabindex="0" style="left:70%;top:60%" aria-label="서울대병원 응급실, ER, open now"><span>✓</span></div>
+        <div class="pin pharm st-closed" role="button" tabindex="0" style="left:28%;top:64%" aria-label="pharmacy, closed"><span>✕</span></div>
       </div>
       <div class="sheet">
         <div class="grab"></div>
