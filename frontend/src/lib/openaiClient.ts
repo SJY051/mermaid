@@ -59,6 +59,42 @@ export async function* streamChat(
   }
 }
 
+export interface SendFailure {
+  message: string
+  /** The backend's own verdict on whether trying again can help (types.ts `ApiError`). */
+  retryable: boolean
+  /** For bug reports — the log line is found by this id. */
+  requestId: string | null
+}
+
+/**
+ * Reads the proxy's error envelope out of whatever `streamChat` threw.
+ *
+ * The proxy answers failures with the `ApiError` envelope, and the SDK surfaces the envelope's
+ * inner `error` object as `APIError.error` — `retryable` is the contract for whether a
+ * "Try again" button is honest, so the screen must consult it rather than always offering one.
+ *
+ * A transport failure (server down, non-JSON body) carries no verdict. Retrying is the safe
+ * default there: the backend says `retryable: false` explicitly whenever a retry cannot help.
+ */
+export function describeSendFailure(e: unknown): SendFailure {
+  const inner = (e as { error?: unknown } | null)?.error
+  if (inner && typeof inner === 'object' && typeof (inner as { retryable?: unknown }).retryable === 'boolean') {
+    const body = inner as { message?: unknown; retryable: boolean; request_id?: unknown }
+    return {
+      message:
+        typeof body.message === 'string' && body.message ? body.message : (e as Error).message,
+      retryable: body.retryable,
+      requestId: typeof body.request_id === 'string' ? body.request_id : null,
+    }
+  }
+  return {
+    message: e instanceof Error ? e.message : String(e),
+    retryable: true,
+    requestId: null,
+  }
+}
+
 export const FALLBACK_DISCLAIMER =
   'This is general information, not medical advice or a diagnosis. ' +
   'Consult a licensed pharmacist or doctor. In an emergency, call 119.'

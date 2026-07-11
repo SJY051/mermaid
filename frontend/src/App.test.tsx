@@ -153,6 +153,26 @@ describe('when the request fails', () => {
     expect(screen.getByRole('textbox')).toHaveValue('I have a headache')
   })
 
+  it('hides Try again when the backend says the failure is not retryable', async () => {
+    const { stream, fail } = pendingStream()
+    streamChatMock.mockReturnValue(stream())
+    render(<App />)
+    await ask()
+    fail(
+      Object.assign(new Error('500'), {
+        error: { code: 'INTERNAL_ERROR', message: 'Something broke on our side.', retryable: false, request_id: 'req-42' },
+      }),
+    )
+
+    const error = await screen.findByTestId('chat-error')
+    // The backend said retrying cannot help — offering the button anyway would be a lie
+    // that loops a sick person (types.ts: "Whether offering a 'try again' button is honest").
+    expect(error).toHaveTextContent(/trying again will not fix this one/i)
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    // The id that finds the server log, for the bug report.
+    expect(error).toHaveTextContent('req-42')
+  })
+
   it('retries from the error state and succeeds', async () => {
     const first = pendingStream()
     const second = pendingStream()

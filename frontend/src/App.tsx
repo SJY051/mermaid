@@ -5,7 +5,7 @@ import { Button } from '@astryxdesign/core/Button'
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { Card } from '@astryxdesign/core/Card'
-import { parseAnswer, streamChat } from './lib/openaiClient'
+import { describeSendFailure, parseAnswer, streamChat, type SendFailure } from './lib/openaiClient'
 import type { MermAidAnswer } from './lib/types'
 import { getDeviceId } from './lib/storage'
 import { AllergyBadge } from './components/AllergyBadge'
@@ -25,7 +25,7 @@ export default function App() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [answer, setAnswer] = useState<MermAidAnswer | null>(null)
-  const [sendError, setSendError] = useState<string | null>(null)
+  const [sendError, setSendError] = useState<SendFailure | null>(null)
   const [elapsedS, setElapsedS] = useState(0)
 
   // Reserved so the profile endpoints have an identity to attach to (FR-04).
@@ -62,7 +62,7 @@ export default function App() {
     } catch (e) {
       // A failure is a failure — not an assistant answer. Dressing it up as one (the old
       // behaviour) made errors look like medical responses with an "unavailable" badge.
-      setSendError((e as Error).message)
+      setSendError(describeSendFailure(e))
     } finally {
       setStreaming(false)
     }
@@ -132,9 +132,21 @@ export default function App() {
           <Banner
             status="error"
             title="We could not get an answer."
-            description={`Your question was not lost — it is still in the box above. Technical detail: ${sendError}`}
+            description={
+              (sendError.retryable
+                ? 'Your question was not lost — it is still in the box above. '
+                : 'Trying again will not fix this one — the problem is on our side, not yours. ' +
+                  'Your question was not lost. ') + `Technical detail: ${sendError.message}`
+            }
           />
-          <Button label="Try again" variant="secondary" onClick={send} />
+          {sendError.requestId && (
+            <p className="text-xs text-secondary">
+              If you report this, include this id: <span className="tabular-nums">{sendError.requestId}</span>
+            </p>
+          )}
+          {/* The backend's `retryable` flag is the contract for whether this button is honest
+              (types.ts). Showing it on a non-retryable failure sends a sick person into a loop. */}
+          {sendError.retryable && <Button label="Try again" variant="secondary" onClick={send} />}
         </section>
       )}
 
