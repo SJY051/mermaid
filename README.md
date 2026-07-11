@@ -93,7 +93,7 @@ DATA_MODE=fixture ./gradlew bootRun
 | `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
 | `App.tsx` | UI-01 의약품 카드. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
 | `FacilityMap.tsx` | UI-03 상세 드로어(DEV-207), GPS 거부 시 **수동 위치 입력**(DEV-206) |
-| `frontend/` 테스트 | 47개가 있습니다. 챗 화면(`App.tsx`)과 `NearbyFacilities`는 아직 안 덮였습니다 |
+| `frontend/` 테스트 | 62개가 있습니다. 챗 흐름·지도·저장소·클라이언트가 덮여 있습니다 |
 
 누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
 
@@ -112,7 +112,7 @@ DATA_MODE=fixture ./gradlew bootRun
 
 ```bash
 cd backend  && ./gradlew test    # 275 tests
-cd frontend && pnpm test         # 47 tests
+cd frontend && pnpm test         # 62 tests
 cd frontend && pnpm build        # tsc -b 포함
 ```
 

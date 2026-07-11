@@ -22,7 +22,7 @@ Before calling any work finished, run all three and watch them exit 0 **now**:
 
 ```bash
 cd backend  && ./gradlew test        # 275 tests
-cd frontend && pnpm test             # 47 tests
+cd frontend && pnpm test             # 62 tests
 cd frontend && pnpm build            # includes tsc -b
 ```
 
@@ -295,7 +295,7 @@ Worth writing down: measured numbers with their dates; approaches tried and aban
 
 ```bash
 cd backend  && ./gradlew test        # 275
-cd frontend && pnpm test             # 47   (pnpm test:watch while developing)
+cd frontend && pnpm test             # 62   (pnpm test:watch while developing)
 ```
 
 - New logic gets tests, without exception when it touches a §2 invariant.

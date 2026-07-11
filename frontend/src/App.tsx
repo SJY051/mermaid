@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type OpenAI from 'openai'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
+import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { Card } from '@astryxdesign/core/Card'
-import { parseAnswer, streamChat } from './lib/openaiClient'
+import { describeSendFailure, parseAnswer, streamChat, type SendFailure } from './lib/openaiClient'
 import type { MermAidAnswer } from './lib/types'
 import { getDeviceId } from './lib/storage'
 import { AllergyBadge } from './components/AllergyBadge'
@@ -24,15 +25,35 @@ export default function App() {
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
   const [answer, setAnswer] = useState<MermAidAnswer | null>(null)
+  const [sendError, setSendError] = useState<(SendFailure & { forInput: string }) | null>(null)
+  const [elapsedS, setElapsedS] = useState(0)
 
   // Reserved so the profile endpoints have an identity to attach to (FR-04).
   void getDeviceId()
 
+  // A cold answer exceeds 100 seconds, and a screen that shows nothing moving for that long
+  // reads as broken — the user leaves and gets no care information (P1, Review guidelines).
+  // We cannot show real server progress (the proxy answers with a single validated chunk,
+  // spec §5-4), so the honest display is the one thing we actually know: elapsed time.
+  useEffect(() => {
+    if (!streaming) return
+    setElapsedS(0)
+    const timer = window.setInterval(() => setElapsedS((s) => s + 1), 1000)
+    return () => window.clearInterval(timer)
+  }, [streaming])
+
+  // `retryable: false` means "this exact request will not succeed if resent" — so the block
+  // lifts the moment the question is edited. Locking Ask outright would trap the user whose
+  // correct next move IS an edit (INPUT_TOO_LARGE: shorten it and ask again).
+  const askBlocked =
+    sendError !== null && !sendError.retryable && input === sendError.forInput
+
   async function send() {
-    if (!input.trim() || streaming) return
+    if (!input.trim() || streaming || askBlocked) return
 
     setStreaming(true)
     setAnswer(null)
+    setSendError(null)
 
     const messages: OpenAI.ChatCompletionMessageParam[] = [{ role: 'user', content: input }]
 
@@ -45,7 +66,9 @@ export default function App() {
       // reach a medication card — see spec §5-4 and openaiClient.streamChat.
       setAnswer(parseAnswer(latest))
     } catch (e) {
-      setAnswer(parseAnswer(`Sorry — something went wrong. ${(e as Error).message}`))
+      // A failure is a failure — not an assistant answer. Dressing it up as one (the old
+      // behaviour) made errors look like medical responses with an "unavailable" badge.
+      setSendError({ ...describeSendFailure(e), forInput: input })
     } finally {
       setStreaming(false)
     }
@@ -80,12 +103,59 @@ export default function App() {
       />
 
       <Button
-        label={streaming ? 'Thinking…' : 'Ask'}
+        label={streaming ? 'Working…' : 'Ask'}
         variant="primary"
         isLoading={streaming}
-        isDisabled={!input.trim()}
+        isDisabled={!input.trim() || askBlocked}
         onClick={send}
       />
+
+      {/* aria-live so a screen reader hears that something is happening — a silent wait
+          hides the safety information that an answer is on its way (P1, Review guidelines). */}
+      {streaming && (
+        <section data-testid="chat-progress" aria-live="polite" className="flex flex-col gap-2">
+          <ProgressBar isIndeterminate variant="accent" label="Waiting for the answer" />
+          <p className="text-sm text-primary">
+            Checking your symptoms against verified government drug data and writing an answer.
+          </p>
+          <p className="text-sm text-secondary">
+            {/* tabular-nums: the counter must not jitter as digits change. */}
+            <span className="tabular-nums">{elapsedS}s</span> — a first answer can take a minute
+            or two. Nothing is stuck.
+            {elapsedS >= 90 && (
+              <>
+                {' '}
+                Still working: the AI service is slow right now, but your question was received
+                and this screen will update by itself.
+              </>
+            )}
+          </p>
+        </section>
+      )}
+
+      {sendError && !streaming && (
+        <section data-testid="chat-error" className="flex flex-col gap-3">
+          <Banner
+            status="error"
+            title="We could not get an answer."
+            description={
+              (sendError.retryable
+                ? 'Your question was not lost — it is still in the box above. '
+                : 'Sending the same question again will not fix this one. ' +
+                  'Edit your question to ask something different, or come back later. ') +
+              `Technical detail: ${sendError.message}`
+            }
+          />
+          {sendError.requestId && (
+            <p className="text-xs text-secondary">
+              If you report this, include this id: <span className="tabular-nums">{sendError.requestId}</span>
+            </p>
+          )}
+          {/* The backend's `retryable` flag is the contract for whether this button is honest
+              (types.ts). Showing it on a non-retryable failure sends a sick person into a loop. */}
+          {sendError.retryable && <Button label="Try again" variant="secondary" onClick={send} />}
+        </section>
+      )}
 
       {answer && (
         <section className="flex flex-col gap-3">

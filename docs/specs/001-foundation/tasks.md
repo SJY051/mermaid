@@ -48,7 +48,7 @@ tags: [wbs, backlog, team]
 
 1. **DEV-408 메인 챗 UI.** 지금 `App.tsx`는 걸어다니는 뼈대입니다. 콜드 응답이 **100초를 넘는데 화면엔 "Thinking…" 버튼 하나뿐**입니다. 진짜 로딩·진행 상태가 필요합니다.
 2. **DEV-308 의약품 카드.** `AllergyBadge`는 완성돼 있고, 카드는 이름 + 경고 나열이 전부입니다.
-3. **프론트 테스트 확장.** 47개가 붙었지만 `App.tsx`(챗 전체 흐름)와 `NearbyFacilities`는 안 덮였습니다.
+3. ~~프론트 테스트 확장~~ ✅ 62개 — `App.tsx` 챗 흐름(로딩·성공·실패·응급)과 `NearbyFacilities`까지 덮었습니다.
 4. **CI 결정 두 가지 (Lead 몫).** `oxlint`이 경고에도 `exit 0`이라 **CI의 lint 단계는 구조적으로 실패할 수 없습니다**(지금 경고 0이라 `--max-warnings=0`은 안전). 그리고 `tsconfig.app.json`에 `strict`가 없습니다. 둘 다 팀 PR을 갑자기 빨갛게 만들 수 있으니 합류 직후에 정하세요.
 5. **DEV-004** NCP 대표 계정 무료량 확인.
 

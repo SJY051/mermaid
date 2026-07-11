@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { describe, expect, it } from 'vitest'
-import { FALLBACK_DISCLAIMER, openai, parseAnswer } from './openaiClient'
+import { FALLBACK_DISCLAIMER, describeSendFailure, openai, parseAnswer } from './openaiClient'
 
 /**
  * The bug this file exists for.
@@ -33,6 +33,39 @@ describe('the openai client points somewhere a browser can actually reach', () =
 
     // The constructor is happy. That is precisely why this shipped.
     expect(() => broken.buildURL('/chat/completions', null)).toThrow(TypeError)
+  })
+})
+
+/**
+ * `retryable` in the error envelope is the contract for whether a "Try again" button is honest
+ * (types.ts). This helper is what the screen consults.
+ */
+describe('describeSendFailure', () => {
+  it('reads the backend verdict out of an SDK error carrying our envelope', () => {
+    const e = Object.assign(new Error('500 status code'), {
+      error: { code: 'INTERNAL_ERROR', message: 'Something broke on our side.', retryable: false, request_id: 'req-42' },
+    })
+
+    expect(describeSendFailure(e)).toEqual({
+      message: 'Something broke on our side.',
+      retryable: false,
+      requestId: 'req-42',
+    })
+  })
+
+  it('trusts an explicit retryable: true the same way', () => {
+    const e = Object.assign(new Error('504'), {
+      error: { code: 'AI_PROVIDER_TIMEOUT', message: 'The AI took too long.', retryable: true, request_id: 'req-7' },
+    })
+
+    expect(describeSendFailure(e).retryable).toBe(true)
+  })
+
+  it('defaults a transport failure (no envelope) to retryable', () => {
+    // The 502-with-no-body case: the server was simply down. Retrying is the sane offer.
+    const failure = describeSendFailure(new Error('502 status code (no body)'))
+
+    expect(failure).toEqual({ message: '502 status code (no body)', retryable: true, requestId: null })
   })
 })
 
