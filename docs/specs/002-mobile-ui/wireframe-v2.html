@@ -152,7 +152,7 @@
         <div class="er">
           <b>⚠ Call 119 now</b>
           Your symptoms need immediate care. Do not wait for this app.
-          <span class="call">📞 Call 119</span>
+          <a class="call" href="tel:119">📞 Call 119</a>
           <div style="font-size:9.5px;color:var(--dim);margin-top:6px">nearest ER: 서울대병원 응급실 1.2km — tap for map</div>
         </div>
       </div>
@@ -166,11 +166,14 @@
   <div class="frame"><h2>4 · 지도 (모양=종류 · 채움=상태)</h2>
     <div class="phone">
       <div class="top"><b>Map</b><span class="chip">Centred on you</span><span class="spacer"></span><div class="icon"></div></div>
-      <div class="seg"><div class="on">Pharmacies</div><div>Hospitals</div><div>Open now ✓</div></div>
-      <div class="maplegend">
-        <span><span class="dot" style="background:var(--open)"></span>open</span>
-        <span><span class="dot" style="background:var(--unk)"></span>hours unknown</span>
-        <span><span class="dot" style="background:var(--closed)"></span>closed</span>
+      <div class="seg"><div class="on">Pharmacies</div><div>Hospitals</div><div>ER</div></div>
+      <div class="maplegend" style="justify-content:space-between">
+        <span style="display:flex;gap:8px">
+          <span><span class="dot" style="background:var(--open)"></span>open</span>
+          <span><span class="dot" style="background:var(--unk)"></span>hours unknown</span>
+          <span><span class="dot" style="background:var(--closed)"></span>closed</span>
+        </span>
+        <span class="chip">Open now: off</span>
       </div>
       <div class="map">
         <div class="pin pharm" style="left:34%;top:26%;background:var(--open)"></div>
