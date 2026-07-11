@@ -50,7 +50,7 @@
   .er b { display:block; font-size:13px; margin-bottom:3px; color:var(--em); }
   .call { display:block; text-align:center; border-radius:99px; background:var(--em); color:#fff; padding:10px; font-size:12.5px; font-weight:700; margin-top:8px; }
   .map { flex:1; background:repeating-conic-gradient(var(--soft) 0 25%, #fff 0 50%) 0 0/26px 26px; position:relative; }
-  .pin { position:absolute; width:18px; height:18px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; }
+  .pin { position:absolute; appearance:none; -webkit-appearance:none; font:inherit; cursor:pointer; padding:0; width:18px; height:18px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; }
   .pin span { color:var(--ink); font-size:10px; font-weight:800; line-height:1; }
   .pin:focus { outline:2px solid var(--ink); outline-offset:2px; }
   .st-open { background:var(--open); } .st-open span { color:#fff; } /* white on deep green ≥4.5:1 */
@@ -109,13 +109,13 @@
 
   <!-- 1. 챗 -->
   <div class="frame"><h2>1 · 챗 (알레르기 선언 = 대안 제시 금지, SA-08)</h2>
-    <div class="phone">
+    <div class="phone" lang="en">
       <div class="top"><b>mermAid</b><span class="chip">sample data</span><span class="spacer"></span><div class="icon"></div></div>
       <div class="body">
         <div class="bubble me">Is 나르펜정 okay for a headache? I'm allergic to ibuprofen</div>
         <div class="bubble ai">나르펜정 contains ibuprofen, which you told me you react to — so no, not this one. And because you've told me about an allergy, I won't suggest a substitute either: guessing around an allergy is too risky. A pharmacist can help you find the right option.</div>
         <div class="card" style="border-color:var(--em)">
-          <div class="nm">나르펜정400</div>
+          <div class="nm"><span lang="ko">나르펜정400</span></div>
           <div class="en">Ibuprofen · OTC</div>
           <div class="allergy blocked">⛔ Contains Ibuprofen — an allergy you listed</div>
           <div class="prov">식약처 · 2026-07-11</div>
@@ -134,7 +134,7 @@
 
   <!-- 2. 챗 대기 -->
   <div class="frame"><h2>2 · 챗 (100초 대기 — 무채색 유지)</h2>
-    <div class="phone">
+    <div class="phone" lang="en">
       <div class="top"><b>mermAid</b><span class="spacer"></span><div class="icon"></div></div>
       <div class="body">
         <div class="bubble me">I have a headache and mild fever</div>
@@ -152,7 +152,7 @@
 
   <!-- 3. 응급 -->
   <div class="frame"><h2>3 · 응급 (빨강의 첫 번째 용처)</h2>
-    <div class="phone">
+    <div class="phone" lang="en">
       <div class="top"><b>mermAid</b><span class="spacer"></span><div class="icon"></div></div>
       <div class="body">
         <div class="bubble me">crushing chest pain, can't breathe</div>
@@ -172,7 +172,7 @@
 
   <!-- 4. 지도 -->
   <div class="frame"><h2>4 · 지도 (모양=종류 · 채움=상태)</h2>
-    <div class="phone">
+    <div class="phone" lang="en">
       <div class="top"><b>Map</b><span class="chip">Centred on you</span><span class="spacer"></span><div class="icon"></div></div>
       <div class="seg"><div class="on">All</div><div>Pharmacies</div><div>Hospitals</div><div>ER</div></div>
       <div class="maplegend" style="justify-content:space-between">
@@ -184,15 +184,15 @@
         <span class="chip">Open now: off</span>
       </div>
       <div class="map">
-        <div class="pin pharm st-open"   role="button" tabindex="0" style="left:34%;top:26%" aria-label="가나약국, pharmacy, open now"><span>✓</span></div>
-        <div class="pin pharm st-unk"    role="button" tabindex="0" style="left:60%;top:38%" aria-label="pharmacy, hours unknown"><span>?</span></div>
-        <div class="pin hosp st-open"    role="button" tabindex="0" style="left:46%;top:52%" aria-label="hospital, open now"><span>✓</span></div>
-        <div class="pin er-pin st-open"  role="button" tabindex="0" style="left:70%;top:60%" aria-label="서울대병원 응급실, ER, open now"><span>✓</span></div>
-        <div class="pin pharm st-closed" role="button" tabindex="0" style="left:28%;top:64%" aria-label="pharmacy, closed"><span>✕</span></div>
+        <button type="button" class="pin pharm st-open"   style="left:34%;top:26%" aria-label="가나약국, pharmacy, open now"><span>✓</span></button>
+        <button type="button" class="pin pharm st-unk"    style="left:60%;top:38%" aria-label="pharmacy, hours unknown"><span>?</span></button>
+        <button type="button" class="pin hosp st-open"    style="left:46%;top:52%" aria-label="hospital, open now"><span>✓</span></button>
+        <button type="button" class="pin er-pin st-open"  style="left:70%;top:60%" aria-label="서울대병원 응급실, ER, open now"><span>✓</span></button>
+        <button type="button" class="pin pharm st-closed" style="left:28%;top:64%" aria-label="pharmacy, closed"><span>✕</span></button>
       </div>
       <div class="sheet">
         <div class="grab"></div>
-        <div style="font-weight:700;font-size:12.5px">가나약국</div>
+        <div style="font-weight:700;font-size:12.5px"><span lang="ko">가나약국</span></div>
         <div style="font-size:11px;color:var(--mark)"><span class="dot" style="background:var(--open)"></span>Open now · 140m · 02-000-0000</div>
         <div style="display:flex;gap:6px;margin-top:8px">
           <span class="chip" style="border-color:var(--ink);color:var(--ink)">📞 Call</span>
@@ -208,7 +208,7 @@
 
   <!-- 5. Saved -->
   <div class="frame"><h2>5 · Saved (상태 점 재사용)</h2>
-    <div class="phone">
+    <div class="phone" lang="en">
       <div class="top lbl"><b>Saved</b><span class="spacer"></span><div class="icon"></div>
         <div class="menu">
           <div>＋ New conversation</div>
@@ -217,8 +217,8 @@
         </div>
       </div>
       <div class="body" style="background:#fff;padding:0 14px">
-        <div class="li"><div><b style="font-size:11.5px">가나약국</b><div class="st">Near home · pharmacy</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--unk)"></span>? Hours unknown</div></div>
-        <div class="li"><div><b style="font-size:11.5px">서울대병원</b><div class="st">hospital</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--open)"></span>✓ Open now</div></div>
+        <div class="li"><div><b style="font-size:11.5px"><span lang="ko">가나약국</span></b><div class="st">Near home · pharmacy</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--unk)"></span>? Hours unknown</div></div>
+        <div class="li"><div><b style="font-size:11.5px"><span lang="ko">서울대병원</span></b><div class="st">hospital</div></div><div style="font-size:10.5px;color:var(--mark)"><span class="dot" style="background:var(--open)"></span>✓ Open now</div></div>
         <div class="empty">Your saved places stay on this device. We re-check opening hours each time you open one.</div>
       </div>
       <div class="disc">General information, not medical advice · Emergency? Call 119</div>
@@ -228,7 +228,7 @@
 
   <!-- 6. Settings (다크) -->
   <div class="frame"><h2>6 · Settings — 다크 모드로 렌더 (토글 시연 겸)</h2>
-    <div class="phone dark">
+    <div class="phone dark" lang="en">
       <div class="top"><b>Settings</b><span class="spacer"></span></div>
       <div class="body">
         <div class="set"><b>Appearance <span class="tog on"></span></b><span class="st">Dark — follows your device unless you choose</span></div>
