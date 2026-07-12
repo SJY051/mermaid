@@ -191,6 +191,7 @@ The diff already says *what* changed. The subject line is for *why*.
 ## 7. Pull requests
 
 - One PR, one concern, small enough to review in one sitting.
+- **Open it as ready for review, not a draft.** A draft PR runs CI but **cannot be merged** — not even by the lead — and reviewers and the Codex bot skip it as "still in progress". Use draft *only* when you deliberately want early feedback on unfinished work, and click "Ready for review" the moment it is done. Opening a finished PR as a draft silently stalls it until someone notices.
 - **Before you open it, read your own diff against the [Review guidelines](#review-guidelines).** They are written for the author as much as the reviewer — the same P0/P1 lens, run by you first. This is the cheap catch: the reviewer and CI are the last line, not the first.
 - Fill the [PR template](.github/pull_request_template.md) checklist **by actually checking each item**. Ticking an unverified box is the same lie as §2-6.
 - Merge only on green CI (backend tests / frontend tests + typecheck + build / secret scan).
