@@ -22,11 +22,15 @@ class PreToolUsePolicyTest(unittest.TestCase):
             "git reset --hard=HEAD",
             "git checkout -- backend/src/main/java/App.java",
             "rm -fr backend/build",
+            "rm backend/build -rf",
             "rm --recursive --force backend/build",
             "cat .env",
             "sed -n '1p' .env",
             "git diff .env",
             "git commit --no-verify -m 'skip guard'",
+            "git commit -n -m 'skip guard'",
+            "git commit -nm 'skip guard'",
+            "git add -Av",
         ]
 
         for command in commands:
@@ -39,6 +43,7 @@ class PreToolUsePolicyTest(unittest.TestCase):
             "git push -u origin chore/DEV-611-codex-command-guard",
             "cat .env.example",
             "rm backend/build/generated.txt",
+            "git checkout main -- README.md",
             "./gradlew test",
         ]
 

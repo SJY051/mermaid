@@ -24,6 +24,13 @@ def is_real_env(path: str) -> bool:
     return path == ".env" or path.endswith("/.env")
 
 
+def has_short_flag(arguments: list[str], flag: str) -> bool:
+    return any(
+        argument.startswith("-") and not argument.startswith("--") and flag in argument[1:]
+        for argument in arguments
+    )
+
+
 def block_reason(command: str) -> Optional[str]:
     for tokens in command_segments(command):
         for index, token in enumerate(tokens):
@@ -33,7 +40,9 @@ def block_reason(command: str) -> Optional[str]:
             subcommand = tokens[index + 1]
             arguments = tokens[index + 2 :]
 
-            if subcommand == "add" and any(argument in {"-A", "--all", "."} for argument in arguments):
+            if subcommand == "add" and (
+                "--all" in arguments or has_short_flag(arguments, "A") or "." in arguments
+            ):
                 return "Broad staging is blocked. Stage the intended files by name."
 
             if subcommand == "push" and any(
@@ -49,9 +58,12 @@ def block_reason(command: str) -> Optional[str]:
                 return "git reset --hard is blocked because it can discard unrelated work."
 
             if subcommand == "checkout" and "--" in arguments:
-                return "git checkout -- is blocked because it can discard unrelated work."
+                separator = arguments.index("--")
+                has_source_ref = any(not argument.startswith("-") for argument in arguments[:separator])
+                if not has_source_ref:
+                    return "git checkout -- is blocked because it can discard unrelated work."
 
-            if subcommand == "commit" and "--no-verify" in arguments:
+            if subcommand == "commit" and ("--no-verify" in arguments or has_short_flag(arguments, "n")):
                 return "Bypassing the pre-commit secret guard is blocked."
 
             if subcommand in {"diff", "show"} and any(is_real_env(argument) for argument in arguments):
@@ -62,9 +74,10 @@ def block_reason(command: str) -> Optional[str]:
                 continue
             options = []
             for argument in tokens[index + 1 :]:
-                if not argument.startswith("-"):
+                if argument == "--":
                     break
-                options.append(argument)
+                if argument.startswith("-"):
+                    options.append(argument)
             compact_options = "".join(option[1:] for option in options if not option.startswith("--"))
             has_recursive = "r" in compact_options or "--recursive" in options
             has_force = "f" in compact_options or "--force" in options
