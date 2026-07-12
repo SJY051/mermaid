@@ -52,6 +52,10 @@
   .map { flex:1; background:repeating-conic-gradient(var(--soft) 0 25%, #fff 0 50%) 0 0/26px 26px; position:relative; }
   .pin { position:absolute; appearance:none; -webkit-appearance:none; font:inherit; cursor:pointer; padding:0; width:18px; height:18px; border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; }
   .pin span { color:var(--ink); font-size:10px; font-weight:800; line-height:1; }
+  /* Visually hidden but read by screen readers. Lets aria-labelledby stitch a
+     lang="ko" name span into an otherwise-English label, so the ER name is not
+     announced with English pronunciation. A flat aria-label cannot carry lang. */
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0; }
   .pin:focus { outline:2px solid var(--ink); outline-offset:2px; }
   .st-open { background:var(--open); } .st-open span { color:#fff; } /* white on deep green ≥4.5:1 */
   .st-unk { background:var(--unk); } .st-closed { background:var(--closed); }
@@ -184,10 +188,10 @@
         <span class="chip">Open now: off</span>
       </div>
       <div class="map">
-        <button type="button" class="pin pharm st-open"   style="left:34%;top:26%" aria-label="가나약국, pharmacy, open now"><span>✓</span></button>
+        <button type="button" class="pin pharm st-open"   style="left:34%;top:26%" aria-labelledby="ph1-name ph1-desc"><span aria-hidden="true">✓</span><span id="ph1-name" lang="ko" class="sr-only">가나약국</span><span id="ph1-desc" class="sr-only">, pharmacy, open now</span></button>
         <button type="button" class="pin pharm st-unk"    style="left:60%;top:38%" aria-label="pharmacy, hours unknown"><span>?</span></button>
         <button type="button" class="pin hosp st-open"    style="left:46%;top:52%" aria-label="hospital, open now"><span>✓</span></button>
-        <button type="button" class="pin er-pin st-open"  style="left:70%;top:60%" aria-label="서울대병원 응급실, ER, open now"><span>✓</span></button>
+        <button type="button" class="pin er-pin st-open"  style="left:70%;top:60%" aria-labelledby="er-name er-desc"><span aria-hidden="true">✓</span><span id="er-name" lang="ko" class="sr-only">서울대병원 응급실</span><span id="er-desc" class="sr-only">, ER, open now</span></button>
         <button type="button" class="pin pharm st-closed" style="left:28%;top:64%" aria-label="pharmacy, closed"><span>✕</span></button>
       </div>
       <div class="sheet">
