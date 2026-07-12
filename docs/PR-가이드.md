@@ -44,6 +44,7 @@ git push -u origin feat/DEV-207-detail-drawer
 
 ### PR을 열 때
 
+- **Draft가 아니라 바로 열으세요.** GitHub의 "Create pull request" 버튼에는 옆에 "Create **draft** pull request"라는 선택지가 있는데, Draft로 열면 CI는 돌지만 **머지가 되지 않고**(리드가 눌러도 막힙니다), 리뷰어와 봇은 "아직 작업 중"으로 보고 건너뜁니다. 그냥 **"Create pull request"**로 여세요. Draft는 *미완성인 걸 알면서도 미리 피드백을 받고 싶을 때만* 쓰고, 다 됐으면 **"Ready for review"**를 눌러 해제하세요.
 - **제목**은 커밋처럼: `feat(facility): add the detail drawer (UI-03)`
 - **본문 템플릿**이 자동으로 뜹니다. 체크리스트는 **실제로 한 것만** 체크하세요. 안 하고 체크하는 건 거짓말이고, 어차피 CI와 봇이 잡습니다.
 - 작업 ID(`DEV-207`)를 꼭 넣으세요. **추적성 자체가 채점 항목**입니다.
