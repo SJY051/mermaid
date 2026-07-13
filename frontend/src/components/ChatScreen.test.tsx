@@ -1,7 +1,20 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import App from './App'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ChatProvider } from '../lib/chatSession'
+import { loadChatSession } from '../lib/storage'
+import { ChatScreen } from './ChatScreen'
+
+// jsdom has no layout engine, so astryx's scroll-following ResizeObserver needs a no-op browser
+// boundary in component tests. The observer's behavior belongs to the kit; these tests own chat.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+)
 
 /**
  * The chat's cold path exceeds 100 seconds. These tests pin the four things a person waiting
@@ -13,8 +26,8 @@ import App from './App'
  * no fabricated drugs) are part of what the screen shows.
  */
 const streamChatMock = vi.hoisted(() => vi.fn())
-vi.mock('./lib/openaiClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('./lib/openaiClient')>()
+vi.mock('../lib/openaiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/openaiClient')>()
   return { ...actual, streamChat: streamChatMock }
 })
 
@@ -30,6 +43,10 @@ function pendingStream() {
     yield await gate
   }
   return { stream, release, fail }
+}
+
+async function* completedStream(answer: string) {
+  yield answer
 }
 
 const validAnswer = JSON.stringify({
@@ -48,12 +65,25 @@ const validAnswer = JSON.stringify({
   disclaimer: 'Server disclaimer.',
 })
 
+function renderChat() {
+  return render(
+    <ChatProvider>
+      <ChatScreen />
+    </ChatProvider>,
+  )
+}
+
 async function ask(text = 'I have a headache') {
   const user = userEvent.setup()
   await user.type(screen.getByRole('textbox'), text)
   await user.click(screen.getByRole('button', { name: /ask/i }))
   return user
 }
+
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
 
 afterEach(() => {
   // Restore real timers HERE, not in the test body: a test that times out never reaches its
@@ -66,7 +96,7 @@ describe('while the answer is being written (the >100s cold path)', () => {
   it('shows a live progress region, not a frozen screen', async () => {
     const { stream, release } = pendingStream()
     streamChatMock.mockReturnValue(stream())
-    render(<App />)
+    renderChat()
     await ask()
 
     const progress = await screen.findByTestId('chat-progress')
@@ -81,7 +111,7 @@ describe('while the answer is being written (the >100s cold path)', () => {
     vi.useFakeTimers()
     const { stream, release } = pendingStream()
     streamChatMock.mockReturnValue(stream())
-    render(<App />)
+    renderChat()
 
     // userEvent and findBy* both wait on real timeouts, which a fake clock freezes.
     // Drive the DOM synchronously instead.
@@ -105,16 +135,17 @@ describe('while the answer is being written (the >100s cold path)', () => {
 })
 
 describe('when the answer arrives', () => {
-  it('renders the summary and always the disclaimer (SA-02)', async () => {
+  it('renders the summary and identifies fixture provenance', async () => {
+    const fixtureAnswer = JSON.parse(validAnswer)
+    fixtureAnswer.dataStatus = 'fixture'
     const { stream, release } = pendingStream()
     streamChatMock.mockReturnValue(stream())
-    render(<App />)
+    renderChat()
     await ask()
-    release(validAnswer)
+    release(JSON.stringify(fixtureAnswer))
 
     expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
-    // The standing on-screen disclaimer banner never leaves.
-    expect(screen.getByText(/not medical advice/i)).toBeInTheDocument()
+    expect(screen.getByText(/showing sample data/i)).toBeInTheDocument()
   })
 
   it('shows the emergency banner when the server says emergency', async () => {
@@ -128,7 +159,7 @@ describe('when the answer arrives', () => {
     }
     const { stream, release } = pendingStream()
     streamChatMock.mockReturnValue(stream())
-    render(<App />)
+    renderChat()
     await ask('crushing chest pain')
     release(JSON.stringify(emergency))
 
@@ -140,7 +171,7 @@ describe('when the request fails', () => {
   it('shows an honest error — not something dressed as an assistant answer', async () => {
     const { stream, fail } = pendingStream()
     streamChatMock.mockReturnValue(stream())
-    render(<App />)
+    renderChat()
     await ask()
     fail(new Error('LLM upstream timed out'))
 
@@ -156,11 +187,16 @@ describe('when the request fails', () => {
   it('blocks resending an unchanged question the backend called non-retryable — until it is edited', async () => {
     const { stream, fail } = pendingStream()
     streamChatMock.mockReturnValue(stream())
-    render(<App />)
+    renderChat()
     const user = await ask()
     fail(
       Object.assign(new Error('500'), {
-        error: { code: 'INTERNAL_ERROR', message: 'Something broke on our side.', retryable: false, request_id: 'req-42' },
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Something broke on our side.',
+          retryable: false,
+          request_id: 'req-42',
+        },
       }),
     )
 
@@ -184,7 +220,7 @@ describe('when the request fails', () => {
     const first = pendingStream()
     const second = pendingStream()
     streamChatMock.mockReturnValueOnce(first.stream()).mockReturnValueOnce(second.stream())
-    render(<App />)
+    renderChat()
     const user = await ask()
     first.fail(new Error('boom'))
     await screen.findByTestId('chat-error')
@@ -197,3 +233,76 @@ describe('when the request fails', () => {
     expect(streamChatMock).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('conversation state', () => {
+  it('accumulates two questions and two answers', async () => {
+    const secondAnswer = JSON.stringify({
+      ...JSON.parse(validAnswer),
+      answerId: 'a2',
+      summary: 'Keep monitoring your temperature.',
+    })
+    streamChatMock
+      .mockReturnValueOnce(completedStream(validAnswer))
+      .mockReturnValueOnce(completedStream(secondAnswer))
+    renderChat()
+    const user = await ask('My throat hurts')
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I also have a fever')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+
+    expect(await screen.findByText('Keep monitoring your temperature.')).toBeInTheDocument()
+    const userMessages = screen.getAllByRole('article', { name: 'Message from user' })
+    expect(userMessages).toHaveLength(2)
+    expect(within(userMessages[0]).getByText('My throat hurts')).toBeInTheDocument()
+    expect(within(userMessages[1]).getByText('I also have a fever')).toBeInTheDocument()
+    expect(screen.getByText('Drink water and rest.')).toBeInTheDocument()
+  })
+
+  it('persists a completed turn and restores it in a fresh provider', async () => {
+    streamChatMock.mockReturnValue(completedStream(validAnswer))
+    const firstRender = renderChat()
+    await ask()
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    const stored = loadChatSession()
+    expect(stored.sessionId).not.toBe('')
+    expect(stored.messages).toEqual([
+      expect.objectContaining({ role: 'user', content: 'I have a headache' }),
+      expect.objectContaining({ role: 'assistant', content: validAnswer }),
+    ])
+
+    firstRender.unmount()
+    renderChat()
+    expect(screen.getByText('Drink water and rest.')).toBeInTheDocument()
+  })
+
+  it('starts a new conversation by clearing the list and stored session', async () => {
+    streamChatMock.mockReturnValue(completedStream(validAnswer))
+    renderChat()
+    await ask()
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: 'Conversation menu' }))
+    await user.click(screen.getByRole('menuitem', { name: 'New conversation' }))
+
+    expect(screen.queryByText('Drink water and rest.')).not.toBeInTheDocument()
+    expect(screen.queryByText('I have a headache')).not.toBeInTheDocument()
+    expect(loadChatSession().messages).toEqual([])
+    expect(sessionStorage.getItem('mermaid.chatSession.v1')).toBeNull()
+  })
+
+  it("shows the canonical storage and transmission copy in the session menu", async () => {
+    const user = userEvent.setup()
+    renderChat()
+
+    await user.click(screen.getByRole('button', { name: 'Conversation menu' }))
+
+    expect(screen.getByText(SESSION_COPY)).toBeInTheDocument()
+  })
+})
+
+const SESSION_COPY =
+  "Your messages are sent to answer them, but this conversation is not saved: it lives only in this tab."
