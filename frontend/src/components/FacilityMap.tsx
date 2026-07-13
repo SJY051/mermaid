@@ -47,6 +47,7 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
   const [markerError, setMarkerError] = useState<Error | null>(null)
 
   const visibleError = error ?? markerError
+  const hasFixtureData = facilities.some((facility) => facility.source.dataMode === 'fixture')
 
   useEffect(() => {
     if (!map || !ready) return
@@ -126,6 +127,11 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
     <section className="space-y-2" aria-label="Nearby facilities map">
       {caption && <p className="text-sm text-secondary">{caption}</p>}
       {notice && <p className="text-xs text-secondary">{notice}</p>}
+      {hasFixtureData && (
+        <p data-testid="map-fixture-notice" className="text-sm text-primary">
+          Sample data — availability may not reflect current conditions.
+        </p>
+      )}
 
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />

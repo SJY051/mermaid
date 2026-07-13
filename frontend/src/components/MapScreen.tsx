@@ -209,10 +209,6 @@ export function MapScreen({ active }: MapScreenProps) {
   const mapFacilities = openNowOnly
     ? split.open
     : [...split.open, ...split.unknown, ...split.closed]
-  // §2-9: fixture data is never presented as live. In fixture/fallback mode every facility
-  // carries source.dataMode === 'fixture'; say so rather than pass captured pharmacies off as
-  // current nearby results.
-  const anyFixture = facilities.some((facility) => facility.source.dataMode === 'fixture')
   const resultKind =
     typeFilter === 'all'
       ? hospitalUnavailable
@@ -279,12 +275,6 @@ export function MapScreen({ active }: MapScreenProps) {
         <p className="text-sm text-primary">
           {facilities.length} {resultKind} · {split.open.length} Open now · {split.unknown.length}{' '}
           Hours unknown
-        </p>
-      )}
-
-      {anyFixture && (
-        <p data-testid="map-fixture-notice" className="text-sm text-primary">
-          Showing sample data — availability may not reflect current conditions.
         </p>
       )}
 
