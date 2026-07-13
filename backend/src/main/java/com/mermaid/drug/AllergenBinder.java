@@ -1,12 +1,16 @@
 package com.mermaid.drug;
 
+import com.mermaid.profile.domain.MatchConfidence;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 /**
- * SCAFFOLD (DEV-560, spec 005). Binds free-text allergen names to canonical ingredient keys so an
+ * DEV-560 (spec 005). Binds free-text allergen names to canonical ingredient keys so an
  * allergy declared in prose actually reaches the allergy comparison — the gap {@code EX-02} left
  * open (see {@code docs/specs/005-medical-profile/spec.md}).
  *
@@ -36,13 +40,33 @@ public class AllergenBinder {
      * @return the avoided keys that may block, plus which candidates did not resolve
      */
     public BoundAllergens bind(List<String> candidateAllergens, String userText) {
-        // TODO(DEV-560): implement per FR-001/FR-002/FR-006.
-        //  1. keep only candidates that occur (case-insensitively) in userText  [origin binding]
-        //  2. normalizer.normalize(name) each survivor; keep keys whose confidence is EXACT or
-        //     SYNONYM in avoidedKeys; anything else goes to unresolved (feeds the clarifying question)
-        //  3. never let an UNKNOWN/PARTIAL key into avoidedKeys — that is the block/warning boundary
-        // Behaviour-neutral stub until implemented: resolves nothing.
-        return BoundAllergens.NONE;
+        if (candidateAllergens == null || candidateAllergens.isEmpty()) {
+            return BoundAllergens.NONE;
+        }
+
+        String foldedUserText = userText == null ? "" : userText.toLowerCase(Locale.ROOT);
+        Set<String> avoidedKeys = new LinkedHashSet<>();
+        List<String> unresolved = new ArrayList<>();
+
+        for (String candidate : candidateAllergens) {
+            if (candidate == null
+                    || candidate.isBlank()
+                    || !foldedUserText.contains(candidate.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+
+            IngredientNormalizer.NormalizedTerm normalized = normalizer.normalize(candidate);
+            MatchConfidence confidence = normalized.confidence();
+            if ((confidence == MatchConfidence.EXACT || confidence == MatchConfidence.SYNONYM)
+                    && normalizer.isReviewedBinding(normalized)) {
+                avoidedKeys.add(normalized.key());
+            } else {
+                unresolved.add(candidate);
+            }
+        }
+
+        return new BoundAllergens(
+                Set.copyOf(avoidedKeys), !avoidedKeys.isEmpty(), List.copyOf(unresolved));
     }
 
     /**

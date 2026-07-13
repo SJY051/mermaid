@@ -1,7 +1,10 @@
 package com.mermaid.chat;
 
+import com.mermaid.chat.dto.MermAidAnswer;
+import java.util.List;
+
 /**
- * SCAFFOLD (DEV-560, spec 005). Server-authored clarifying question for a declared allergy whose
+ * DEV-560 (spec 005). Server-authored clarifying question for a declared allergy whose
  * allergen did not resolve to a signed ingredient (FR-004, FR-010).
  *
  * <p>Why server-authored, like the emergency code path: the question is safety-critical. If a
@@ -17,18 +20,35 @@ public final class AllergyClarification {
     /** Fixed, server-owned copy. English, because the reader is an English speaker in Korea. */
     public static final String QUESTION =
             "I want to check that safely. Which ingredient are you allergic to? "
-                    + "Please type its name (for example, \"ibuprofen\").";
+                    + "Please type the exact ingredient name shown on the label, if you know it.";
 
     private AllergyClarification() {}
 
     /**
      * Builds the answer shown when a declared allergy did not resolve.
      *
-     * <p>TODO(DEV-560): return a {@code MermAidAnswer} that carries {@link #QUESTION} in
-     * {@code clarifyingQuestions[]}, names no medicine, keeps {@code drugs} empty, and leaves the
-     * disclaimer in place. Reuses the answer shape but with server-controlled content (FR-010).
-     * Wire it into {@code DrugContextRetriever}/{@code ChatProxyController} at the point where a
-     * declared allergy resolves to an empty avoided set.
+     * <p>The answer carries {@link #QUESTION} in {@code clarifyingQuestions[]}, names no medicine,
+     * keeps {@code drugs} empty, and retains the universal disclaimer. No model text participates.
      */
-    // MermAidAnswer unresolvedAllergyAnswer() { ... }
+    public static MermAidAnswer answer() {
+        return new MermAidAnswer(
+                MermAidAnswer.SCHEMA_VERSION,
+                "allergy-clarification",
+                "en",
+                MermAidAnswer.DataStatus.UNAVAILABLE,
+                new MermAidAnswer.Urgency(
+                        MermAidAnswer.Urgency.Level.ROUTINE,
+                        "One allergy detail is needed",
+                        "I need the ingredient name before I can compare it with official product data.",
+                        List.of(),
+                        List.of()),
+                "I will not suggest or check a medicine until the allergy ingredient is clear.",
+                List.of(QUESTION),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                List.of(),
+                StructuredOutputFallback.DISCLAIMER);
+    }
 }

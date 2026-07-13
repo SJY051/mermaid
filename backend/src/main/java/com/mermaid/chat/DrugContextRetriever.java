@@ -3,7 +3,10 @@ package com.mermaid.chat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
+import com.mermaid.drug.AllergenBinder;
+import com.mermaid.drug.AllergenBinder.BoundAllergens;
 import com.mermaid.drug.DrugService;
 import com.mermaid.drug.DrugService.RetrievalQuery;
 import com.mermaid.drug.DrugService.RetrievedContext;
@@ -14,8 +17,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -33,13 +36,41 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DrugContextRetriever {
 
     private final SearchTermExtractor extractor;
     private final DrugService drugService;
     private final IngredientNormalizer normalizer;
+    private final AllergenBinder allergenBinder;
     private final ObjectMapper objectMapper;
+
+    @Autowired
+    public DrugContextRetriever(
+            SearchTermExtractor extractor,
+            DrugService drugService,
+            IngredientNormalizer normalizer,
+            AllergenBinder allergenBinder,
+            ObjectMapper objectMapper) {
+        this.extractor = extractor;
+        this.drugService = drugService;
+        this.normalizer = normalizer;
+        this.allergenBinder = allergenBinder;
+        this.objectMapper = objectMapper;
+    }
+
+    /** Keeps focused tests concise while production receives the binder through Spring. */
+    DrugContextRetriever(
+            SearchTermExtractor extractor,
+            DrugService drugService,
+            IngredientNormalizer normalizer,
+            ObjectMapper objectMapper) {
+        this(
+                extractor,
+                drugService,
+                normalizer,
+                normalizer == null ? null : new AllergenBinder(normalizer),
+                objectMapper);
+    }
 
     /**
      * @param userText the newest user turn. Already screened by {@link EmergencyTriage}.
@@ -60,20 +91,26 @@ public class DrugContextRetriever {
         }
         RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
 
+        BoundAllergens bound = allergyDeclared
+                ? allergenBinder.bind(extracted.allergens(), userText)
+                : BoundAllergens.NONE;
+        Set<String> avoidedKeys = normalizeAvoided(excludedIngredients);
+        avoidedKeys.addAll(bound.avoidedKeys());
+
+        // A declared allergy with no authoritative key must not reach AllergyChecker with an empty
+        // set: that would manufacture no_match_found from "nothing was checked" (FR-004 / SC-001).
+        if (allergyDeclared && avoidedKeys.isEmpty()) {
+            log.info("Allergy declared but no candidate resolved — returning server clarification");
+            return DrugContext.allergyClarification();
+        }
+
         if (query.isEmpty()) {
             log.debug("No drug search terms in this turn; the model gets an empty context");
             return suppressed ? DrugContext.allergySuppressed() : DrugContext.empty();
         }
         long extractedAt = System.nanoTime();
 
-        // TODO(DEV-560, spec 005): merge free-text allergens into the avoided set. Today only the
-        //  `exclude_ingredients` extension fills it, so "I'm allergic to ibuprofen" typed in prose
-        //  avoids nothing and can return no_match_found — that is EX-02. Pass the pass-1 `allergens`
-        //  through com.mermaid.drug.AllergenBinder and union its avoidedKeys with the below.
-        //  FR-004 (fail-closed): if allergyDeclared but the merged avoided set is empty, return the
-        //  server-authored AllergyClarification question instead of retrieving — never a silent
-        //  no_match_found. Keep model-proposed ingredients suppressed meanwhile (SA-08).
-        RetrievedContext retrieved = drugService.retrieve(query, normalizeAvoided(excludedIngredients));
+        RetrievedContext retrieved = drugService.retrieve(query, avoidedKeys);
         // Cold, the retrieval is roughly thirty sequential calls to 식약처. Warm, Redis answers.
         // Both numbers belong in the log; the gap between them is the case for parallelising.
         log.info("RAG pass 1: terms={}/{} → {} drug(s). extract {}ms, retrieve {}ms",
@@ -91,7 +128,10 @@ public class DrugContextRetriever {
     private Set<String> normalizeAvoided(Set<String> raw) {
         Set<String> keys = new HashSet<>();
         for (String term : raw) {
-            Optional.ofNullable(normalizer.normalize(term).key()).ifPresent(keys::add);
+            IngredientNormalizer.NormalizedTerm normalized = normalizer.normalize(term);
+            if (normalizer.isReviewedBinding(normalized)) {
+                keys.add(normalized.key());
+            }
         }
         return keys;
     }
@@ -170,10 +210,22 @@ public class DrugContextRetriever {
      *     {@link ChatProxyController} fills it from here.
      */
     public record DrugContext(
-            String systemMessage, Set<String> allowedProductNames, List<SourceRef> sources) {
+            String systemMessage,
+            Set<String> allowedProductNames,
+            List<SourceRef> sources,
+            Optional<MermAidAnswer> directAnswer) {
+
+        public DrugContext(
+                String systemMessage, Set<String> allowedProductNames, List<SourceRef> sources) {
+            this(systemMessage, allowedProductNames, sources, Optional.empty());
+        }
 
         static DrugContext empty() {
             return new DrugContext(preamble(0, false) + "\n[]", Set.of(), List.of());
+        }
+
+        static DrugContext allergyClarification() {
+            return new DrugContext("", Set.of(), List.of(), Optional.of(AllergyClarification.answer()));
         }
 
         /**

@@ -306,9 +306,16 @@ public class DrugService {
     }
 
     /** What the user asked about, and the only names the model may say. */
-    public record RetrievalQuery(List<String> ingredientsEn, List<String> productNamesKo) {
+    public record RetrievalQuery(
+            List<String> ingredientsEn, List<String> productNamesKo, List<String> allergens) {
 
-        public static final RetrievalQuery EMPTY = new RetrievalQuery(List.of(), List.of());
+        public static final RetrievalQuery EMPTY =
+                new RetrievalQuery(List.of(), List.of(), List.of());
+
+        /** Keeps existing callers source-compatible while the allergen carrier is introduced. */
+        public RetrievalQuery(List<String> ingredientsEn, List<String> productNamesKo) {
+            this(ingredientsEn, productNamesKo, List.of());
+        }
 
         public boolean isEmpty() {
             return ingredientsEn.isEmpty() && productNamesKo.isEmpty();
@@ -324,7 +331,7 @@ public class DrugService {
          * clinical act. See {@code AllergyDeclaration}, which decides when to call this.
          */
         public RetrievalQuery withoutProposedIngredients() {
-            return new RetrievalQuery(List.of(), productNamesKo);
+            return new RetrievalQuery(List.of(), productNamesKo, allergens);
         }
     }
 

@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,13 @@ import org.springframework.stereotype.Component;
 public class IngredientNormalizer {
 
     private static final String SYNONYMS = "/ingredients/synonyms.tsv";
+
+    /**
+     * Spellings explicitly approved by spec 005 FR-006. This is intentionally a small exact map:
+     * fuzzy or edit-distance matching could bind a different ingredient and is never allowed.
+     */
+    private static final Map<String, String> REVIEWED_SPELLING_ALIASES =
+            Map.of("ibuprofin", "ibuprofen");
 
     /**
      * Dose and strength: "200mg", "160밀리그램", "5 %".
@@ -82,11 +90,24 @@ public class IngredientNormalizer {
 
     private final Map<String, String> synonyms = new HashMap<>();
 
+    /** The subset of aliases that may author a blocking key on the free-text allergy path. */
+    private final Map<String, String> reviewedSynonyms = new HashMap<>();
+
+    /** Canonical names observed in the dictionary; exact identity needs no alias authority. */
+    private final Set<String> knownCanonicalKeys = new HashSet<>();
+
     /** Rows loaded from a dictionary nobody has signed. See {@link #warnIfUnreviewed()}. */
     private final List<String> unreviewedAliases = new ArrayList<>();
 
     public IngredientNormalizer() {
         loadSynonyms();
+        REVIEWED_SPELLING_ALIASES.forEach((alias, canonical) -> {
+            String aliasKey = canonicalize(alias);
+            String canonicalKey = canonicalize(canonical);
+            synonyms.put(aliasKey, canonicalKey);
+            reviewedSynonyms.put(aliasKey, canonicalKey);
+            knownCanonicalKeys.add(canonicalKey);
+        });
     }
 
     /**
@@ -111,6 +132,26 @@ public class IngredientNormalizer {
         // The input already looks like a canonical ingredient name. We cannot prove it is one —
         // that happens when it matches a government record — but the form is right.
         return new NormalizedTerm(raw, key, MatchConfidence.EXACT);
+    }
+
+    /**
+     * Whether a normalized user term has enough authority to enter the free-text avoided set.
+     *
+     * <p>An exact canonical name is identity, not an alias mapping. A synonym needs an explicitly
+     * reviewed mapping: either a signed TSV row or the bounded spelling list above. Unsigned TSV
+     * aliases remain available to legacy lookup code but cannot block through DEV-560.
+     */
+    public boolean isReviewedBinding(NormalizedTerm term) {
+        if (term == null || term.key() == null) {
+            return false;
+        }
+        if (term.confidence() == MatchConfidence.EXACT) {
+            return knownCanonicalKeys.contains(term.key());
+        }
+        if (term.confidence() == MatchConfidence.SYNONYM) {
+            return term.key().equals(reviewedSynonyms.get(canonicalize(term.raw())));
+        }
+        return false;
     }
 
     /**
@@ -235,8 +276,13 @@ public class IngredientNormalizer {
             log.warn("skipping malformed synonym row: {}", line);
             return;
         }
-        synonyms.put(canonicalize(cols[0]), canonicalize(cols[1]));
-        if (!isSigned(cols)) {
+        String alias = canonicalize(cols[0]);
+        String canonical = canonicalize(cols[1]);
+        synonyms.put(alias, canonical);
+        knownCanonicalKeys.add(canonical);
+        if (isSigned(cols)) {
+            reviewedSynonyms.put(alias, canonical);
+        } else {
             unreviewedAliases.add(cols[0].trim());
         }
     }
