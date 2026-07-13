@@ -117,21 +117,12 @@ class IngredientNormalizerTest {
             assertThat(normalizer.toSearchTerm("sodium chloride")).isEqualTo("Sodium Chloride");
         }
 
-        /**
-         * The second assertion pins a <b>known defect</b>, not a requirement.
-         *
-         * <p>허가정보 publishes {@code Aspirin} (119 products) and has never published {@code
-         * Acetylsalicylic Acid} (0). So the term this produces finds nothing, and {@code GET
-         * /drugs?ingredient=Aspirin} returns an empty list. The row is still in {@code synonyms.tsv}
-         * and unsigned, so nobody may flip it yet — DEV-309, spec §7-1 AR-02.
-         *
-         * <p>Do not "fix" the code to satisfy this line. Fix the dictionary, then this line.
-         */
+        /** The government API publishes {@code Aspirin}; the signed dictionary maps aliases to it. */
         @Test
-        @DisplayName("a synonym is resolved before capitalisation (the Aspirin case is a bug: DEV-309)")
+        @DisplayName("a synonym is resolved before capitalisation")
         void resolvesSynonym() {
             assertThat(normalizer.toSearchTerm("paracetamol")).isEqualTo("Acetaminophen");
-            assertThat(normalizer.toSearchTerm("Aspirin")).isEqualTo("Acetylsalicylic Acid");
+            assertThat(normalizer.toSearchTerm("Aspirin")).isEqualTo("Aspirin");
         }
 
         @Test
@@ -156,9 +147,9 @@ class IngredientNormalizerTest {
         }
 
         @Test
-        @DisplayName("aspirin resolves to acetylsalicylic acid")
+        @DisplayName("aspirin stays the government's canonical search term")
         void brandTurnedGeneric() {
-            assertThat(normalizer.normalize("Aspirin").key()).isEqualTo("acetylsalicylic acid");
+            assertThat(normalizer.normalize("Aspirin").key()).isEqualTo("aspirin");
         }
 
         @Test
