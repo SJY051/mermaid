@@ -177,6 +177,8 @@ describe('the map never shows a blank box and calls it a map', () => {
     )
 
     expect(mapsCreated()).toBe(0)
+    await Promise.resolve()
+    expect(mapsCreated()).toBe(0)
 
     script.dataset.loaded = 'true'
     script.dispatchEvent(new Event('load'))
