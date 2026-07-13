@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.dto.AllergyCheck;
+import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
 import com.mermaid.drug.DrugService;
 import com.mermaid.drug.DrugService.RetrievalQuery;
@@ -71,6 +72,7 @@ class DrugContextRetrieverTest {
 
         private final RetrievedContext result;
         RetrievalQuery seen;
+        Set<String> avoidedKeys;
 
         CapturingDrugService(RetrievedContext result) {
             super(null, null, null, null, null, null, null);
@@ -80,6 +82,7 @@ class DrugContextRetrieverTest {
         @Override
         public RetrievedContext retrieve(RetrievalQuery query, Set<String> avoidedKeys) {
             this.seen = query;
+            this.avoidedKeys = Set.copyOf(avoidedKeys);
             return result;
         }
     }
@@ -298,7 +301,10 @@ class DrugContextRetrieverTest {
     class AllergyGate {
 
         private static final RetrievalQuery PROPOSED =
-                new RetrievalQuery(List.of("Acetaminophen", "Naproxen"), List.of());
+                new RetrievalQuery(
+                        List.of("Acetaminophen", "Naproxen"),
+                        List.of(),
+                        List.of("ibuprofen"));
 
         @Test
         @DisplayName("the naproxen regression: a proposed ingredient never reaches retrieval")
@@ -324,6 +330,33 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("SC-001: an unresolved declared allergy returns the server clarification")
+        void unresolvedAllergyFailsClosedBeforeRetrieval() throws Exception {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            RetrievalQuery unresolved = new RetrievalQuery(
+                    List.of("Naproxen"), List.of(), List.of("notarealingredientxyz"));
+
+            DrugContext context = gated(unresolved, drugService)
+                    .retrieve("I am allergic to notarealingredientxyz", Set.of());
+
+            MermAidAnswer answer = context.directAnswer().orElseThrow();
+            assertThat(drugService.seen).as("fail-closed must happen before retrieval").isNull();
+            assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
+            assertThat(mapper.writeValueAsString(answer))
+                    .doesNotContain("no_match_found", "Naproxen");
+
+            CapturingDrugService unsignedExtensionService =
+                    new CapturingDrugService(RetrievedContext.EMPTY);
+            DrugContext unsignedExtension = gated(RetrievalQuery.EMPTY, unsignedExtensionService)
+                    .retrieve("I have a headache", Set.of("paracetamol"));
+
+            assertThat(unsignedExtension.directAnswer()).isPresent();
+            assertThat(unsignedExtensionService.seen).isNull();
+        }
+
+        @Test
         @DisplayName("with no allergy the model's ingredients pass through untouched")
         void noAllergyNoGate() {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
@@ -338,11 +371,17 @@ class DrugContextRetrieverTest {
         void userNamedProductSurvivesTheGate() {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
-            gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")), drugService)
+            gated(new RetrievalQuery(
+                                    List.of("Naproxen"),
+                                    List.of("부루펜"),
+                                    List.of("ibuprofen")),
+                            drugService)
                     .retrieve("I'm allergic to ibuprofen — can I take 부루펜?", Set.of());
 
+            assertThat(drugService.seen).isNotNull();
             assertThat(drugService.seen.ingredientsEn()).isEmpty();
             assertThat(drugService.seen.productNamesKo()).containsExactly("부루펜");
+            assertThat(drugService.avoidedKeys).containsExactly("ibuprofen");
         }
 
         @Test
@@ -386,8 +425,11 @@ class DrugContextRetrieverTest {
             RetrievedContext retrieved =
                     new RetrievedContext(List.of(blocked), Set.of(blocked.nameKo()), List.of(TYLENOL_SOURCE));
 
-            String message = gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")),
-                            new CapturingDrugService(retrieved))
+            String message = gated(new RetrievalQuery(
+                                            List.of("Naproxen"),
+                                            List.of("부루펜"),
+                                            List.of("ibuprofen")),
+                                    new CapturingDrugService(retrieved))
                     .retrieve("I'm allergic to ibuprofen — can I take 부루펜?", Set.of())
                     .systemMessage();
 

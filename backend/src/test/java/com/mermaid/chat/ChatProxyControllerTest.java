@@ -122,6 +122,17 @@ class ChatProxyControllerTest {
             """.formatted(drugsJson, sourceRefsJson);
     }
 
+    @Test
+    @DisplayName("the server-authored allergy clarification bypasses the model unchanged")
+    void unresolvedAllergyCannotBeSuppressedOrRewordedByTheModel() throws Exception {
+        MermAidAnswer answer = answerOf(controller(modelAnswer("[]", "[]"), DrugContext.allergyClarification())
+                .completions(request("I am allergic but I do not know the ingredient name")));
+
+        assertThat(answer.answerId()).isEqualTo("allergy-clarification");
+        assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
+        assertThat(answer.drugs()).isEmpty();
+    }
+
     private static String drugCard(String productNameKo, String sourceRefId) {
         return """
             [{"productNameKo":"%s","productNameEn":null,"ingredients":[],

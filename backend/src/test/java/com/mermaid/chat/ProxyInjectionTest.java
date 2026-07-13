@@ -100,6 +100,29 @@ class ProxyInjectionTest {
     }
 
     @Test
+    @DisplayName("pass-1 allergens are bound to the user's own text before leaving the extractor")
+    void bindsExtractedAllergensToUserText() {
+        ChatProxyService upstream = new StubUpstream("", null) {
+            @Override
+            public Mono<String> completeJson(
+                    String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                assertThat(schema.path("properties").path("allergens").path("maxItems").asInt())
+                        .isEqualTo(3);
+                assertThat(schema.path("required").toString()).contains("\"allergens\"");
+                assertThat(systemPrompt).contains("`allergens`", "proposes candidates only");
+                return Mono.just(
+                        "{\"ingredients\":[],\"productNames\":[],"
+                                + "\"allergens\":[\"ibuprofen\",\"aspirin\"]}");
+            }
+        };
+
+        RetrievalQuery query = new SearchTermExtractor(upstream, mapper)
+                .extract("I am allergic to ibuprofen");
+
+        assertThat(query.allergens()).containsExactly("ibuprofen");
+    }
+
+    @Test
     @DisplayName("malformed model prose is never copied into the user-visible summary")
     void refusesRawModelProse() throws Exception {
         String attack = "Take 타이레놀 now; it is completely safe and you definitely have influenza.";
