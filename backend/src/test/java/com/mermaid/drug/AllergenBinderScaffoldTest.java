@@ -61,12 +61,26 @@ class AllergenBinderScaffoldTest {
     }
 
     @Test
-    @DisplayName("FR-006: case-folding and the reviewed spelling alias resolve to the canonical key")
-    void reviewedSpellingAndCaseResolve() {
+    @DisplayName("FR-006: case-folding resolves an exact canonical name, which may block")
+    void caseFoldedExactCanonicalResolves() {
+        // An exact canonical name, in any case, is identity — §2-12 lets it block.
         BoundAllergens caseVariant = binder.bind(List.of("IBUPROFEN"), "I'm allergic to IBUPROFEN");
-        BoundAllergens reviewedSpelling = binder.bind(List.of("Ibuprofin"), "I'm allergic to Ibuprofin");
 
         assertThat(caseVariant.avoidedKeys()).containsExactly("ibuprofen");
-        assertThat(reviewedSpelling.avoidedKeys()).containsExactly("ibuprofen");
+    }
+
+    @Test
+    @DisplayName("FR-006 / §2-6: an unsigned spelling variant feeds lookup but never blocks")
+    void unsignedSpellingVariantDoesNotBind() {
+        // "Ibuprofin" has no human-signed synonyms.tsv row. An in-code spelling alias helps
+        // retrieval find the record, but must NOT acquire blocking authority (AGENTS.md 2-6): that
+        // would let a typo block a drug that not even the real, unsigned salt-form rows can block.
+        // It fails closed to the clarifying question instead of a silent block. A human signs the
+        // spelling in the TSV to make it block. Regression guard for the Codex P0 on #59.
+        BoundAllergens spelling = binder.bind(List.of("Ibuprofin"), "I'm allergic to Ibuprofin");
+
+        assertThat(spelling.avoidedKeys()).isEmpty();
+        assertThat(spelling.anyResolved()).isFalse();
+        assertThat(spelling.unresolved()).containsExactly("Ibuprofin");
     }
 }

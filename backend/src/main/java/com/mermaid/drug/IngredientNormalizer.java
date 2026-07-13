@@ -34,10 +34,13 @@ public class IngredientNormalizer {
     private static final String SYNONYMS = "/ingredients/synonyms.tsv";
 
     /**
-     * Spellings explicitly approved by spec 005 FR-006. This is intentionally a small exact map:
-     * fuzzy or edit-distance matching could bind a different ingredient and is never allowed.
+     * Spelling variants that resolve to a canonical name for LOOKUP only (spec 005 FR-006).
+     * Intentionally a small exact map — fuzzy or edit-distance matching could bind a different
+     * ingredient and is never allowed. These feed retrieval and grant NO blocking authority: an
+     * allergy blocks only through an exact canonical match or a human-signed {@code synonyms.tsv}
+     * row (AGENTS.md 2-6). To let a spelling variant block, a human signs it in the TSV.
      */
-    private static final Map<String, String> REVIEWED_SPELLING_ALIASES =
+    private static final Map<String, String> SPELLING_LOOKUP_ALIASES =
             Map.of("ibuprofin", "ibuprofen");
 
     /**
@@ -101,13 +104,11 @@ public class IngredientNormalizer {
 
     public IngredientNormalizer() {
         loadSynonyms();
-        REVIEWED_SPELLING_ALIASES.forEach((alias, canonical) -> {
-            String aliasKey = canonicalize(alias);
-            String canonicalKey = canonicalize(canonical);
-            synonyms.put(aliasKey, canonicalKey);
-            reviewedSynonyms.put(aliasKey, canonicalKey);
-            knownCanonicalKeys.add(canonicalKey);
-        });
+        // Lookup only: a spelling variant helps retrieval find the record, but must not acquire
+        // blocking authority without a signed TSV row (AGENTS.md 2-6 / FR-006). The canonical it
+        // points at earns EXACT/signed authority through the dictionary, not through this map.
+        SPELLING_LOOKUP_ALIASES.forEach(
+                (alias, canonical) -> synonyms.put(canonicalize(alias), canonicalize(canonical)));
     }
 
     /**
@@ -137,9 +138,10 @@ public class IngredientNormalizer {
     /**
      * Whether a normalized user term has enough authority to enter the free-text avoided set.
      *
-     * <p>An exact canonical name is identity, not an alias mapping. A synonym needs an explicitly
-     * reviewed mapping: either a signed TSV row or the bounded spelling list above. Unsigned TSV
-     * aliases remain available to legacy lookup code but cannot block through DEV-560.
+     * <p>An exact canonical name is identity, not an alias mapping. A synonym needs a human-signed
+     * {@code synonyms.tsv} row. Unsigned TSV aliases and in-code spelling variants remain available
+     * to lookup but cannot block through DEV-560 — a spelling variant blocks only once a human
+     * signs it in the TSV.
      */
     public boolean isReviewedBinding(NormalizedTerm term) {
         if (term == null || term.key() == null) {
