@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "invalid-inv7-script",
+  "language": "en",
+  "dataStatus": "unavailable",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "Ask a pharmacist if symptoms continue.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "The answer contains a model-authored warning.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": ["<script>alert(1)</script>"],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

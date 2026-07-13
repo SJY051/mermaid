@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "valid-fixture-labelled",
+  "language": "en",
+  "dataStatus": "fixture",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "This answer uses a captured government response for development.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "Fixture data is labelled as fixture data.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [
+    {
+      "id": "drug:mfds:children-tylenol",
+      "productNameKo": "어린이타이레놀현탁액",
+      "productNameEn": "Children's Tylenol Suspension",
+      "ingredients": [
+        {
+          "nameKo": "아세트아미노펜",
+          "nameEn": "Acetaminophen",
+          "normalizedKey": "acetaminophen",
+          "amount": "32",
+          "unit": "mg/mL"
+        }
+      ],
+      "indicationSummary": "The captured official record lists pain and fever relief.",
+      "directionsSummary": "Check age and weight directions with a pharmacist.",
+      "warnings": [],
+      "prescriptionStatus": "otc",
+      "allergyCheck": {
+        "status": "unknown",
+        "matchedIngredients": [],
+        "message": "The allergy comparison could not be completed."
+      },
+      "sourceRefId": "src:mfds:children-tylenol"
+    }
+  ],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": ["This answer uses fixture data, not a live API response."],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

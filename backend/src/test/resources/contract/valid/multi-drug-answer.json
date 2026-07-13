@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "valid-multi-drug",
+  "language": "en",
+  "dataStatus": "live",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "A pharmacist can help compare these products.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "Two retrieved products are listed from official records.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [
+    {
+      "id": "drug:mfds:tylenol-500",
+      "productNameKo": "타이레놀정500밀리그람",
+      "productNameEn": "Tylenol Tab. 500mg",
+      "ingredients": [
+        {
+          "nameKo": "아세트아미노펜",
+          "nameEn": "Acetaminophen",
+          "normalizedKey": "acetaminophen",
+          "amount": "500",
+          "unit": "mg"
+        }
+      ],
+      "indicationSummary": "The official record lists relief of mild pain and fever.",
+      "directionsSummary": "Follow the product label.",
+      "warnings": [],
+      "prescriptionStatus": "otc",
+      "allergyCheck": {
+        "status": "unknown",
+        "matchedIngredients": [],
+        "message": "No allergy information was provided for comparison."
+      },
+      "sourceRefId": "src:mfds:tylenol-500"
+    },
+    {
+      "id": "drug:mfds:brufen-200",
+      "productNameKo": "부루펜정200밀리그람",
+      "productNameEn": "Brufen Tab. 200mg",
+      "ingredients": [
+        {
+          "nameKo": "이부프로펜",
+          "nameEn": "Ibuprofen",
+          "normalizedKey": "ibuprofen",
+          "amount": "200",
+          "unit": "mg"
+        }
+      ],
+      "indicationSummary": "The official record lists pain and fever relief.",
+      "directionsSummary": "Follow the product label.",
+      "warnings": ["Ask a pharmacist about other medicines you take."],
+      "prescriptionStatus": "otc",
+      "allergyCheck": {
+        "status": "unknown",
+        "matchedIngredients": [],
+        "message": "No allergy information was provided for comparison."
+      },
+      "sourceRefId": "src:mfds:brufen-200"
+    }
+  ],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}
