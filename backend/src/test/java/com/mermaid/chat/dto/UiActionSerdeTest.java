@@ -1,7 +1,9 @@
 package com.mermaid.chat.dto;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
@@ -69,5 +71,22 @@ class UiActionSerdeTest {
                         org.assertj.core.api.Assertions.catchThrowable(
                                 () -> mapper.readValue(json, UiAction.class)))
                 .isNotNull();
+    }
+
+    @Test
+    @DisplayName("map actions with a null payload or null types fail to deserialise")
+    void nullMapPayloadRejected() {
+        String nullTypes =
+                "{\"type\":\"OPEN_FACILITY_MAP\",\"payload\":{\"types\":null,"
+                        + "\"openNow\":true,\"radiusM\":500}}";
+        String nullPayload = "{\"type\":\"OPEN_FACILITY_MAP\",\"payload\":null}";
+        String nullFilterPayload = "{\"type\":\"APPLY_FACILITY_FILTERS\",\"payload\":null}";
+
+        assertThatThrownBy(() -> mapper.readValue(nullTypes, UiAction.class))
+                .isInstanceOf(JsonProcessingException.class);
+        assertThatThrownBy(() -> mapper.readValue(nullPayload, UiAction.class))
+                .isInstanceOf(JsonProcessingException.class);
+        assertThatThrownBy(() -> mapper.readValue(nullFilterPayload, UiAction.class))
+                .isInstanceOf(JsonProcessingException.class);
     }
 }

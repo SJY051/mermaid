@@ -157,6 +157,22 @@ public class IngredientNormalizer {
     }
 
     /**
+     * Normalises an ingredient for retrieved-record identity checks, where discarding content would
+     * create a false match. Allergy input may legitimately contain a dose or brand in parentheses;
+     * a model-authored ingredient name may not use those forms to hide a different ingredient.
+     */
+    public NormalizedTerm normalizeIdentity(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return new NormalizedTerm(raw, null, MatchConfidence.UNKNOWN);
+        }
+        String comparable = Normalizer.normalize(raw, Normalizer.Form.NFKC);
+        if (PARENTHESISED.matcher(comparable).find() || DOSE.matcher(comparable).find()) {
+            return new NormalizedTerm(raw, null, MatchConfidence.UNKNOWN);
+        }
+        return normalize(comparable);
+    }
+
+    /**
      * Lower-cased, unaccented, dose-free, parenthesis-free, and stripped of physical-form qualifiers.
      *
      * <p>Order matters: parentheses go before dose, or "Tylenol (500mg)" leaves an empty bracket.

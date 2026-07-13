@@ -9,8 +9,10 @@ import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.config.LlmProperties;
 import com.mermaid.drug.DrugService.RetrievalQuery;
+import com.mermaid.drug.IngredientNormalizer;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -148,7 +150,7 @@ class ProxyInjectionTest {
                 upstream,
                 retriever,
                 new StructuredOutputFallback(mapper),
-                new AnswerValidator(),
+                new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
                 mapper);
 
@@ -169,7 +171,7 @@ class ProxyInjectionTest {
                 upstream,
                 retriever,
                 new StructuredOutputFallback(mapper),
-                new AnswerValidator(),
+                new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
                 mapper);
     }
@@ -197,7 +199,7 @@ class ProxyInjectionTest {
     }
 
     private static DrugContext emptyContext() {
-        return new DrugContext("DRUG_CONTEXT: nothing", Set.of(), List.of());
+        return new DrugContext("DRUG_CONTEXT: nothing", Map.of(), List.of());
     }
 
     private static String validDrugFreeAnswer() {

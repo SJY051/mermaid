@@ -2,21 +2,30 @@ package com.mermaid.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
+import com.mermaid.chat.DrugContextRetriever.GroundedDrug;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
+import com.mermaid.drug.IngredientNormalizer;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Mono;
@@ -85,17 +94,21 @@ class ChatProxyControllerTest {
                 new FakeUpstream(modelReply),
                 retriever,
                 new StructuredOutputFallback(mapper),
-                new AnswerValidator(),
+                new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
                 mapper);
     }
 
     private static DrugContext contextWith(String... productNames) {
-        return new DrugContext("DRUG_CONTEXT: …", Set.of(productNames), List.of(TYLENOL_SOURCE));
+        Map<String, GroundedDrug> grounded = new LinkedHashMap<>();
+        for (String productName : productNames) {
+            grounded.put(productName, new GroundedDrug(TYLENOL_SOURCE.id(), Set.of()));
+        }
+        return new DrugContext("DRUG_CONTEXT: …", grounded, List.of(TYLENOL_SOURCE));
     }
 
     private static DrugContext emptyContext() {
-        return new DrugContext("DRUG_CONTEXT: nothing", Set.of(), List.of());
+        return new DrugContext("DRUG_CONTEXT: nothing", Map.of(), List.of());
     }
 
     private JsonNode request(String userText) {
@@ -271,6 +284,26 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("a map action with null types is refused before it reaches the browser")
+        void nullMapTypesAreRefused() throws Exception {
+            String invalidMap =
+                    """
+                    [{"type":"OPEN_FACILITY_MAP",
+                      "payload":{"types":null,"openNow":true,"radiusM":1000}}]
+                    """;
+            var response = controller(
+                            modelAnswer("[]", "[]")
+                                    .replace("\"uiActions\":[]", "\"uiActions\":" + invalidMap),
+                            emptyContext())
+                    .completions(request("where is the nearest pharmacy?"));
+
+            MermAidAnswer answer = answerOf(response);
+            assertThat(answer.answerId()).isEqualTo("local-fallback");
+            assertThat(answer.summary()).contains("could not verify");
+            assertThat(answer.uiActions()).isEmpty();
+        }
+
+        @Test
         @DisplayName("a drug citing a source id we do not hold is refused (invariant 1)")
         void danglingCitationIsRefused() throws Exception {
             var response = controller(
@@ -300,7 +333,7 @@ class ChatProxyControllerTest {
                         }
                     },
                     new StructuredOutputFallback(mapper),
-                    new AnswerValidator(),
+                    new AnswerValidator(new IngredientNormalizer()),
                     new EmergencyTriage(),
                     mapper);
 
@@ -312,6 +345,65 @@ class ChatProxyControllerTest {
             assertThat(answer.uiActions()).anyMatch(a -> a instanceof UiAction.ShowEmergencyCall);
             assertThat(upstream.sentRequest.get()).as("the model was never called").isNull();
         }
+    }
+
+    @Test
+    @DisplayName("validation logs contain stable code counts, never model text or forged lines")
+    void validationLogsContainCodesAndCountsOnly() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(ChatProxyController.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            String attack = modelAnswer("[]", "[]")
+                    .replace(
+                            "Here is what I found.",
+                            "LEAK_SENTINEL\\r\\nFORGED https://evil.example")
+                    .replace(
+                            "\"guidance\":[]",
+                            "\"guidance\":[{\"id\":\"g1\",\"title\":\"t\",\"body\":\"b\","
+                                    + "\"evidence\":\"general_safety\",\"sourceRefIds\":"
+                                    + "[\"LEAK_SOURCE_SENTINEL\\r\\nFORGED_SOURCE\"]}]");
+
+            MermAidAnswer answer = answerOf(
+                    controller(attack, emptyContext())
+                            .completions(request("REQUEST_SENTINEL\r\nFORGED_REQUEST headache")));
+
+            assertThat(answer.summary()).contains("could not verify");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertThat(appender.list).allSatisfy(event -> {
+            assertThat(event.getFormattedMessage())
+                    .doesNotContain(
+                            "REQUEST_SENTINEL",
+                            "LEAK_SENTINEL",
+                            "LEAK_SOURCE_SENTINEL",
+                            "FORGED",
+                            "evil.example",
+                            "\r",
+                            "\n");
+            assertThat(java.util.Arrays.deepToString(event.getArgumentArray()))
+                    .doesNotContain(
+                            "REQUEST_SENTINEL",
+                            "LEAK_SENTINEL",
+                            "LEAK_SOURCE_SENTINEL",
+                            "FORGED",
+                            "evil.example",
+                            "\r",
+                            "\n");
+        });
+        List<ILoggingEvent> warnings = appender.list.stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .toList();
+        assertThat(warnings).singleElement().satisfies(event -> {
+            assertThat(event.getFormattedMessage())
+                    .contains("answer_validation_failed total=2")
+                    .contains("INV5_GUIDANCE_SOURCE_UNKNOWN=1")
+                    .contains("INV7_FORBIDDEN_MARKUP=1");
+        });
     }
 
     @Nested

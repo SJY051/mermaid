@@ -14,7 +14,9 @@ import com.mermaid.drug.IngredientNormalizer;
 import com.mermaid.drug.domain.Drug;
 import com.mermaid.drug.domain.DurWarning;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -118,7 +120,41 @@ public class DrugContextRetriever {
                 millisBetween(startedAt, extractedAt), millisBetween(extractedAt, System.nanoTime()));
 
         return new DrugContext(
-                render(retrieved, allergyDeclared), retrieved.allowedProductNames(), retrieved.sources());
+                render(retrieved, allergyDeclared), groundedDrugs(retrieved.drugs()), retrieved.sources());
+    }
+
+    private Map<String, GroundedDrug> groundedDrugs(List<Drug> drugs) {
+        Map<String, GroundedDrug> grounded = new LinkedHashMap<>();
+        int rejectedCount = 0;
+        for (Drug drug : drugs) {
+            Set<String> ingredientKeys = new HashSet<>();
+            boolean groundable = true;
+            for (String ingredient : drug.ingredientsEn()) {
+                String key = normalizer.normalizeIdentity(ingredient).key();
+                if (key == null) {
+                    // An ingredient we cannot normalize means we cannot verify a card's ingredient
+                    // claims for this product, so we do not trust it for validation.
+                    groundable = false;
+                    break;
+                }
+                ingredientKeys.add(key);
+            }
+            if (!groundable) {
+                rejectedCount++;
+                continue;
+            }
+            // A product with NO English ingredient list is still grounded, with an empty key set:
+            // MFDS guidance with AllergyCheck.UNKNOWN is a real retrieved product, and render() still
+            // shows it to the model. Dropping it would make INV6 reject a card we actually fetched
+            // (INV6_PRODUCT_NOT_RETRIEVED — the #60 P1). INV6 still rejects any card that invents
+            // ingredients for it: an empty grounded set never equals a non-empty answer set.
+            grounded.put(
+                    drug.nameKo(), new GroundedDrug(drug.source().id(), Set.copyOf(ingredientKeys)));
+        }
+        if (rejectedCount > 0) {
+            log.warn("drug_grounding_failed code=UNNORMALIZABLE_INGREDIENT count={}", rejectedCount);
+        }
+        return Map.copyOf(grounded);
     }
 
     private static long millisBetween(long fromNanos, long toNanos) {
@@ -204,28 +240,37 @@ public class DrugContextRetriever {
 
     /**
      * @param systemMessage injected verbatim after the system prompt
-     * @param allowedProductNames the hallucination gate's allowlist. Empty means the answer must name
-     *     no medicine at all.
+     * @param groundedDrugs server-owned source and ingredient identities for every product. Empty
+     *     means the answer must name no medicine at all.
      * @param sources server-authored provenance. The model is told to leave {@code source_refs} empty;
      *     {@link ChatProxyController} fills it from here.
      */
     public record DrugContext(
             String systemMessage,
-            Set<String> allowedProductNames,
+            Map<String, GroundedDrug> groundedDrugs,
             List<SourceRef> sources,
             Optional<MermAidAnswer> directAnswer) {
 
+        public DrugContext {
+            groundedDrugs = Map.copyOf(groundedDrugs);
+            sources = List.copyOf(sources);
+        }
+
         public DrugContext(
-                String systemMessage, Set<String> allowedProductNames, List<SourceRef> sources) {
-            this(systemMessage, allowedProductNames, sources, Optional.empty());
+                String systemMessage, Map<String, GroundedDrug> groundedDrugs, List<SourceRef> sources) {
+            this(systemMessage, groundedDrugs, sources, Optional.empty());
+        }
+
+        public Set<String> allowedProductNames() {
+            return groundedDrugs.keySet();
         }
 
         static DrugContext empty() {
-            return new DrugContext(preamble(0, false) + "\n[]", Set.of(), List.of());
+            return new DrugContext(preamble(0, false) + "\n[]", Map.of(), List.of());
         }
 
         static DrugContext allergyClarification() {
-            return new DrugContext("", Set.of(), List.of(), Optional.of(AllergyClarification.answer()));
+            return new DrugContext("", Map.of(), List.of(), Optional.of(AllergyClarification.answer()));
         }
 
         /**
@@ -235,7 +280,7 @@ public class DrugContextRetriever {
          * are different answers, and the person deserves to be told which one they got.
          */
         static DrugContext allergySuppressed() {
-            return new DrugContext(preamble(0, true) + "\n[]", Set.of(), List.of());
+            return new DrugContext(preamble(0, true) + "\n[]", Map.of(), List.of());
         }
 
         /**
@@ -299,6 +344,13 @@ public class DrugContextRetriever {
                 we did not ask what they take, so we do not know which apply.
                 """
                     .formatted(count);
+        }
+    }
+
+    /** The narrow server facts needed by invariants 1 and 6; model-authored prose stays separate. */
+    public record GroundedDrug(String sourceRefId, Set<String> ingredientKeys) {
+        public GroundedDrug {
+            ingredientKeys = Set.copyOf(ingredientKeys);
         }
     }
 }

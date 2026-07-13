@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * What the assistant asks the UI to do (spec §2-11).
@@ -37,6 +38,10 @@ public sealed interface UiAction {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record OpenFacilityMap(MapPayload payload) implements UiAction {
+        public OpenFacilityMap {
+            Objects.requireNonNull(payload, "payload");
+        }
+
         @Override
         public String type() {
             return "OPEN_FACILITY_MAP";
@@ -45,6 +50,10 @@ public sealed interface UiAction {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ApplyFacilityFilters(MapPayload payload) implements UiAction {
+        public ApplyFacilityFilters {
+            Objects.requireNonNull(payload, "payload");
+        }
+
         @Override
         public String type() {
             return "APPLY_FACILITY_FILTERS";
@@ -81,7 +90,11 @@ public sealed interface UiAction {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record MapPayload(List<String> types, boolean openNow, int radiusM) {}
+    record MapPayload(List<String> types, boolean openNow, int radiusM) {
+        public MapPayload {
+            Objects.requireNonNull(types, "types");
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record DrugPayload(String drugId) {}
