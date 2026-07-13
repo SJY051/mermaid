@@ -213,6 +213,27 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
+    @DisplayName("the radius filter drops hospitals beyond the bound, reading HIRA distance as metres (SC-002)")
+    void hospitalRadiusExcludesByMetres() {
+        var service = serviceAt(FRIDAY_AFTERNOON);
+
+        // The three fixture rows sit at 903.8 m (아미나요양병원), 932.2 m (강북삼성병원), and 974.2 m
+        // (서울적십자병원) from 서울시청. A 950 m radius must keep the first two and drop the third —
+        // which only works if HIRA's decimal string is read as metres, not the pharmacy API's km.
+        List<Facility> wide = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
+        List<Facility> narrow = service.findNearby(LAT, LNG, 950, false, FacilityType.HOSPITAL);
+
+        assertThat(wide).hasSize(3);
+        assertThat(narrow).hasSize(2);
+        assertThat(narrow).allSatisfy(f -> assertThat(f.distanceMeters()).isLessThanOrEqualTo(950.0));
+        assertThat(narrow).noneMatch(f -> "서울적십자병원".equals(f.nameKo()));
+        assertThat(wide)
+                .filteredOn(f -> "서울적십자병원".equals(f.nameKo()))
+                .singleElement()
+                .satisfies(f -> assertThat(f.distanceMeters()).isBetween(974.0, 975.0));
+    }
+
+    @Test
     @DisplayName("a hospital with no published detail schedule remains unknown, not closed")
     void hospitalWithoutDetailScheduleIsUnknown() {
         var service =
