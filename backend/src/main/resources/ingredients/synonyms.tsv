@@ -31,5 +31,6 @@ apap	acetaminophen	TODO	Common US abbreviation on labels.
 ibuprofen lysine	ibuprofen	TODO	Salt form; same allergen. 허가정보 lists both.
 ibuprofen arginine	ibuprofen	TODO	Salt form; same allergen.
 dexibuprofen	ibuprofen	TODO	S-enantiomer of ibuprofen — the same molecule, not a related drug. Basis is chemical identity, NOT drug-class cross-reactivity (we do no class reasoning: spec §7-1 AR-01). 허가정보 lists it separately, and word-boundary matching cannot see "ibuprofen" inside "dexibuprofen", so without this row the product is never blocked.
-asa	acetylsalicylic acid	TODO	Standard abbreviation.
-aspirin	acetylsalicylic acid	TODO	Brand-turned-generic; identical substance.
+acetylsalicylic acid	aspirin	최정민	Old canonical, kept as an alias; identical substance. 허가정보 lists only "Aspirin".
+asa	aspirin	최정민	Standard abbreviation. 허가정보 canonical search term is "Aspirin"; "Acetylsalicylic Acid" returns no results.
+aspirin	aspirin	최정민	허가정보 canonical search term; "Aspirin" returns results while "Acetylsalicylic Acid" does not.
