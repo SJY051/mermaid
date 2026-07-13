@@ -29,7 +29,8 @@ lookup supplies a `ykiho`, and a per-hospital detail lookup supplies operating h
 
 - **FR-001 (DEV-203a):** The system MUST query
   `hospInfoServicev2/getHospBasisList` with `xPos` (longitude), `yPos` (latitude), a
-  mandatory `radius` in metres, and `_type=json`.
+  mandatory `radius` in metres, `numOfRows`/`pageNo`, and `_type=json`. It MUST follow the
+  response's `totalCount`; a dense radius must not silently return only HIRA's first page.
 - **FR-002 (DEV-203a):** The list parser MUST read `XPos` as longitude and `YPos` as
   latitude, preserve `postNo` as text, and expose `ykiho`, name, address, phone, and facility
   type in a normalized raw value. HIRA's metre `distance` is a 39-digit decimal string, so the
@@ -55,7 +56,8 @@ lookup supplies a `ykiho`, and a per-hospital detail lookup supplies operating h
   calendar match, the adapter MUST not infer that a date is a holiday.
 - **FR-009 (DEV-203d):** Provenance MUST travel with each list/detail fetch. In hybrid fallback,
   a hospital card MUST be marked `fixture`; deriving provenance from the app-wide
-  `isFixtureOnly()` switch is forbidden because it labels fallback data as live.
+  `isFixtureOnly()` switch is forbidden because it labels fallback data as live. A captured
+  fixture detail may be used only for its known `ykiho`; an unmatched ID has unknown hours.
 - **FR-010 (DEV-203e):** Fixture-mode tests MUST cover parsing, coordinate order, the 39-digit
   metre distance string, missing Sunday hours, lunch closure, holiday closure when the calendar
   identifies a holiday, provenance, bounded detail concurrency, and the service-level result.

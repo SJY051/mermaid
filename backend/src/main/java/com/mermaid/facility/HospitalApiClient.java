@@ -23,6 +23,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 public class HospitalApiClient {
 
     private static final String OP_BY_LOCATION = "getHospBasisList";
+    private static final int PAGE_SIZE = 100;
     private static final String FIXTURE = "hospital_list.json";
 
     private final WebClient publicApiWebClient;
@@ -43,14 +44,7 @@ public class HospitalApiClient {
         }
 
         try {
-            JsonNode raw =
-                    publicApiWebClient
-                            .get()
-                            .uri(uriFor(lat, lng, radiusMeters))
-                            .retrieve()
-                            .bodyToMono(JsonNode.class)
-                            .block();
-            return new HospitalBatch(parse(raw), SourceRef.DataMode.LIVE);
+            return liveBatch(lat, lng, radiusMeters);
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
                 log.warn("hospital lookup failed, falling back to fixture: {}", e.getMessage());
@@ -61,22 +55,50 @@ public class HospitalApiClient {
     }
 
     private HospitalBatch fixtureBatch() {
-        return new HospitalBatch(parse(fixtures.load(FIXTURE)), SourceRef.DataMode.FIXTURE);
+        // Fixture mode deliberately reads one captured page: query parameters are ignored offline,
+        // so paging would repeat these same rows and fabricate duplicates.
+        return new HospitalBatch(parsePage(fixtures.load(FIXTURE)).hospitals(), SourceRef.DataMode.FIXTURE);
     }
 
     /** Builds the HIRA list request with its mandatory radius and `_type=json` parameter. */
     URI uriFor(double lat, double lng, int radiusMeters) {
+        return uriFor(lat, lng, radiusMeters, 1);
+    }
+
+    /** One bounded HIRA page; the live lookup follows totalCount until every page is collected. */
+    URI uriFor(double lat, double lng, int radiusMeters, int pageNo) {
         return PublicApiUriBuilder.of(properties.hospitalBaseUrl(), OP_BY_LOCATION)
                 .serviceKey(properties.serviceKey())
                 .param("xPos", lng)
                 .param("yPos", lat)
                 .param("radius", radiusMeters)
+                .param("numOfRows", PAGE_SIZE)
+                .param("pageNo", pageNo)
                 .param("_type", "json")
                 .build();
     }
 
-    /** Parses the HIRA list fixture/API response into normalized raw hospital data. */
-    private List<RawHospital> parse(JsonNode raw) {
+    private HospitalBatch liveBatch(double lat, double lng, int radiusMeters) {
+        HospitalPage first = parsePage(fetchPage(lat, lng, radiusMeters, 1));
+        List<RawHospital> hospitals = new ArrayList<>(first.hospitals());
+        for (int pageNo = 2; (pageNo - 1) * PAGE_SIZE < first.totalCount(); pageNo++) {
+            hospitals.addAll(parsePage(fetchPage(lat, lng, radiusMeters, pageNo)).hospitals());
+        }
+        return new HospitalBatch(hospitals, SourceRef.DataMode.LIVE);
+    }
+
+    /** Separated for page-level tests; production calls HIRA with the page-specific URI. */
+    protected JsonNode fetchPage(double lat, double lng, int radiusMeters, int pageNo) {
+        return publicApiWebClient
+                .get()
+                .uri(uriFor(lat, lng, radiusMeters, pageNo))
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+    }
+
+    /** Parses one HIRA list page into normalized rows plus its upstream total. */
+    private HospitalPage parsePage(JsonNode raw) {
         PublicApiResponse response = PublicApiResponse.of(raw).requireOk();
 
         List<RawHospital> hospitals = new ArrayList<>();
@@ -106,7 +128,7 @@ public class HospitalApiClient {
                             longitude,
                             PublicApiResponse.number(row, "distance")));
         }
-        return hospitals;
+        return new HospitalPage(hospitals, response.totalCount());
     }
 
     /** A single HIRA list record; official hours arrive only in DEV-203b's detail adapter. */
@@ -123,4 +145,6 @@ public class HospitalApiClient {
 
     /** Hospital rows plus the source of this fetch, so hybrid fallback is never labelled live. */
     public record HospitalBatch(List<RawHospital> hospitals, SourceRef.DataMode origin) {}
+
+    private record HospitalPage(List<RawHospital> hospitals, int totalCount) {}
 }

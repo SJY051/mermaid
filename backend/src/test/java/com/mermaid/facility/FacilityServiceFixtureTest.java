@@ -103,6 +103,10 @@ class FacilityServiceFixtureTest {
                 clock);
     }
 
+    private static Facility hospitalNamed(List<Facility> hospitals, String nameKo) {
+        return hospitals.stream().filter(f -> nameKo.equals(f.nameKo())).findFirst().orElseThrow();
+    }
+
     /**
      * A {@code hybrid} service whose upstream is guaranteed to fail (the base URL points at a closed
      * port), so every fetch falls back to fixtures the way it would during a government outage.
@@ -232,14 +236,14 @@ class FacilityServiceFixtureTest {
     @Test
     @DisplayName("hospital fixture hours are official, fixture-labelled, and closed during lunch")
     void hospitalsUseOfficialHoursAndLunchClosure() {
-        Facility afternoon =
+        List<Facility> afternoonResults =
                 serviceAt(FRIDAY_AFTERNOON)
-                        .findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL)
-                        .getFirst();
-        Facility lunch =
+                        .findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
+        List<Facility> lunchResults =
                 serviceAt(FRIDAY_LUNCH)
-                        .findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL)
-                        .getFirst();
+                        .findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
+        Facility afternoon = hospitalNamed(afternoonResults, "강북삼성병원");
+        Facility lunch = hospitalNamed(lunchResults, "강북삼성병원");
 
         assertThat(afternoon.id()).startsWith("facility:hira:");
         assertThat(afternoon.operation().isOpenNow()).isTrue();
@@ -247,6 +251,7 @@ class FacilityServiceFixtureTest {
                 .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
         assertThat(afternoon.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
         assertThat(lunch.operation().isOpenNow()).isFalse();
+        assertThat(hospitalNamed(afternoonResults, "아미나요양병원").operation().isOpenNow()).isNull();
     }
 
     @Test
@@ -433,7 +438,9 @@ class FacilityServiceFixtureTest {
                         },
                         FRIDAY_AFTERNOON);
 
-        Facility hospital = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL).getFirst();
+        Facility hospital =
+                hospitalNamed(
+                        service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL), "강북삼성병원");
 
         assertThat(hospital.operation().isOpenNow()).isFalse();
         assertThat(hospital.operation().status())

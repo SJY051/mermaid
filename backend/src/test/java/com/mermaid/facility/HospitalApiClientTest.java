@@ -9,6 +9,7 @@ import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -73,6 +74,8 @@ class HospitalApiClientTest {
         assertThat(uri.getQuery()).contains("xPos=126.9779");
         assertThat(uri.getQuery()).contains("yPos=37.5663");
         assertThat(uri.getQuery()).contains("radius=1000");
+        assertThat(uri.getQuery()).contains("numOfRows=100");
+        assertThat(uri.getQuery()).contains("pageNo=1");
         assertThat(uri.getQuery()).contains("_type=json");
     }
 
@@ -97,5 +100,60 @@ class HospitalApiClientTest {
                 .singleElement()
                 .extracting(HospitalApiClient.RawHospital::ykiho)
                 .isEqualTo("valid");
+    }
+
+    @Test
+    @DisplayName("fetches every HIRA page before the service filters and sorts hospitals")
+    void fetchesAllHospitalPages() throws Exception {
+        var client =
+                new PaginatedHospitalClient(
+                        List.of(
+                                page(201, "page-1", 126.91),
+                                page(201, "page-2", 126.92),
+                                page(201, "page-3", 126.93)));
+
+        HospitalApiClient.HospitalBatch batch = client.findNear(37.5, 126.9, 1000);
+
+        assertThat(client.requestedPages).containsExactly(1, 2, 3);
+        assertThat(batch.hospitals())
+                .extracting(HospitalApiClient.RawHospital::ykiho)
+                .containsExactly("page-1", "page-2", "page-3");
+    }
+
+    private static JsonNode page(int totalCount, String ykiho, double longitude) throws Exception {
+        return MAPPER.readTree(
+                """
+                {"response":{"header":{"resultCode":"00"},"body":{"totalCount":%d,"items":{"item":
+                  {"ykiho":"%s","yadmNm":"Hospital","XPos":%s,"YPos":37.5}
+                }}}}
+                """.formatted(totalCount, ykiho, longitude));
+    }
+
+    private static final class PaginatedHospitalClient extends HospitalApiClient {
+
+        private final List<JsonNode> pages;
+        private final List<Integer> requestedPages = new ArrayList<>();
+
+        private PaginatedHospitalClient(List<JsonNode> pages) {
+            super(
+                    null,
+                    new PublicApiProperties(
+                            "configured-key",
+                            "https://x",
+                            "https://hira.example/hospInfoServicev2",
+                            "https://x",
+                            "https://x",
+                            "https://x",
+                            "https://x"),
+                    new DataModeProperties(DataModeProperties.DataMode.LIVE),
+                    new FixtureLoader(MAPPER));
+            this.pages = pages;
+        }
+
+        @Override
+        protected JsonNode fetchPage(double lat, double lng, int radiusMeters, int pageNo) {
+            requestedPages.add(pageNo);
+            return pages.get(pageNo - 1);
+        }
     }
 }

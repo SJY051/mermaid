@@ -30,6 +30,10 @@ public class HospitalDetailApiClient {
 
     private static final String OP_BY_YKIHO = "getDtlInfo2.8";
     private static final String FIXTURE = "hospital_detail.json";
+    // hospital_detail.json is one captured 강북삼성병원 response. HIRA's detail payload does not
+    // echo ykiho, so this mapping is the evidence that lets fixture mode use it truthfully.
+    private static final String FIXTURE_YKIHO =
+            "JDQ4MTg4MSM1MSMkMSMkMCMkODkkMzgxMzUxIzExIyQxIyQzIyQ3OSQ0NjEwMDIjNjEjJDEjJDQjJDgz";
     private static final Pattern LUNCH_RANGE =
             Pattern.compile("\\s*(\\d{1,2}):(\\d{2})\\s*~\\s*(\\d{1,2}):(\\d{2})\\s*");
 
@@ -68,6 +72,11 @@ public class HospitalDetailApiClient {
     }
 
     private HospitalDetailBatch fixtureBatch(String ykiho) {
+        if (!FIXTURE_YKIHO.equals(ykiho)) {
+            // A fixture from another hospital cannot establish this hospital's open status. Unknown
+            // is the safe result; otherwise open_now would filter on a stranger's timetable.
+            return new HospitalDetailBatch(HospitalDetail.empty(ykiho), SourceRef.DataMode.FIXTURE);
+        }
         return new HospitalDetailBatch(parse(fixtures.load(FIXTURE), ykiho), SourceRef.DataMode.FIXTURE);
     }
 

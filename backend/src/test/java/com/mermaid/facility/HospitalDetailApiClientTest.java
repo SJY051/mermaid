@@ -16,6 +16,9 @@ import org.junit.jupiter.api.Test;
 /** Tests for DEV-203b's HIRA hospital-detail adapter. */
 class HospitalDetailApiClientTest {
 
+    private static final String FIXTURE_YKIHO =
+            "JDQ4MTg4MSM1MSMkMSMkMCMkODkkMzgxMzUxIzExIyQxIyQzIyQ3OSQ0NjEwMDIjNjEjJDEjJDQjJDgz";
+
     private HospitalDetailApiClient fixtureClient() {
         return fixtureClient(null);
     }
@@ -45,17 +48,28 @@ class HospitalDetailApiClientTest {
     @Test
     @DisplayName("reads weekly hours, lunch closure, and closure flags from the official detail fixture")
     void parsesHospitalDetailFixture() {
-        HospitalDetailApiClient.HospitalDetailBatch batch = fixtureClient().findByYkiho("JDQ4MTg4MSM1MSMkMiMkMCMkMDAkMzgxMzUxIzUxIyQxIyQzIyQ4MiQyNjE4MzIjNTEjJDEjJDQjJDgz");
+        HospitalDetailApiClient.HospitalDetailBatch batch = fixtureClient().findByYkiho(FIXTURE_YKIHO);
         HospitalDetailApiClient.HospitalDetail detail = batch.detail();
 
         assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
-        assertThat(detail.ykiho()).isEqualTo("JDQ4MTg4MSM1MSMkMiMkMCMkMDAkMzgxMzUxIzUxIyQxIyQzIyQ4MiQyNjE4MzIjNTEjJDEjJDQjJDgz");
+        assertThat(detail.ykiho()).isEqualTo(FIXTURE_YKIHO);
         assertThat(detail.weekdayHours().get(1)).containsExactly("0830", "1700");
         assertThat(detail.weekdayHours().get(6)).containsExactly("0830", "1200");
         assertThat(detail.weekdayHours()).doesNotContainKey(7);
         assertThat(detail.lunchBreak()).contains(new HospitalDetailApiClient.LunchBreak(LocalTime.of(12, 30), LocalTime.of(13, 30)));
         assertThat(detail.sundayClosed()).isTrue();
         assertThat(detail.holidayClosed()).isTrue();
+    }
+
+    @Test
+    @DisplayName("does not attach the fixture hospital's hours to an unmatched ykiho")
+    void leavesUnmatchedFixtureDetailUnknown() {
+        HospitalDetailApiClient.HospitalDetail detail =
+                fixtureClient().findByYkiho("different-hospital").detail();
+
+        assertThat(detail.ykiho()).isEqualTo("different-hospital");
+        assertThat(detail.weekdayHours()).isEmpty();
+        assertThat(detail.lunchBreak()).isEmpty();
     }
 
     @Test
