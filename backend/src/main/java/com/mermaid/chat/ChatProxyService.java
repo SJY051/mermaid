@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.config.LlmProperties;
 import java.util.List;
+import java.util.StringJoiner;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -23,8 +24,8 @@ import reactor.core.publisher.Mono;
  *
  * <ol>
  *   <li>The API key lives here and only here. The browser sends a dummy one (NFR-03).
- *   <li>Any {@code system} message the client sent is dropped and replaced with ours, so a user
- *       cannot redefine the assistant's medical safety rules (NFR-03, SA-01).
+ *   <li>Only client {@code user} and {@code assistant} messages are retained. Privileged, tool, and
+ *       malformed roles are dropped before our own system rules are added (NFR-03, SA-01).
  * </ol>
  */
 @Slf4j
@@ -133,15 +134,49 @@ public class ChatProxyService {
         return clientRequest.path("stream").asBoolean(false);
     }
 
-    /** The newest user turn — what {@link EmergencyTriage} screens. Empty if there is none. */
+    /** The newest user turn — what pass 1 searches. Empty if there is none. */
     public static String lastUserMessage(JsonNode clientRequest) {
         String last = "";
         for (JsonNode m : clientRequest.path("messages")) {
             if ("user".equals(m.path("role").asText())) {
-                last = m.path("content").asText("");
+                last = messageText(m.path("content"));
             }
         }
         return last;
+    }
+
+    /** Every user turn that remains model-visible, joined for pre-model safety screening. */
+    public static String userMessagesForSafety(JsonNode clientRequest) {
+        StringJoiner text = new StringJoiner(" ");
+        for (JsonNode message : clientRequest.path("messages")) {
+            if (!"user".equals(message.path("role").asText())) {
+                continue;
+            }
+            String content = messageText(message.path("content"));
+            if (!content.isBlank()) {
+                text.add(content);
+            }
+        }
+        return text.toString();
+    }
+
+    /** OpenAI chat content is either a string or an array of text-part objects. */
+    private static String messageText(JsonNode content) {
+        if (content.isTextual()) {
+            return content.asText();
+        }
+        if (!content.isArray()) {
+            return "";
+        }
+        StringJoiner text = new StringJoiner(" ");
+        for (JsonNode part : content) {
+            if (part.isTextual()) {
+                text.add(part.asText());
+            } else if (part.path("text").isTextual()) {
+                text.add(part.path("text").asText());
+            }
+        }
+        return text.toString();
     }
 
     /**
@@ -171,14 +206,17 @@ public class ChatProxyService {
 
         int dropped = 0;
         for (JsonNode message : req.path("messages")) {
-            if ("system".equals(message.path("role").asText())) {
-                dropped++; // A client-supplied system message is an injection attempt, not a feature.
+            String role = message.path("role").asText();
+            if (!"user".equals(role) && !"assistant".equals(role)) {
+                // Only conversation roles cross this boundary. Developer, tool, malformed, and
+                // disguised system roles are all client-controlled instruction channels.
+                dropped++;
                 continue;
             }
             sanitized.add(message);
         }
         if (dropped > 0) {
-            log.warn("Dropped {} client-supplied system message(s) before proxying", dropped);
+            log.warn("Dropped {} client message(s) with a disallowed role before proxying", dropped);
         }
         req.set("messages", sanitized);
 

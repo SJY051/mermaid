@@ -62,7 +62,7 @@ public class ChatProxyController {
     public Object completions(@RequestBody JsonNode request) {
         boolean stream = ChatProxyService.wantsStream(request);
 
-        var redFlag = emergencyTriage.screen(ChatProxyService.lastUserMessage(request));
+        var redFlag = emergencyTriage.screen(ChatProxyService.userMessagesForSafety(request));
         if (redFlag.isPresent()) {
             log.warn("Emergency triage fired: {} — answering without calling the model", redFlag.get());
             return respond(emergencyTriage.emergencyAnswer(redFlag.get()), stream);
@@ -159,7 +159,15 @@ public class ChatProxyController {
             return unreachable();
         }
 
-        MermAidAnswer coerced = ground(fallback.coerce(messageNode.path("content").asText(null)), context);
+        MermAidAnswer parsed = fallback.coerce(messageNode.path("content").asText(null));
+        if ("local-fallback".equals(parsed.answerId())) {
+            // A malformed response is untrusted model prose, not a structured answer. Returning it as
+            // summary text would bypass every drug-card and medical-field invariant below.
+            return fallback.safeAnswer(
+                    "I could not verify that answer against official data, so I will not show it. "
+                            + "Please describe your symptoms again, or visit a pharmacy.");
+        }
+        MermAidAnswer coerced = ground(parsed, context);
 
         List<String> violations = answerValidator.validate(coerced, context.allowedProductNames());
         if (!violations.isEmpty()) {
