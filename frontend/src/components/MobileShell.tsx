@@ -31,20 +31,39 @@ function MobileShellContent() {
 
   return (
     <div lang="en" className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1">
         {/* Keep every screen mounted so each tab retains its own scroll and interaction state. */}
-        <section aria-label="Chat screen" hidden={activeTab !== 'chat'}>
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Chat screen"
+          hidden={activeTab !== 'chat'}
+        >
           <ChatScreen />
         </section>
-        <section aria-label="Map screen" hidden={activeTab !== 'map'}>
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Map screen"
+          hidden={activeTab !== 'map'}
+        >
           {/* active gates the location prompt and facility fetch: the screen stays mounted for
               scroll state, but must not spend the pharmacy quota until the user opens the tab. */}
           <MapScreen active={activeTab === 'map'} />
         </section>
-        <section aria-label="Saved screen" hidden={activeTab !== 'saved'}>
+        {/* `active` matters as much as the scroll box: SavedScreen refreshes the profile when it
+            becomes active, and mounting it eagerly would send that request before anyone opened the
+            tab. Both sides of this merge were right about their own half. */}
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Saved screen"
+          hidden={activeTab !== 'saved'}
+        >
           <SavedScreen active={activeTab === 'saved'} />
         </section>
-        <section aria-label="Settings screen" hidden={activeTab !== 'settings'}>
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Settings screen"
+          hidden={activeTab !== 'settings'}
+        >
           <SettingsScreen />
         </section>
       </div>

@@ -107,11 +107,18 @@ describe('MobileShell', () => {
     expectActive('Map')
 
     await user.click(screen.getByRole('button', { name: 'Saved' }))
-    expect(screen.getByText('Saved places are stored in your anonymous profile. This device keeps a display copy.')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Saved' })).toBeVisible()
+    // The storage/transmission line is what the Saved tab must never get wrong (it says the places
+    // go to the profile and the device keeps a display copy), so the shell test keeps asserting it.
+    expect(
+      screen.getByText(
+        'Saved places are stored in your anonymous profile. This device keeps a display copy.',
+      ),
+    ).toBeVisible()
     expectActive('Saved')
 
     await user.click(screen.getByRole('button', { name: 'Settings' }))
-    expect(screen.getByText('Dark mode follows your device for now.')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeVisible()
     expectActive('Settings')
   })
 
@@ -124,6 +131,28 @@ describe('MobileShell', () => {
       await user.click(screen.getByRole('button', { name: tab }))
       expect(screen.getByText(copy)).toBeVisible()
     }
+  })
+
+  it('keeps each screen scroll position independent', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MobileShell />)
+    const chat = container.querySelector<HTMLElement>('section[aria-label="Chat screen"]')!
+    const saved = container.querySelector<HTMLElement>('section[aria-label="Saved screen"]')!
+
+    expect(chat).toHaveClass('h-full', 'overflow-y-auto')
+    expect(saved).toHaveClass('h-full', 'overflow-y-auto')
+    expect(chat.parentElement).not.toHaveClass('overflow-y-auto')
+
+    chat.scrollTop = 320
+    await user.click(screen.getByRole('button', { name: 'Saved' }))
+    expect(saved.scrollTop).toBe(0)
+
+    saved.scrollTop = 48
+    await user.click(screen.getByRole('button', { name: 'Chat' }))
+    expect(chat.scrollTop).toBe(320)
+
+    await user.click(screen.getByRole('button', { name: 'Saved' }))
+    expect(saved.scrollTop).toBe(48)
   })
 
   it('marks the shell content as English', () => {
