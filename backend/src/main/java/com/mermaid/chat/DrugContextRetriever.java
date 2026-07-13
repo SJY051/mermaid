@@ -128,10 +128,12 @@ public class DrugContextRetriever {
         int rejectedCount = 0;
         for (Drug drug : drugs) {
             Set<String> ingredientKeys = new HashSet<>();
-            boolean groundable = !drug.ingredientsEn().isEmpty();
+            boolean groundable = true;
             for (String ingredient : drug.ingredientsEn()) {
                 String key = normalizer.normalizeIdentity(ingredient).key();
                 if (key == null) {
+                    // An ingredient we cannot normalize means we cannot verify a card's ingredient
+                    // claims for this product, so we do not trust it for validation.
                     groundable = false;
                     break;
                 }
@@ -141,6 +143,11 @@ public class DrugContextRetriever {
                 rejectedCount++;
                 continue;
             }
+            // A product with NO English ingredient list is still grounded, with an empty key set:
+            // MFDS guidance with AllergyCheck.UNKNOWN is a real retrieved product, and render() still
+            // shows it to the model. Dropping it would make INV6 reject a card we actually fetched
+            // (INV6_PRODUCT_NOT_RETRIEVED — the #60 P1). INV6 still rejects any card that invents
+            // ingredients for it: an empty grounded set never equals a non-empty answer set.
             grounded.put(
                     drug.nameKo(), new GroundedDrug(drug.source().id(), Set.copyOf(ingredientKeys)));
         }

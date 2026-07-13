@@ -47,7 +47,13 @@ public class StructuredOutputFallback {
         String candidate = stripMarkdownFence(rawContent.trim());
         try {
             MermAidAnswer parsed = objectMapper.readValue(candidate, MermAidAnswer.class);
-            int nullElements = countNulls(parsed.drugs()) + countNulls(parsed.guidance());
+            // Every model-authored list that reaches a rendered field: a null uiAction crashes the
+            // browser at action.type before the safety/disclaimer UI can draw (fail closed instead).
+            int nullElements =
+                    countNulls(parsed.drugs())
+                            + countNulls(parsed.guidance())
+                            + countNulls(parsed.uiActions())
+                            + countNulls(parsed.urgency() == null ? null : parsed.urgency().actions());
             if (nullElements > 0) {
                 log.warn("model_answer_rejected code=NULL_COLLECTION_ELEMENT count={}", nullElements);
                 return safeAnswer(INVALID_STRUCTURE_REFUSAL);

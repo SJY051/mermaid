@@ -221,6 +221,32 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("a retrieved product with no English ingredient list is still grounded, not dropped (#60)")
+        void keepsProductWithNoEnglishIngredients() {
+            SourceRef source = new SourceRef(
+                    "src:mfds:noingredients", "식품의약품안전처 의약품 제품 허가정보", "noingredients",
+                    WHEN, SourceRef.DataMode.FIXTURE, "MFDS — drug product licence information");
+            Drug drug = new Drug(
+                    "drug:mfds:noingredients", "성분미상정", "no-ingredient product", null, "제조사",
+                    List.of(), null, PrescriptionStatus.OTC,
+                    new Drug.Narrative("통증에 사용합니다.", null, null, null, null, null, null),
+                    List.of(), AllergyCheck.noMatch(), source);
+            RetrievedContext retrieved =
+                    new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(source));
+
+            DrugContext context = retriever(
+                            new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
+                    .retrieve("I have a headache", Set.of());
+
+            // A real retrieved product must not be dropped just because it has no English
+            // ingredients, or INV6 refuses a card we actually fetched (#60). Its grounded set is
+            // empty, so INV6 still rejects any card that invents ingredients for it.
+            assertThat(context.groundedDrugs()).containsKey(drug.nameKo());
+            assertThat(context.allowedProductNames()).contains(drug.nameKo());
+            assertThat(context.groundedDrugs().get(drug.nameKo()).ingredientKeys()).isEmpty();
+        }
+
+        @Test
         @DisplayName("every field the model needs to fill a drug card is present")
         void carriesEverythingTheCardNeeds() throws Exception {
             JsonNode drug = contextJson(context()).get(0);

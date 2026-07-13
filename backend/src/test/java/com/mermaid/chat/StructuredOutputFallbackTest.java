@@ -44,6 +44,31 @@ class StructuredOutputFallbackTest {
     }
 
     @Test
+    @DisplayName("a null action element is rejected, never serialized to crash the browser (#60)")
+    void rejectsNullActionElements() {
+        // ChatScreen maps uiActions and reads action.type immediately; a null element crashes render
+        // before the safety/disclaimer UI draws. The fail-closed guard must cover uiActions and the
+        // nested urgency actions, not only drugs/guidance.
+        String nullUiAction =
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"live",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[]},
+                 "summary":"ok","clarifyingQuestions":[],"guidance":[],
+                 "drugs":[],"uiActions":[null],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """;
+        assertThat(fallback.coerce(nullUiAction).answerId()).isEqualTo("local-fallback");
+
+        String nullUrgencyAction =
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"live",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[null]},
+                 "summary":"ok","clarifyingQuestions":[],"guidance":[],
+                 "drugs":[],"uiActions":[],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """;
+        assertThat(fallback.coerce(nullUrgencyAction).answerId()).isEqualTo("local-fallback");
+    }
+
+    @Test
     @DisplayName("plain prose becomes the summary instead of an exception (TC-03)")
     void coercesProse() {
         MermAidAnswer r = fallback.coerce("You should probably see a pharmacist.");
