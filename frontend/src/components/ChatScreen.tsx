@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
-import { Card } from '@astryxdesign/core/Card'
 import {
   ChatComposer,
   ChatLayout,
@@ -14,8 +13,8 @@ import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
 import type { MermAidAnswer } from '../lib/types'
-import { AllergyBadge } from './AllergyBadge'
 import { AllergenPicker } from './AllergenPicker'
+import { DrugCard } from './DrugCard'
 import { NearbyFacilities } from './NearbyFacilities'
 
 const SESSION_COPY =
@@ -109,20 +108,12 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
         </div>
       )}
 
-      {/* TODO(team): proper medication cards with dosage pictograms — DEV-308 */}
       {answer.drugs.map((drug) => (
-        <Card key={drug.id}>
-          <div className="flex flex-col gap-2 p-4">
-            <h2 className="text-lg font-medium text-primary">{drug.productNameKo}</h2>
-            {drug.productNameEn && <p className="text-sm text-secondary">{drug.productNameEn}</p>}
-            <AllergyBadge check={drug.allergyCheck} />
-            {drug.warnings.map((warning, index) => (
-              <p key={index} className="text-sm text-secondary">
-                {warning}
-              </p>
-            ))}
-          </div>
-        </Card>
+        <DrugCard
+          key={drug.id}
+          drug={drug}
+          source={answer.sourceRefs.find((source) => source.id === drug.sourceRefId)}
+        />
       ))}
 
       {/* The assistant asks for the map through `uiActions`; it never calls a tool (spec §2-1). */}
@@ -374,7 +365,7 @@ export function ChatScreen() {
                   <ChatMessageBubble>{turn.question}</ChatMessageBubble>
                 </ChatMessage>
                 <ChatMessage sender="assistant">
-                  <ChatMessageBubble variant="ghost">
+                  <ChatMessageBubble variant="ghost" className="w-full max-w-none">
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
                     {turn.error && <FailedAnswer turn={turn} onRetry={() => submit(input)} />}
                     {turn.answer && <AnsweredTurn turn={turn} />}

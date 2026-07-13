@@ -186,6 +186,64 @@ describe('when the answer arrives', () => {
 
     expect(await screen.findByText('Call 119 now')).toBeInTheDocument()
   })
+
+  it('resolves each drug provenance by sourceRefId and labels a fixture card in a mixed answer', async () => {
+    const mixedAnswer = JSON.parse(validAnswer)
+    mixedAnswer.dataStatus = 'mixed'
+    mixedAnswer.drugs = [
+      {
+        id: 'drug:mfds:fixture',
+        productNameKo: '타이레놀정500밀리그람',
+        productNameEn: 'Tylenol 500 mg',
+        ingredients: [
+          {
+            nameKo: '아세트아미노펜',
+            nameEn: 'Acetaminophen',
+            normalizedKey: 'acetaminophen',
+            amount: '500',
+            unit: 'mg',
+          },
+        ],
+        indicationSummary: 'For headache and fever.',
+        directionsSummary: 'Follow the official label.',
+        warnings: ['Do not combine with other acetaminophen products.'],
+        prescriptionStatus: 'otc',
+        allergyCheck: { status: 'no_match_found', matchedIngredients: [], message: '' },
+        sourceRefId: 'src:referenced-fixture',
+      },
+    ]
+    mixedAnswer.sourceRefs = [
+      {
+        id: 'src:decoy-live',
+        provider: 'Decoy live source',
+        recordId: 'live-1',
+        retrievedAt: '2026-07-12T00:00:00Z',
+        dataMode: 'live',
+        title: 'This source does not back the drug',
+      },
+      {
+        id: 'src:referenced-fixture',
+        provider: '식품의약품안전처',
+        recordId: 'fixture-1',
+        retrievedAt: '2026-07-11T05:00:00Z',
+        dataMode: 'fixture',
+        title: 'MFDS fixture record',
+      },
+    ]
+    const { stream, release } = pendingStream()
+    streamChatMock.mockReturnValue(stream())
+    renderChat()
+    await ask()
+    release(JSON.stringify(mixedAnswer))
+
+    const card = await screen.findByRole('article', { name: '타이레놀정500밀리그람' })
+    expect(within(card).getByText('Sample data')).toBeInTheDocument()
+    expect(within(card).getByText('식품의약품안전처')).toBeInTheDocument()
+    expect(within(card).getByText('MFDS fixture record')).toBeInTheDocument()
+    expect(screen.queryByText('Decoy live source')).not.toBeInTheDocument()
+    // The answer-level copy is fixture-only; mixed answers rely on the referenced card label.
+    expect(screen.queryByText(/showing sample data/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('when the request fails', () => {
