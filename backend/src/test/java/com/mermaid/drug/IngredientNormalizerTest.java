@@ -152,6 +152,17 @@ class IngredientNormalizerTest {
             assertThat(normalizer.normalize("Aspirin").key()).isEqualTo("aspirin");
         }
 
+        /**
+         * The regression the bot caught on this PR: when the canonical flipped to "aspirin",
+         * the old canonical had to stay behind as an alias. Without that row, a user who
+         * declares their allergy by the chemical name loses the block that main provided.
+         */
+        @Test
+        @DisplayName("the old canonical name still converges with aspirin")
+        void oldCanonicalStaysAnAlias() {
+            assertThat(normalizer.normalize("Acetylsalicylic Acid").key()).isEqualTo("aspirin");
+        }
+
         @Test
         @DisplayName("a name already canonical is EXACT")
         void alreadyCanonical() {
