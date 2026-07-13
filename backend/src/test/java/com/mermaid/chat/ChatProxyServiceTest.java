@@ -49,6 +49,12 @@ class ChatProxyServiceTest {
                 .toList();
     }
 
+    private static List<String> fieldNames(JsonNode node) {
+        var names = new java.util.ArrayList<String>();
+        node.fieldNames().forEachRemaining(names::add);
+        return names;
+    }
+
     @Nested
     @DisplayName("the security boundary")
     class Sanitising {
@@ -96,6 +102,90 @@ class ChatProxyServiceTest {
             assertThat(roles(prepared)).containsExactly("system", "system", "user");
             assertThat(prepared.path("messages").path(0).path("content").asText()).contains("HARD RULES");
             assertThat(prepared.path("messages").path(1).path("content").asText()).isEqualTo("DRUG_CONTEXT: …");
+        }
+
+        @Test
+        @DisplayName("only server-owned top-level fields reach the provider")
+        void rebuildsTheTopLevelRequestFromAnAllowlist() {
+            ObjectNode req = clientRequest("user", "headache");
+            req.put("model", "attacker-selected-model");
+            req.put("stream", true);
+            req.put("n", 99);
+            req.put("store", true);
+            req.put("max_tokens", Integer.MAX_VALUE);
+            req.put("max_completion_tokens", Integer.MAX_VALUE);
+            req.putArray("tools").addObject().put("type", "custom");
+            req.put("tool_choice", "required");
+            req.put("parallel_tool_calls", true);
+            req.putArray("tool_calls").addObject().put("id", "attacker-tool-call");
+            req.putArray("functions").addObject().put("name", "attacker_function");
+            req.putObject("function_call").put("name", "attacker_function");
+            req.putObject("metadata").put("identity", "private-health-data");
+            req.put("provider_extension", "attacker-controlled");
+            req.putObject("response_format").put("type", "text");
+
+            JsonNode supported = service(SUPPORTED).prepare(req, false, List.of());
+            JsonNode unsupported = service(UNSUPPORTED).prepare(req, false, List.of());
+
+            assertThat(fieldNames(supported))
+                    .containsExactlyInAnyOrder(
+                            "model", "stream", "messages", "n", "max_tokens", "store", "response_format");
+            assertThat(supported.path("model").asText()).isEqualTo(SUPPORTED);
+            assertThat(supported.path("stream").asBoolean()).isFalse();
+            assertThat(supported.path("n").asInt()).isEqualTo(1);
+            assertThat(supported.path("max_tokens").asInt()).isEqualTo(8192);
+            assertThat(supported.path("store").asBoolean()).isFalse();
+            assertThat(supported.path("response_format").path("type").asText()).isEqualTo("json_schema");
+
+            assertThat(fieldNames(unsupported))
+                    .containsExactlyInAnyOrder("model", "stream", "messages", "n", "max_tokens", "store");
+            assertThat(unsupported.path("model").asText()).isEqualTo(UNSUPPORTED);
+            assertThat(unsupported.path("stream").asBoolean()).isFalse();
+            assertThat(unsupported.path("n").asInt()).isEqualTo(1);
+            assertThat(unsupported.path("max_tokens").asInt()).isEqualTo(8192);
+            assertThat(unsupported.path("store").asBoolean()).isFalse();
+        }
+
+        @Test
+        @DisplayName("allowed messages retain only their exact role and normalised text")
+        void rebuildsAllowedMessagesFromRoleAndTextOnly() {
+            ObjectNode req = mapper.createObjectNode();
+            var messages = req.putArray("messages");
+
+            ObjectNode assistant = messages.addObject().put("role", "assistant");
+            var assistantContent = assistant.putArray("content");
+            assistantContent.addObject().put("type", "text").put("text", "Earlier");
+            assistantContent.addObject().put("type", "text").put("text", "answer");
+            assistant.put("name", "trusted-looking-assistant");
+            assistant.putArray("tool_calls").addObject().put("id", "attacker-tool-call");
+            assistant.putObject("function_call").put("name", "attacker_function");
+            assistant.put("provider_extension", "attacker-controlled");
+
+            ObjectNode user = messages.addObject().put("role", "user");
+            var userContent = user.putArray("content");
+            userContent.addObject().put("type", "text").put("text", "Chest");
+            userContent
+                    .addObject()
+                    .put("type", "image_url")
+                    .putObject("image_url")
+                    .put("url", "data:image/png;base64,x");
+            userContent.addObject().put("type", "text").put("text", "pain");
+            user.put("name", "trusted-looking-user");
+            user.put("provider_extension", "attacker-controlled");
+
+            JsonNode prepared = service(SUPPORTED).prepare(req, false, List.of());
+            JsonNode preparedAssistant = prepared.path("messages").path(1);
+            JsonNode preparedUser = prepared.path("messages").path(2);
+
+            assertThat(fieldNames(preparedAssistant)).containsExactlyInAnyOrder("role", "content");
+            assertThat(preparedAssistant.path("role").asText()).isEqualTo("assistant");
+            assertThat(preparedAssistant.path("content").isTextual()).isTrue();
+            assertThat(preparedAssistant.path("content").asText()).isEqualTo("Earlier answer");
+
+            assertThat(fieldNames(preparedUser)).containsExactlyInAnyOrder("role", "content");
+            assertThat(preparedUser.path("role").asText()).isEqualTo("user");
+            assertThat(preparedUser.path("content").isTextual()).isTrue();
+            assertThat(preparedUser.path("content").asText()).isEqualTo("Chest pain");
         }
     }
 

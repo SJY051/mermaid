@@ -2,11 +2,18 @@ package com.mermaid.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 /**
  * We point the proxy at any OpenAI-compatible endpoint and swap models freely. Some of them will
@@ -138,6 +145,75 @@ class StructuredOutputFallbackTest {
         // Either way, no action reaches the browser.
         MermAidAnswer r = fallback.coerce(json);
         assertThat(r.uiActions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a null drug element fails closed instead of reaching the validator")
+    void rejectsNullDrugElement() {
+        MermAidAnswer r = fallback.coerce(
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"unavailable",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[]},
+                 "summary":"Do not expose this model answer.","clarifyingQuestions":[],"guidance":[],
+                 "drugs":[
+                   {"id":"d1","productNameKo":"검증된약","productNameEn":"Verified Drug",
+                    "ingredients":[],"indicationSummary":"i","directionsSummary":"d","warnings":[],
+                    "prescriptionStatus":"otc",
+                    "allergyCheck":{"status":"unknown","matchedIngredients":[],"message":"m"},
+                    "sourceRefId":"src:1"},
+                   null],
+                 "uiActions":[],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """);
+
+        assertThat(r.answerId()).isEqualTo("local-fallback");
+        assertThat(r.summary()).contains("could not verify").doesNotContain("Do not expose");
+        assertThat(r.drugs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a null guidance element fails closed independently of the drug list")
+    void rejectsNullGuidanceElement() {
+        MermAidAnswer r = fallback.coerce(
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"unavailable",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[]},
+                 "summary":"","clarifyingQuestions":[],
+                 "guidance":[
+                   {"id":"g1","title":"t","body":"b","evidence":"general_safety","sourceRefIds":[]},
+                   null],
+                 "drugs":[],"uiActions":[],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """);
+
+        assertThat(r.answerId()).isEqualTo("local-fallback");
+        assertThat(r.summary()).contains("could not verify").doesNotContain("\"guidance\":[null]");
+        assertThat(r.guidance()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("coercion failures are logged only as a stable code and count")
+    void coercionFailuresDoNotLeakModelText() {
+        Logger logger = (Logger) LoggerFactory.getLogger(StructuredOutputFallback.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            fallback.coerce(
+                    "{\"summary\":\"hi\",\"uiActions\":[{\"type\":"
+                            + "\"LEAK_SENTINEL\\r\\nFORGED_LOG_LINE\",\"payload\":{}}]}");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        List<ILoggingEvent> warnings = appender.list.stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .toList();
+        assertThat(warnings).singleElement().satisfies(event -> {
+            assertThat(event.getFormattedMessage())
+                    .isEqualTo("model_answer_rejected code=COERCION_FAILED count=1");
+            assertThat(Arrays.deepToString(event.getArgumentArray()))
+                    .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
+        });
     }
 
     @Test

@@ -4,10 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
+import com.mermaid.chat.AnswerValidator.ViolationCode;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -172,15 +175,21 @@ public class ChatProxyController {
         }
         MermAidAnswer coerced = ground(parsed, context);
 
-        List<String> violations = answerValidator.validate(coerced, context.allowedProductNames());
+        List<ViolationCode> violations = answerValidator.validate(coerced, context.groundedDrugs());
         if (!violations.isEmpty()) {
-            log.warn("Answer failed {} post-processing invariant(s); refusing it. {}",
-                    violations.size(), violations);
+            log.warn("answer_validation_failed total={} codes={}",
+                    violations.size(), violationCounts(violations));
             return fallback.safeAnswer(
                     "I could not verify that answer against official data, so I will not show it. "
                             + "Please describe your symptoms again, or visit a pharmacy.");
         }
         return coerced;
+    }
+
+    private static Map<ViolationCode, Integer> violationCounts(List<ViolationCode> violations) {
+        Map<ViolationCode, Integer> counts = new EnumMap<>(ViolationCode.class);
+        violations.forEach(code -> counts.merge(code, 1, Integer::sum));
+        return counts;
     }
 
     /**

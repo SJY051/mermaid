@@ -2,12 +2,16 @@ package com.mermaid.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.mermaid.chat.AnswerValidator.ViolationCode;
+import com.mermaid.chat.DrugContextRetriever.GroundedDrug;
 import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
+import com.mermaid.drug.IngredientNormalizer;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -19,7 +23,7 @@ import org.junit.jupiter.api.Test;
  */
 class AnswerValidatorTest {
 
-    private final AnswerValidator validator = new AnswerValidator();
+    private final AnswerValidator validator = new AnswerValidator(new IngredientNormalizer());
 
     private static final Instant NOW = Instant.parse("2026-07-10T02:00:00Z");
 
@@ -27,12 +31,29 @@ class AnswerValidatorTest {
         return new SourceRef(id, "mfds", "200000001", NOW, SourceRef.DataMode.LIVE, "e약은요");
     }
 
+    private static Map<String, GroundedDrug> grounded(
+            String productNameKo, String sourceRefId, String... ingredientKeys) {
+        return Map.of(productNameKo, new GroundedDrug(sourceRefId, Set.of(ingredientKeys)));
+    }
+
+    private static MermAidAnswer.Ingredient ingredient(String nameEn) {
+        return new MermAidAnswer.Ingredient(null, nameEn, null, null, null);
+    }
+
     private static MermAidAnswer.DrugCard drug(String nameKo, String sourceRefId, AllergyCheck check) {
+        return drug(nameKo, sourceRefId, check, List.of());
+    }
+
+    private static MermAidAnswer.DrugCard drug(
+            String nameKo,
+            String sourceRefId,
+            AllergyCheck check,
+            List<MermAidAnswer.Ingredient> ingredients) {
         return new MermAidAnswer.DrugCard(
                 "drug:mfds:200000001",
                 nameKo,
                 null,
-                List.of(),
+                ingredients,
                 null,
                 null,
                 List.of(),
@@ -74,7 +95,7 @@ class AnswerValidatorTest {
                         List.of(source("src:1")),
                         MermAidAnswer.DataStatus.LIVE);
 
-        assertThat(validator.validate(a, Set.of("타이레놀"))).isEmpty();
+        assertThat(validator.validate(a, grounded("타이레놀", "src:1"))).isEmpty();
     }
 
     @Nested
@@ -94,8 +115,8 @@ class AnswerValidatorTest {
                             List.of(source("src:1")),
                             MermAidAnswer.DataStatus.LIVE);
 
-            assertThat(validator.validate(a, Set.of("타이레놀")))
-                    .anyMatch(v -> v.contains("never retrieved"));
+            assertThat(validator.validate(a, grounded("타이레놀", "src:1")))
+                    .containsExactly(ViolationCode.INV6_PRODUCT_NOT_RETRIEVED);
         }
 
         @Test
@@ -109,7 +130,86 @@ class AnswerValidatorTest {
                             List.of(source("src:1")),
                             MermAidAnswer.DataStatus.LIVE);
 
-            assertThat(validator.validate(a, Set.of())).isNotEmpty();
+            assertThat(validator.validate(a, Map.of()))
+                    .containsExactly(ViolationCode.INV6_PRODUCT_NOT_RETRIEVED);
+        }
+
+        @Test
+        @DisplayName("ingredient identity is set equality, not list order")
+        void ingredientOrderDoesNotMatter() {
+            MermAidAnswer a =
+                    answer(
+                            MermAidAnswer.Urgency.Level.ROUTINE,
+                            List.of(drug(
+                                    "타이레놀",
+                                    "src:1",
+                                    AllergyCheck.noMatch(),
+                                    List.of(ingredient("Ibuprofen"), ingredient("Acetaminophen")))),
+                            List.of(),
+                            List.of(source("src:1")),
+                            MermAidAnswer.DataStatus.LIVE);
+
+            assertThat(validator.validate(
+                            a, grounded("타이레놀", "src:1", "acetaminophen", "ibuprofen")))
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("a card missing one retrieved ingredient is rejected")
+        void rejectsMissingIngredient() {
+            MermAidAnswer a =
+                    answer(
+                            MermAidAnswer.Urgency.Level.ROUTINE,
+                            List.of(drug(
+                                    "타이레놀",
+                                    "src:1",
+                                    AllergyCheck.noMatch(),
+                                    List.of(ingredient("Acetaminophen")))),
+                            List.of(),
+                            List.of(source("src:1")),
+                            MermAidAnswer.DataStatus.LIVE);
+
+            assertThat(validator.validate(
+                            a, grounded("타이레놀", "src:1", "acetaminophen", "ibuprofen")))
+                    .containsExactly(ViolationCode.INV6_INGREDIENT_MISMATCH);
+        }
+
+        @Test
+        @DisplayName("a card adding one fabricated ingredient is rejected")
+        void rejectsExtraIngredient() {
+            MermAidAnswer a =
+                    answer(
+                            MermAidAnswer.Urgency.Level.ROUTINE,
+                            List.of(drug(
+                                    "타이레놀",
+                                    "src:1",
+                                    AllergyCheck.noMatch(),
+                                    List.of(ingredient("Acetaminophen"), ingredient("Caffeine")))),
+                            List.of(),
+                            List.of(source("src:1")),
+                            MermAidAnswer.DataStatus.LIVE);
+
+            assertThat(validator.validate(a, grounded("타이레놀", "src:1", "acetaminophen")))
+                    .containsExactly(ViolationCode.INV6_INGREDIENT_MISMATCH);
+        }
+
+        @Test
+        @DisplayName("parenthesised extra ingredients cannot collapse onto a retrieved identity")
+        void rejectsParenthesisedIngredientSmuggling() {
+            MermAidAnswer a =
+                    answer(
+                            MermAidAnswer.Urgency.Level.ROUTINE,
+                            List.of(drug(
+                                    "타이레놀",
+                                    "src:1",
+                                    AllergyCheck.noMatch(),
+                                    List.of(ingredient("Acetaminophen (Caffeine)")))),
+                            List.of(),
+                            List.of(source("src:1")),
+                            MermAidAnswer.DataStatus.LIVE);
+
+            assertThat(validator.validate(a, grounded("타이레놀", "src:1", "acetaminophen")))
+                    .containsExactly(ViolationCode.INV6_INGREDIENT_MISMATCH);
         }
     }
 
@@ -128,8 +228,8 @@ class AnswerValidatorTest {
                             List.of(),
                             MermAidAnswer.DataStatus.UNAVAILABLE);
 
-            assertThat(validator.validate(a, Set.of()))
-                    .anyMatch(v -> v.contains("no SHOW_EMERGENCY_CALL"));
+            assertThat(validator.validate(a, Map.of()))
+                    .containsExactly(ViolationCode.INV4_EMERGENCY_ACTION_MISSING);
         }
 
         @Test
@@ -143,7 +243,7 @@ class AnswerValidatorTest {
                             List.of(),
                             MermAidAnswer.DataStatus.UNAVAILABLE);
 
-            assertThat(validator.validate(a, Set.of())).isEmpty();
+            assertThat(validator.validate(a, Map.of())).isEmpty();
         }
     }
 
@@ -158,8 +258,8 @@ class AnswerValidatorTest {
                         List.of(source("src:1")),
                         MermAidAnswer.DataStatus.LIVE);
 
-        assertThat(validator.validate(a, Set.of("타이레놀")))
-                .anyMatch(v -> v.contains("unknown source_ref_id"));
+        assertThat(validator.validate(a, grounded("타이레놀", "src:1")))
+                .containsExactly(ViolationCode.INV1_UNKNOWN_DRUG_SOURCE);
     }
 
     @Test
@@ -174,8 +274,8 @@ class AnswerValidatorTest {
                         List.of(source("src:1")),
                         MermAidAnswer.DataStatus.LIVE);
 
-        assertThat(validator.validate(a, Set.of("타이레놀")))
-                .anyMatch(v -> v.contains("names no ingredient"));
+        assertThat(validator.validate(a, grounded("타이레놀", "src:1")))
+                .containsExactly(ViolationCode.INV2_BLOCKED_WITHOUT_MATCH);
     }
 
     @Test
@@ -191,7 +291,41 @@ class AnswerValidatorTest {
                         List.of(fixture),
                         MermAidAnswer.DataStatus.LIVE);
 
-        assertThat(validator.validate(a, Set.of())).anyMatch(v -> v.contains("data_mode=fixture"));
+        assertThat(validator.validate(a, Map.of()))
+                .containsExactly(ViolationCode.INV3_LIVE_WITH_FIXTURE_SOURCE);
+    }
+
+    @Test
+    @DisplayName("OUT-05 — every guidance citation is checked, regardless of evidence label")
+    void everyGuidanceCitationMustBeServerOwned() {
+        MermAidAnswer a =
+                new MermAidAnswer(
+                        "1.0",
+                        "a1",
+                        "en",
+                        MermAidAnswer.DataStatus.LIVE,
+                        new MermAidAnswer.Urgency(
+                                MermAidAnswer.Urgency.Level.ROUTINE,
+                                "t",
+                                "m",
+                                List.of(),
+                                List.of()),
+                        "summary",
+                        List.of(),
+                        List.of(new MermAidAnswer.Guidance(
+                                "g1",
+                                "General guidance",
+                                "Ask a pharmacist.",
+                                MermAidAnswer.Guidance.Evidence.GENERAL_SAFETY,
+                                List.of("src:1", "src:fabricated"))),
+                        List.of(),
+                        List.of(),
+                        List.of(source("src:1")),
+                        List.of(),
+                        "disclaimer");
+
+        assertThat(validator.validate(a, Map.of()))
+                .containsExactly(ViolationCode.INV5_GUIDANCE_SOURCE_UNKNOWN);
     }
 
     @Test
@@ -214,7 +348,8 @@ class AnswerValidatorTest {
                         List.of(),
                         "disclaimer");
 
-        assertThat(validator.validate(withUrl, Set.of())).anyMatch(v -> v.contains("URL or markup"));
+        assertThat(validator.validate(withUrl, Map.of()))
+                .containsExactly(ViolationCode.INV7_FORBIDDEN_MARKUP);
     }
 
     @Test
@@ -241,6 +376,51 @@ class AnswerValidatorTest {
                         List.of(source("src:1")),
                         MermAidAnswer.DataStatus.LIVE);
 
-        assertThat(validator.validate(a, Set.of("타이레놀"))).anyMatch(v -> v.contains("URL or markup"));
+        assertThat(validator.validate(a, grounded("타이레놀", "src:1")))
+                .containsExactly(ViolationCode.INV7_FORBIDDEN_MARKUP);
+    }
+
+    @Test
+    @DisplayName("invariant 7 — the rendered Korean product name is scanned too")
+    void rejectsUrlInProductNameKo() {
+        MermAidAnswer.DrugCard card =
+                drug("https://evil.example", "src:1", AllergyCheck.noMatch());
+        MermAidAnswer a =
+                answer(
+                        MermAidAnswer.Urgency.Level.ROUTINE,
+                        List.of(card),
+                        List.of(),
+                        List.of(source("src:1")),
+                        MermAidAnswer.DataStatus.LIVE);
+
+        assertThat(validator.validate(a, grounded("https://evil.example", "src:1")))
+                .containsExactly(ViolationCode.INV7_FORBIDDEN_MARKUP);
+    }
+
+    @Test
+    @DisplayName("invariant 7 — ordinary comparison symbols are not mistaken for HTML")
+    void allowsPlainComparisonSymbols() {
+        MermAidAnswer a =
+                new MermAidAnswer(
+                        "1.0",
+                        "a1",
+                        "en",
+                        MermAidAnswer.DataStatus.UNAVAILABLE,
+                        new MermAidAnswer.Urgency(
+                                MermAidAnswer.Urgency.Level.ROUTINE,
+                                "Routine care",
+                                "Ask a pharmacist.",
+                                List.of(),
+                                List.of()),
+                        "A temperature below 38 C is less than 38 C: 37 < 38.",
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        "disclaimer");
+
+        assertThat(validator.validate(a, Map.of())).isEmpty();
     }
 }

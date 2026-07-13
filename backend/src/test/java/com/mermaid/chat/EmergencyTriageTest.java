@@ -4,7 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
-import java.util.Set;
+import com.mermaid.drug.IngredientNormalizer;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -19,7 +20,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 class EmergencyTriageTest {
 
     private final EmergencyTriage triage = new EmergencyTriage();
-    private final AnswerValidator validator = new AnswerValidator();
+    private final AnswerValidator validator = new AnswerValidator(new IngredientNormalizer());
 
     @ParameterizedTest
     @DisplayName("red flags in the user's own words are caught")
@@ -78,6 +79,6 @@ class EmergencyTriageTest {
         MermAidAnswer a = triage.emergencyAnswer("BREATHING");
 
         // No retrieved drugs, so an answer naming any drug would be rejected — it names none.
-        assertThat(validator.validate(a, Set.of())).isEmpty();
+        assertThat(validator.validate(a, Map.of())).isEmpty();
     }
 }

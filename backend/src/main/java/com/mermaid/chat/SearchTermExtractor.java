@@ -126,7 +126,7 @@ public class SearchTermExtractor {
         } catch (Exception e) {
             // A failed extraction must not fail the conversation. The user gets an ungrounded reply
             // that names no medicine, which is exactly what an empty context should produce.
-            log.warn("Search-term extraction failed; continuing with no drug context: {}", e.getMessage());
+            log.warn("search_term_extraction_failed code=UPSTREAM_FAILURE count=1");
             return RetrievalQuery.EMPTY;
         }
     }
@@ -152,11 +152,26 @@ public class SearchTermExtractor {
             return RetrievalQuery.EMPTY;
         }
         List<String> ingredients =
-                accept(root.path("ingredients"), INGREDIENT, MAX_INGREDIENTS, MAX_INGREDIENT_LENGTH);
+                accept(
+                        root.path("ingredients"),
+                        INGREDIENT,
+                        MAX_INGREDIENTS,
+                        MAX_INGREDIENT_LENGTH,
+                        RejectionCode.INGREDIENT_WRONG_SHAPE);
         List<String> productNames =
-                accept(root.path("productNames"), PRODUCT_NAME, MAX_PRODUCT_NAMES, Integer.MAX_VALUE);
+                accept(
+                        root.path("productNames"),
+                        PRODUCT_NAME,
+                        MAX_PRODUCT_NAMES,
+                        Integer.MAX_VALUE,
+                        RejectionCode.PRODUCT_NAME_WRONG_SHAPE);
         List<String> allergens =
-                accept(root.path("allergens"), INGREDIENT, MAX_ALLERGENS, MAX_INGREDIENT_LENGTH);
+                accept(
+                        root.path("allergens"),
+                        INGREDIENT,
+                        MAX_ALLERGENS,
+                        MAX_INGREDIENT_LENGTH,
+                        RejectionCode.ALLERGEN_WRONG_SHAPE);
         return new RetrievalQuery(ingredients, productNames, allergens);
     }
 
@@ -172,11 +187,13 @@ public class SearchTermExtractor {
         return new RetrievalQuery(query.ingredientsEn(), userNamedProducts, userNamedAllergens);
     }
 
-    private static List<String> accept(JsonNode array, Pattern shape, int limit, int maxLength) {
+    private static List<String> accept(
+            JsonNode array, Pattern shape, int limit, int maxLength, RejectionCode rejectionCode) {
         if (!array.isArray()) {
             return List.of();
         }
         List<String> accepted = new ArrayList<>();
+        int rejectedCount = 0;
         for (JsonNode entry : array) {
             if (accepted.size() == limit) {
                 break;
@@ -186,9 +203,18 @@ public class SearchTermExtractor {
             if (ok && !accepted.contains(term)) {
                 accepted.add(term);
             } else if (!ok && !term.isEmpty()) {
-                log.debug("Rejected search term '{}' — wrong shape", term);
+                rejectedCount++;
             }
         }
+        if (rejectedCount > 0) {
+            log.debug("Rejected search terms; code={}, count={}", rejectionCode, rejectedCount);
+        }
         return List.copyOf(accepted);
+    }
+
+    private enum RejectionCode {
+        INGREDIENT_WRONG_SHAPE,
+        PRODUCT_NAME_WRONG_SHAPE,
+        ALLERGEN_WRONG_SHAPE
     }
 }

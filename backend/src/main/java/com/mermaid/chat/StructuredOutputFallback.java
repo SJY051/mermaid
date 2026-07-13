@@ -24,6 +24,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class StructuredOutputFallback {
 
+    private static final String INVALID_STRUCTURE_REFUSAL =
+            "I could not verify that answer against official data, so I will not show it. "
+                    + "Please describe your symptoms again, or visit a pharmacy.";
+
     /** SA-02: the client renders this. It is never absent. */
     public static final String DISCLAIMER =
             "This is general information, not medical advice or a diagnosis. "
@@ -43,6 +47,11 @@ public class StructuredOutputFallback {
         String candidate = stripMarkdownFence(rawContent.trim());
         try {
             MermAidAnswer parsed = objectMapper.readValue(candidate, MermAidAnswer.class);
+            int nullElements = countNulls(parsed.drugs()) + countNulls(parsed.guidance());
+            if (nullElements > 0) {
+                log.warn("model_answer_rejected code=NULL_COLLECTION_ELEMENT count={}", nullElements);
+                return safeAnswer(INVALID_STRUCTURE_REFUSAL);
+            }
             // Valid JSON of the WRONG shape is the sneakier failure: Jackson ignores unknown fields,
             // so a model that answered with `reply` instead of `summary` parses cleanly into an
             // object with nothing to render. An empty summary and no drugs means we learned nothing,
@@ -56,7 +65,7 @@ public class StructuredOutputFallback {
             }
             return withGuarantees(parsed);
         } catch (Exception e) {
-            log.warn("Model ignored the response schema; falling back to prose. reason={}", e.getMessage());
+            log.warn("model_answer_rejected code=COERCION_FAILED count=1");
             return safeAnswer(rawContent);
         }
     }
@@ -108,6 +117,10 @@ public class StructuredOutputFallback {
 
     private static <T> List<T> nullSafe(List<T> list) {
         return list == null ? List.of() : list;
+    }
+
+    private static int countNulls(List<?> list) {
+        return list == null ? 0 : (int) list.stream().filter(java.util.Objects::isNull).count();
     }
 
     /** Models love to answer a JSON request with ```json … ``` around it. */

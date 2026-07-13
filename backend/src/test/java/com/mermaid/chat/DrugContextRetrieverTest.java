@@ -157,12 +157,67 @@ class DrugContextRetrieverTest {
         }
 
         @Test
-        @DisplayName("the allowlist and the sources come straight from what was retrieved")
+        @DisplayName("the grounding facts and sources come straight from what was retrieved")
         void allowlistAndSources() {
             DrugContext context = context();
 
             assertThat(context.allowedProductNames()).containsExactly("어린이타이레놀산160밀리그램(아세트아미노펜)");
+            assertThat(context.groundedDrugs().get(TYLENOL.nameKo()).sourceRefId())
+                    .isEqualTo(TYLENOL_SOURCE.id());
+            assertThat(context.groundedDrugs().get(TYLENOL.nameKo()).ingredientKeys())
+                    .containsExactly("acetaminophen");
             assertThat(context.sources()).containsExactly(TYLENOL_SOURCE);
+        }
+
+        @Test
+        @DisplayName("each retrieved product keeps its own source and ingredient identity")
+        void preservesEveryProductSourcePair() {
+            SourceRef ibuprofenSource = new SourceRef(
+                    "src:mfds:ibuprofen", "식품의약품안전처 의약품 제품 허가정보", "ibuprofen",
+                    WHEN, SourceRef.DataMode.FIXTURE, "MFDS — drug product licence information");
+            Drug ibuprofen = new Drug(
+                    "drug:mfds:ibuprofen", "ibuprofen", "부루펜정200밀리그람", null, "삼일제약",
+                    List.of("Ibuprofen"), "이부프로펜", PrescriptionStatus.OTC,
+                    new Drug.Narrative("통증에 사용합니다.", null, null, null, null, null, null),
+                    List.of(), AllergyCheck.noMatch(), ibuprofenSource);
+            RetrievedContext retrieved = new RetrievedContext(
+                    List.of(TYLENOL, ibuprofen),
+                    Set.of(TYLENOL.nameKo(), ibuprofen.nameKo()),
+                    List.of(TYLENOL_SOURCE, ibuprofenSource));
+
+            DrugContext context = retriever(
+                            new RetrievalQuery(List.of("Acetaminophen", "Ibuprofen"), List.of()),
+                            retrieved)
+                    .retrieve("I have a headache", Set.of());
+
+            assertThat(context.groundedDrugs().get(TYLENOL.nameKo()).sourceRefId())
+                    .isEqualTo(TYLENOL_SOURCE.id());
+            assertThat(context.groundedDrugs().get(ibuprofen.nameKo()).sourceRefId())
+                    .isEqualTo(ibuprofenSource.id());
+            assertThat(context.groundedDrugs().get(ibuprofen.nameKo()).ingredientKeys())
+                    .containsExactly("ibuprofen");
+        }
+
+        @Test
+        @DisplayName("a product with an unnormalisable ingredient is not trusted for validation")
+        void rejectsUngroundableIngredientIdentity() {
+            SourceRef source = new SourceRef(
+                    "src:mfds:ungroundable", "식품의약품안전처 의약품 제품 허가정보", "ungroundable",
+                    WHEN, SourceRef.DataMode.FIXTURE, "MFDS — drug product licence information");
+            Drug drug = new Drug(
+                    "drug:mfds:ungroundable", "ungroundable", "검증불가정", null, "제조사",
+                    List.of("Acetaminophen (Caffeine)"), "아세트아미노펜(카페인)", PrescriptionStatus.OTC,
+                    new Drug.Narrative("통증에 사용합니다.", null, null, null, null, null, null),
+                    List.of(), AllergyCheck.noMatch(), source);
+            RetrievedContext retrieved =
+                    new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(source));
+
+            DrugContext context = retriever(
+                            new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
+                    .retrieve("I have a headache", Set.of());
+
+            assertThat(context.groundedDrugs()).doesNotContainKey(drug.nameKo());
+            assertThat(context.allowedProductNames()).isEmpty();
         }
 
         @Test
