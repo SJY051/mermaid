@@ -60,7 +60,18 @@ function containsKorean(value: string): boolean {
   return /[ㄱ-ㆎ가-힣]/.test(value)
 }
 
-export function MapScreen() {
+export interface MapScreenProps {
+  /**
+   * Whether the Map tab is the active tab. The shell keeps every screen mounted (so Chat state
+   * survives tab switches), which means this effect would otherwise run on the initial Chat-only
+   * load — prompting for location and spending the 1,000/day pharmacy quota before the user ever
+   * asks for nearby care. We gate on activation, and stay loaded once opened.
+   */
+  active: boolean
+}
+
+export function MapScreen({ active }: MapScreenProps) {
+  const [everActive, setEverActive] = useState(active)
   const [location, setLocation] = useState<ResolvedLocation | null>(null)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
@@ -71,6 +82,11 @@ export function MapScreen() {
   const [hospitalUnavailable, setHospitalUnavailable] = useState(false)
 
   useEffect(() => {
+    if (active) setEverActive(true)
+  }, [active])
+
+  useEffect(() => {
+    if (!everActive) return
     let cancelled = false
 
     resolveLocation()
@@ -84,7 +100,7 @@ export function MapScreen() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [everActive])
 
   useEffect(() => {
     if (!location) return
@@ -193,6 +209,10 @@ export function MapScreen() {
   const mapFacilities = openNowOnly
     ? split.open
     : [...split.open, ...split.unknown, ...split.closed]
+  // §2-9: fixture data is never presented as live. In fixture/fallback mode every facility
+  // carries source.dataMode === 'fixture'; say so rather than pass captured pharmacies off as
+  // current nearby results.
+  const anyFixture = facilities.some((facility) => facility.source.dataMode === 'fixture')
   const resultKind =
     typeFilter === 'all'
       ? hospitalUnavailable
@@ -259,6 +279,12 @@ export function MapScreen() {
         <p className="text-sm text-primary">
           {facilities.length} {resultKind} · {split.open.length} Open now · {split.unknown.length}{' '}
           Hours unknown
+        </p>
+      )}
+
+      {anyFixture && (
+        <p data-testid="map-fixture-notice" className="text-sm text-primary">
+          Showing sample data — availability may not reflect current conditions.
         </p>
       )}
 

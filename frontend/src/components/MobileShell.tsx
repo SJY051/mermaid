@@ -34,7 +34,9 @@ function MobileShellContent() {
           <ChatScreen />
         </section>
         <section aria-label="Map screen" hidden={activeTab !== 'map'}>
-          <MapScreen />
+          {/* active gates the location prompt and facility fetch: the screen stays mounted for
+              scroll state, but must not spend the pharmacy quota until the user opens the tab. */}
+          <MapScreen active={activeTab === 'map'} />
         </section>
         <section aria-label="Saved screen" hidden={activeTab !== 'saved'}>
           <SavedScreen />

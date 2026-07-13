@@ -94,7 +94,7 @@ describe('MapScreen', () => {
       type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([unknown]),
     )
 
-    render(<MapScreen />)
+    render(<MapScreen active={true} />)
 
     const unknownPin = await screen.findByTestId('map-facility-unknown')
     expect(unknownPin).toHaveTextContent('Hours unknown')
@@ -132,7 +132,7 @@ describe('MapScreen', () => {
         : Promise.resolve([closed, unknown, open]),
     )
 
-    render(<MapScreen />)
+    render(<MapScreen active={true} />)
 
     const map = await screen.findByTestId('map-stub')
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open,unknown,closed'))
@@ -168,5 +168,47 @@ describe('MapScreen', () => {
     for (const [query] of fetchFacilitiesMock.mock.calls) {
       expect(query).toEqual(expect.objectContaining({ openNow: false }))
     }
+  })
+
+  it('does not ask for location or fetch until the tab is active', async () => {
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
+    fetchFacilitiesMock.mockResolvedValue([])
+
+    // The shell mounts every screen; an inactive Map must not prompt for location or spend the
+    // pharmacy quota. Mutation guard: dropping the `active` gate must turn this red.
+    const { rerender } = render(<MapScreen active={false} />)
+    await Promise.resolve()
+    expect(resolveLocationMock).not.toHaveBeenCalled()
+    expect(fetchFacilitiesMock).not.toHaveBeenCalled()
+
+    rerender(<MapScreen active={true} />)
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalled())
+  })
+
+  it('warns when a displayed facility carries fixture provenance, never presenting it as live (§2-9)', async () => {
+    const live = facility('a', '라이브약국', true)
+    live.source.dataMode = 'live'
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([live]),
+    )
+
+    const { rerender } = render(<MapScreen active={true} />)
+    await screen.findByTestId('map-facility-a')
+    expect(screen.queryByTestId('map-fixture-notice')).not.toBeInTheDocument()
+
+    // The same screen with a fixture-provenance facility must say so.
+    const sample = facility('b', '샘플약국', true)
+    // (facility() already defaults source.dataMode to 'fixture')
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([sample]),
+    )
+    rerender(<MapScreen active={false} />)
+    rerender(<MapScreen active={true} />)
+    // force a refetch by switching type, since location is already resolved
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Pharmacies' }))
+    expect(await screen.findByTestId('map-fixture-notice')).toHaveTextContent(
+      'Showing sample data — availability may not reflect current conditions.',
+    )
   })
 })
