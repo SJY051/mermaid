@@ -44,7 +44,7 @@ every empty, loading, error, allergy, and location state.
 |---|---|---|
 | Persistent disclaimer | **This service provides general information, not medical advice. For personalised advice, speak with a licensed pharmacist or doctor. In an emergency, call 119.** | Keep visible before and after a response. |
 | Privacy prompt | **Please do not include identifying information, such as a passport number or date of birth.** | Show beside the symptom input. |
-| Emergency | **Call 119 now. In Korea, 119 is the emergency number for ambulance, fire, and rescue—similar to 911 in some countries. If you need police assistance, call 112. If you need language support, say “English please” or “Interpreter please.”** | The backend owns the emergency decision; UI only presents it. Keep this visible without waiting for an online reply. |
+| Emergency | **Call 119 immediately. 119 is Korea’s emergency number, like 911.** | The backend owns the emergency decision; UI only presents it. Keep this visible without waiting for an online reply. |
 | Allergy: blocked | **This medicine lists: {ingredients}. It has been excluded from suggestions. Please check with a pharmacist or doctor.** | Do not say the medicine is unsafe for everyone. |
 | Allergy: warning | **Possible ingredient match. Please ask a pharmacist before taking this medicine.** | Warning is not a confirmed match. |
 | Allergy: no match found | **No match was found in the listed ingredients. This is not a guarantee that the medicine is suitable for you. Please ask a pharmacist.** | Plain text, not a green badge; never use “safe”. |
