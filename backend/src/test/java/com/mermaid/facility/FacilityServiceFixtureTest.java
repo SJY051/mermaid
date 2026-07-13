@@ -57,7 +57,6 @@ class FacilityServiceFixtureTest {
                 new HospitalApiClient(null, props, dataMode, loader),
                 new HospitalDetailApiClient(null, props, dataMode, loader),
                 new HolidayCalendar(),
-                dataMode,
                 clock);
     }
 
@@ -101,7 +100,27 @@ class FacilityServiceFixtureTest {
                 listClient,
                 detailClient,
                 new HolidayCalendar(),
-                dataMode,
+                clock);
+    }
+
+    /**
+     * A {@code hybrid} service whose upstream is guaranteed to fail (the base URL points at a closed
+     * port), so every fetch falls back to fixtures the way it would during a government outage.
+     */
+    private FacilityService hybridServiceWithDeadUpstream(Clock clock) {
+        var props =
+                new PublicApiProperties(
+                        "decoding-key", // non-blank → isConfigured(), so we attempt the live call
+                        "http://127.0.0.1:1", // connection refused → fallback path
+                        "https://x", "https://x", "https://x", "https://x", "https://x");
+        var dataMode = new DataModeProperties(DataModeProperties.DataMode.HYBRID);
+        var loader = new FixtureLoader(new ObjectMapper());
+        var client = org.springframework.web.reactive.function.client.WebClient.create();
+        return new FacilityService(
+                new PharmacyApiClient(client, props, dataMode, loader),
+                new HospitalApiClient(client, props, dataMode, loader),
+                new HospitalDetailApiClient(client, props, dataMode, loader),
+                new HolidayCalendar(),
                 clock);
     }
 
@@ -125,6 +144,20 @@ class FacilityServiceFixtureTest {
 
         assertThat(f.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
         assertThat(f.source().recordId()).isNotBlank();
+    }
+
+    @Test
+    @DisplayName("a hybrid outage fallback is labelled fixture, not live (§2-14: never disguise fixture)")
+    void hybridFallbackIsLabelledFixtureNotLive() {
+        // Before provenance was per-fetch, sourceOf derived data_mode from the app-wide switch, so a
+        // hybrid outage — real fallback to fixtures — still stamped every card `live`. That is exactly
+        // the disguise §2-14 forbids. This turns red if data_mode goes back to the app-wide mode.
+        Facility f =
+                hybridServiceWithDeadUpstream(FRIDAY_AFTERNOON)
+                        .findNearby(LAT, LNG, 1000, false, FacilityType.PHARMACY)
+                        .get(0);
+
+        assertThat(f.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
     }
 
     @Test
@@ -159,13 +192,17 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("without the weekly table, status is INFERRED — never presented as official")
-    void statusIsInferredUntilWeeklyTableExists() {
-        Facility f = serviceAt(FRIDAY_AFTERNOON).findNearby(LAT, LNG, 1000, false, FacilityType.PHARMACY).get(0);
+    @DisplayName("a published weekly timetable gives official opening-hours confidence")
+    void statusIsOfficialWhenWeeklyTableExists() {
+        Facility f =
+                serviceAt(FRIDAY_AFTERNOON)
+                        .findNearby(LAT, LNG, 1000, false, FacilityType.PHARMACY)
+                        .get(0);
 
         assertThat(f.operation().statusConfidence())
-                .isEqualTo(FacilityOperation.StatusConfidence.INFERRED);
-        assertThat(f.operation().notice()).containsIgnoringCase("call");
+                .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+        assertThat(f.operation().isOpenNow()).isTrue();
+        assertThat(f.operation().notice()).containsIgnoringCase("call before");
     }
 
     @Test
@@ -368,7 +405,6 @@ class FacilityServiceFixtureTest {
                         listClient,
                         detailClient,
                         new HolidayCalendar(),
-                        dataMode,
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
@@ -395,7 +431,6 @@ class FacilityServiceFixtureTest {
                                 return true;
                             }
                         },
-                        dataMode,
                         FRIDAY_AFTERNOON);
 
         Facility hospital = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL).getFirst();

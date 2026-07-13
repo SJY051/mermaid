@@ -5,15 +5,62 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.SourceRef;
 import com.mermaid.facility.HospitalDetailApiClient;
+import com.mermaid.facility.PharmacyApiClient;
+import com.mermaid.facility.domain.DutyTable;
+import java.nio.ByteBuffer;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.serializer.RedisSerializationContext;
 
+/** Verifies cache values against the real JSON serializer rather than the heap-only test cache. */
 class CacheConfigTest {
 
+    private static RedisSerializationContext.SerializationPair<Object> pair() {
+        return new CacheConfig()
+                .redisCacheConfiguration(new ObjectMapper().findAndRegisterModules())
+                .getValueSerializationPair();
+    }
+
     @Test
+    @DisplayName("the weekly-hours cache value round-trips through the JSON serializer intact")
+    void weeklyHoursValueRoundTrips() {
+        DutyTable table =
+                new DutyTable(
+                        Map.of(1, List.of("0900", "1900"), 6, List.of("1000", "1400")),
+                        SourceRef.DataMode.LIVE);
+
+        RedisSerializationContext.SerializationPair<Object> pair = pair();
+        ByteBuffer bytes = pair.write(table);
+        Object back = pair.read(bytes);
+
+        assertThat(back).isEqualTo(table);
+        assertThat(((DutyTable) back).byDay().get(1)).containsExactly("0900", "1900");
+        assertThat(((DutyTable) back).origin()).isEqualTo(SourceRef.DataMode.LIVE);
+    }
+
+    @Test
+    @DisplayName("the pharmacy-batch cache value round-trips, provenance included")
+    void pharmacyBatchRoundTrips() {
+        var raw =
+                new PharmacyApiClient.RawPharmacy(
+                        "C1110693", "청실약국", "서울 중구", "02-000-0000", 37.5, 126.9, 0.14, "0900", "1900");
+        var batch =
+                new PharmacyApiClient.PharmacyBatch(List.of(raw), SourceRef.DataMode.FIXTURE);
+
+        RedisSerializationContext.SerializationPair<Object> pair = pair();
+        Object back = pair.read(pair.write(batch));
+
+        assertThat(back).isEqualTo(batch);
+        assertThat(((PharmacyApiClient.PharmacyBatch) back).origin())
+                .isEqualTo(SourceRef.DataMode.FIXTURE);
+    }
+
+    @Test
+    @DisplayName("the hospital-detail cache value round-trips through the JSON serializer intact")
     void hospitalDetailCacheValueRoundTripsAsJson() {
         var value =
                 new HospitalDetailApiClient.HospitalDetailBatch(
@@ -26,12 +73,8 @@ class CacheConfigTest {
                                 true,
                                 true),
                         SourceRef.DataMode.FIXTURE);
-        var pair =
-                new CacheConfig()
-                        .redisCacheConfiguration(new ObjectMapper().findAndRegisterModules())
-                        .getValueSerializationPair();
 
-        Object restored = pair.read(pair.write(value));
+        Object restored = pair().read(pair().write(value));
 
         assertThat(restored).isEqualTo(value);
     }

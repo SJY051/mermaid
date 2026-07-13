@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "valid-minimal",
+  "language": "en",
+  "dataStatus": "unavailable",
+  "urgency": {
+    "level": "unknown",
+    "title": "More information is needed",
+    "message": "No medicine records were retrieved.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "I could not verify a medicine from the information provided.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

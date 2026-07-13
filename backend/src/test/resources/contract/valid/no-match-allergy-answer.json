@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "valid-no-match",
+  "language": "en",
+  "dataStatus": "live",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "Confirm the ingredient list with a pharmacist.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "The listed ingredients did not match the allergy term supplied.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [
+    {
+      "id": "drug:mfds:setopen-325",
+      "productNameKo": "세토펜정325밀리그람",
+      "productNameEn": "Setopen Tab. 325mg",
+      "ingredients": [
+        {
+          "nameKo": "아세트아미노펜",
+          "nameEn": "Acetaminophen",
+          "normalizedKey": "acetaminophen",
+          "amount": "325",
+          "unit": "mg"
+        }
+      ],
+      "indicationSummary": "The official record lists pain and fever relief.",
+      "directionsSummary": "Follow the product label and pharmacist instructions.",
+      "warnings": [],
+      "prescriptionStatus": "otc",
+      "allergyCheck": {
+        "status": "no_match_found",
+        "matchedIngredients": [],
+        "message": "No match was found in the listed ingredients. This is not a guarantee; confirm with a pharmacist."
+      },
+      "sourceRefId": "src:mfds:setopen-325"
+    }
+  ],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

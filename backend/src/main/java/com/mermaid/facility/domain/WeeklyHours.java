@@ -3,6 +3,7 @@ package com.mermaid.facility.domain;
 import java.time.DayOfWeek;
 import java.time.ZonedDateTime;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -27,17 +28,19 @@ public final class WeeklyHours {
     }
 
     /**
-     * @param dutyTimes index 1..8 → {open, close} as HHMM strings; 1=Mon … 7=Sun, 8=holiday
+     * @param dutyTimes index 1..8 → [open, close] as HHMM strings; 1=Mon … 7=Sun, 8=holiday
      */
-    public static WeeklyHours fromDutyTimes(Map<Integer, String[]> dutyTimes) {
+    public static WeeklyHours fromDutyTimes(Map<Integer, List<String>> dutyTimes) {
         Map<DayOfWeek, OpenInterval> map = new EnumMap<>(DayOfWeek.class);
         for (DayOfWeek d : DayOfWeek.values()) {
-            String[] pair = dutyTimes.get(d.getValue());
-            map.put(d, pair == null ? OpenInterval.CLOSED : OpenInterval.of(pair[0], pair[1]));
+            List<String> pair = dutyTimes.get(d.getValue());
+            map.put(d, pair == null ? OpenInterval.CLOSED : OpenInterval.of(pair.get(0), pair.get(1)));
         }
-        String[] holidayPair = dutyTimes.get(8);
+        List<String> holidayPair = dutyTimes.get(8);
         OpenInterval holidayInterval =
-                holidayPair == null ? OpenInterval.CLOSED : OpenInterval.of(holidayPair[0], holidayPair[1]);
+                holidayPair == null
+                        ? OpenInterval.CLOSED
+                        : OpenInterval.of(holidayPair.get(0), holidayPair.get(1));
         return new WeeklyHours(map, holidayInterval);
     }
 

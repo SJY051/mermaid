@@ -1,6 +1,7 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNaverMap } from '../hooks/useNaverMap'
 import type { Facility } from '../lib/types'
+import { DetailDrawer } from './DetailDrawer'
 
 export interface FacilityMapProps {
   center: { lat: number; lng: number }
@@ -42,52 +43,81 @@ function escapeHtml(value: string): string {
 export function FacilityMap({ center, zoom = 15, facilities = [], caption, notice }: FacilityMapProps) {
   const { containerRef, map, ready, error } = useNaverMap({ center, zoom })
   const markersRef = useRef<naver.maps.Marker[]>([])
+  const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null)
+  const [markerError, setMarkerError] = useState<Error | null>(null)
+
+  const visibleError = error ?? markerError
 
   useEffect(() => {
     if (!map || !ready) return
+    setMarkerError(null)
 
     // Naver markers are not React children. Nothing removes them for us, and a second render
     // would silently stack a new pin on every old one.
-    markersRef.current.forEach((m) => m.setMap(null))
+    for (const marker of markersRef.current) {
+      try {
+        marker.setMap(null)
+      } catch {
+        // A rejected Naver key can invalidate an overlay before React removes it.
+      }
+    }
     markersRef.current = []
 
-    const info = new naver.maps.InfoWindow({ content: '' })
+    let info: naver.maps.InfoWindow | null = null
 
-    for (const facility of facilities) {
-      const marker = new naver.maps.Marker({
-        map,
-        position: new naver.maps.LatLng(facility.latitude, facility.longitude),
-        title: facility.nameKo,
-        icon: {
-          content:
-            `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #fff;` +
-            `background:${markerColour(facility)};box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
-          anchor: new naver.maps.Point(7, 7),
-        },
-      })
+    try {
+      info = new naver.maps.InfoWindow({ content: '' })
 
-      naver.maps.Event.addListener(marker, 'click', () => {
-        // The info window sits on Naver's own white panel, outside our theme. Without an explicit
-        // colour it inherits the page's light-on-dark text and is unreadable.
-        info.setContent(
-          `<div style="padding:8px 10px;font:13px/1.5 system-ui;max-width:220px;color:#1a1a1a">` +
-            `<strong>${escapeHtml(facility.nameKo)}</strong><br/>` +
-            `${escapeHtml(openLabel(facility))} · ${Math.round(facility.distanceMeters)}m<br/>` +
-            // The name and phone come from a government API and reach this string as HTML.
-            (facility.phone
-              ? `<a style="color:#0b6bcb" href="tel:${escapeHtml(facility.phone)}">${escapeHtml(facility.phone)}</a>`
-              : '') +
-            `</div>`,
-        )
-        info.open(map, marker)
-      })
+      for (const facility of facilities) {
+        const marker = new naver.maps.Marker({
+          map,
+          position: new naver.maps.LatLng(facility.latitude, facility.longitude),
+          title: facility.nameKo,
+          icon: {
+            content:
+              `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #fff;` +
+              `background:${markerColour(facility)};box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
+            anchor: new naver.maps.Point(7, 7),
+          },
+        })
 
-      markersRef.current.push(marker)
+        naver.maps.Event.addListener(marker, 'click', () => {
+          // The info window sits on Naver's own white panel, outside our theme. Without an explicit
+          // colour it inherits the page's light-on-dark text and is unreadable.
+          info!.setContent(
+            `<div style="padding:8px 10px;font:13px/1.5 system-ui;max-width:220px;color:#1a1a1a">` +
+              `<strong>${escapeHtml(facility.nameKo)}</strong><br/>` +
+              `${escapeHtml(openLabel(facility))} · ${Math.round(facility.distanceMeters)}m<br/>` +
+              // The name and phone come from a government API and reach this string as HTML.
+              (facility.phone
+                ? `<a style="color:#0b6bcb" href="tel:${escapeHtml(facility.phone)}">${escapeHtml(facility.phone)}</a>`
+                : '') +
+              `</div>`,
+          )
+          info!.open(map, marker)
+        })
+
+        markersRef.current.push(marker)
+      }
+    } catch {
+      setMarkerError(
+        new Error('The facility pins could not be loaded. Use the facility list below instead.'),
+      )
     }
 
     return () => {
-      info.close()
-      markersRef.current.forEach((m) => m.setMap(null))
+      try {
+        info?.close()
+      } catch {
+        // A rejected Naver key can invalidate an InfoWindow before React removes it.
+      }
+      for (const marker of markersRef.current) {
+        try {
+          marker.setMap(null)
+        } catch {
+          // Keep external SDK cleanup failures from replacing the whole app with a blank screen.
+        }
+      }
       markersRef.current = []
     }
   }, [map, ready, facilities])
@@ -100,7 +130,7 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />
 
-        {!ready && !error && (
+        {!ready && !visibleError && (
           <div
             data-testid="map-loading"
             className="absolute inset-0 grid place-items-center bg-secondary text-sm text-secondary"
@@ -109,7 +139,7 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
           </div>
         )}
 
-        {error && (
+        {visibleError && (
           <div
             data-testid="map-error"
             role="alert"
@@ -117,23 +147,38 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
           >
             <div>
               <p className="font-medium">The map could not be loaded.</p>
-              <p className="mt-2 text-secondary">{error.message}</p>
+              <p className="mt-2 text-secondary">{visibleError.message}</p>
             </div>
           </div>
         )}
       </div>
 
-      {ready && facilities.length > 0 && (
+      {facilities.length > 0 && (
         <ul data-testid="facility-list" className="space-y-1 text-sm">
           {facilities.map((facility) => (
-            <li key={facility.id} className="flex justify-between gap-3 text-secondary">
-              <span className="truncate text-primary">{facility.nameKo}</span>
-              <span className="shrink-0">
-                {openLabel(facility)} · {Math.round(facility.distanceMeters)}m
-              </span>
+            <li key={facility.id}>
+              <button
+                type="button"
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-secondary hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
+                onClick={() => setSelectedFacility(facility)}
+              >
+                <span className="truncate text-primary" lang="ko">
+                  {facility.nameKo}
+                </span>
+                <span className="shrink-0">
+                  {openLabel(facility)} · {Math.round(facility.distanceMeters)}m
+                </span>
+              </button>
             </li>
           ))}
         </ul>
+      )}
+
+      {selectedFacility && (
+        <DetailDrawer
+          facility={selectedFacility}
+          onClose={() => setSelectedFacility(null)}
+        />
       )}
     </section>
   )

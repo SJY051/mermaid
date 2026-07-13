@@ -56,7 +56,7 @@ public class EmergencyTriage {
     private final List<CompiledFlag> compiled =
             RED_FLAGS.stream().map(f -> new CompiledFlag(f.code(), Pattern.compile(f.regex()))).toList();
 
-    /** The most recent user message is what we screen. Earlier turns already had their chance. */
+    /** All model-visible user text for this stateless request is screened together. */
     public Optional<String> screen(String userText) {
         if (userText == null || userText.isBlank()) {
             return Optional.empty();

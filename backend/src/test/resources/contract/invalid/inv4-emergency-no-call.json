@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "invalid-inv4",
+  "language": "en",
+  "dataStatus": "unavailable",
+  "urgency": {
+    "level": "emergency",
+    "title": "Emergency",
+    "message": "Seek emergency care now.",
+    "reasonCodes": ["CHEST_PAIN"],
+    "actions": []
+  },
+  "summary": "This is an emergency.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": ["Do not delay emergency care."],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}
