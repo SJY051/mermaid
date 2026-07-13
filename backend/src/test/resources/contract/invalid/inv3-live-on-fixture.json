@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "invalid-inv3",
+  "language": "en",
+  "dataStatus": "live",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "No medicine was requested.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "This answer incorrectly claims live data.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

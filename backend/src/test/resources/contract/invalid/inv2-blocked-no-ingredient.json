@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "invalid-inv2",
+  "language": "en",
+  "dataStatus": "live",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "Ask a pharmacist before taking this medicine.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "The allergy check blocked this medicine.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [
+    {
+      "id": "drug:mfds:tylenol-500",
+      "productNameKo": "타이레놀정500밀리그람",
+      "productNameEn": "Tylenol Tab. 500mg",
+      "ingredients": [],
+      "indicationSummary": "The official record lists pain and fever relief.",
+      "directionsSummary": "Do not take a blocked medicine.",
+      "warnings": [],
+      "prescriptionStatus": "otc",
+      "allergyCheck": {
+        "status": "blocked",
+        "matchedIngredients": [],
+        "message": "This medicine was blocked by the allergy check."
+      },
+      "sourceRefId": "src:mfds:tylenol-500"
+    }
+  ],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

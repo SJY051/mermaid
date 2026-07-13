@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "schema-wrong-enum",
+  "language": "en",
+  "dataStatus": "unavailable",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "Ask a pharmacist if symptoms continue.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "The action type is outside the closed allowlist.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [],
+  "uiActions": [
+    {
+      "type": "NAVIGATE_TO_URL",
+      "payload": {
+        "types": null,
+        "openNow": null,
+        "radiusM": null,
+        "drugId": null,
+        "phone": null,
+        "label": null,
+        "question": null
+      }
+    }
+  ],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}
