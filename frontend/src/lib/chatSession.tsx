@@ -36,10 +36,16 @@ function restoreSession(session: ChatSession): { turns: ChatTurn[]; messages: St
   const turns: ChatTurn[] = []
   const messages: StoredMessage[] = []
 
+  // storage.ts validates only the version wrapper, so a same-schema blob can still be malformed
+  // (messages: null, or null entries). The shape check is ours: debris resets to an empty
+  // conversation — it must never leave the whole app blank.
+  if (!Array.isArray(session.messages)) return { turns, messages }
+
   for (let i = 0; i < session.messages.length; i += 1) {
     const user = session.messages[i]
     const assistant = session.messages[i + 1]
-    if (user.role !== 'user' || assistant?.role !== 'assistant') continue
+    if (user?.role !== 'user' || assistant?.role !== 'assistant') continue
+    if (typeof user.content !== 'string' || typeof assistant.content !== 'string') continue
 
     try {
       // Stored assistant messages are validated answer JSON. Refuse to turn a corrupt blob into

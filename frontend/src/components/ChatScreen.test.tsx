@@ -294,6 +294,25 @@ describe('conversation state', () => {
     expect(sessionStorage.getItem('mermaid.chatSession.v1')).toBeNull()
   })
 
+  it('survives a malformed stored session instead of leaving the app blank', () => {
+    // Same schema version, broken shape — what stale or corrupt tab storage actually looks like.
+    // storage.ts validates only the wrapper, so the provider owns this guard: debris must reset
+    // to an empty conversation, never crash ChatProvider into a blank screen.
+    for (const messages of [null, [null], [{ role: 'user' }]]) {
+      sessionStorage.setItem(
+        'mermaid.chatSession.v1',
+        JSON.stringify({
+          schemaVersion: '1.0',
+          data: { sessionId: 's', messages, allergies: [] },
+        }),
+      )
+      const view = renderChat()
+      expect(screen.getByText('Describe what you are feeling to start.')).toBeInTheDocument()
+      view.unmount()
+      sessionStorage.clear()
+    }
+  })
+
   it("shows the canonical storage and transmission copy in the session menu", async () => {
     const user = userEvent.setup()
     renderChat()
