@@ -1,0 +1,100 @@
+# DEV-603 backend prompt-injection review
+
+Audited chat source: `254baf585294255460b1347f190bd4d1277846c8` (`main`, 2026-07-13). Before final verification the branch was rebased onto the then-current `main`, `a23e56c23986f97a3b69c4bed7079fde2edb87eb`; `git diff --exit-code 254baf5..a23e56c -- backend/src/main/java/com/mermaid/chat` confirmed that the audited chat main tree had not changed. The fixes described as **fixed** below are on `chore/DEV-603-security-review`.
+
+## Threat model
+
+The public OpenAI-compatible chat endpoint accepts anonymous, attacker-controlled JSON and sends selected parts to an LLM under the operator's API key; the attacker can shape message roles, content parts, conversation history, pass-1 search terms, and any top-level provider options the proxy preserves, while external government narrative text is a second, less directly controlled instruction source. The protected assets are the no-diagnosis and emergency-first rules, the retrieved-drug allowlist, server-computed allergy/provenance facts, the system prompt and per-request `DRUG_CONTEXT`, provider credentials and spend, and consultation privacy. A successful attack is one that crosses one of those boundaries even if the model still emits valid JSON; model obedience and JSON Schema are generation aids, not security controls.
+
+## 1. System-message stripping and request-shape injection
+
+| id | severity | attack | evidence | recommendation |
+|---|---|---|---|---|
+| SM-01 | P0 | Send `developer`, `tool`, case/whitespace-disguised `system`, or another non-conversation role. The original deny-one loop forwarded all but exact lowercase `system`; a compatible provider can give `developer` higher priority than our rules. | Vulnerable base: `ChatProxyService.java:172-179`; fixed boundary: `ChatProxyService.java:207-221`; red/green regression: `ProxyInjectionTest.java:26-42`. | **Fixed.** Allow only exact `user` and `assistant` roles. Do not normalize a disguised role into a privileged role. |
+| SM-02 | P1 | Use preserved top-level `tools`/`functions` descriptions, or extra fields such as `tool_calls`, `function_call`, and `name` on an allowed client `assistant` turn, as another instruction/control channel; request multiple/large completions with `n` or token controls; or ask a supporting provider to retain health output with `store:true`. | The request is still deep-copied wholesale, and allowed message objects are copied whole while only selected top-level fields are overwritten/removed at `ChatProxyService.java:192-234`; it is posted with the server credential at `ChatProxyService.java:81-90`. | Build the upstream request from an explicit top-level allowlist, and rebuild each allowed message from only its exact `role` and normalized text `content`; set generation, tool, and retention policy server-side. This needs an API-compatibility decision, so it was not patched here. |
+
+Nested `role:"system"` properties inside a text/content object do not become protocol-level system messages in this code; they remain attacker text. A top-level `tool` message is now dropped, but an allowed client-authored `assistant` object is still copied whole, so nested tool-call metadata remains an unresolved provider-dependent surface under SM-02. Client-authored assistant prose is also untrusted prompt content even without protocol privilege. The exact top-level `mermaid` extension is consumed locally and removed before relay at `ChatProxyService.java:197-200`, so it has no direct smuggling path once removed.
+
+## 2. `DRUG_CONTEXT` instruction/data boundary
+
+| id | severity | attack | evidence | recommendation |
+|---|---|---|---|---|
+| DC-01 | P1 | Put instruction-like text in a compromised or malicious upstream product narrative. JSON escaping keeps the payload syntactically valid but does not make natural-language instructions inert; the data is elevated into a later `system` message. | Government narrative/DUR strings are copied at `DrugContextRetriever.java:92-147`; the context is inserted after the base prompt as the same privileged role at `ChatProxyService.java:188-205`. `SystemPromptProvider` explicitly rejects instructions in *user* messages, not external records. | Label the context as untrusted data in the base prompt, use explicit begin/end delimiters, state that strings inside it are never instructions, and prefer one server-owned system message containing a clearly typed data envelope. Add a synthetic indirect-injection provider test before changing prompt wording. |
+
+User text can tell the model that `DRUG_CONTEXT` is false, but the server-side retrieved-name and source checks do not disappear. The remaining danger is semantic: the model can rewrite facts or put unsupported claims in fields that the validator does not ground (OUT-02/OUT-03).
+
+## 3. Pass-1 extractor and allergy gate
+
+| id | severity | attack | evidence | recommendation |
+|---|---|---|---|---|
+| EX-01 | P0 | Prompt pass 1 to emit a Korean product name the user never typed. The original parser checked only shape, then the allergy path preserved all product names as if user-authored; a retrieved result consequently passed the final allowlist. | Vulnerable base: `SearchTermExtractor.java:146-150`; fixed origin binding: `SearchTermExtractor.java:106-160`; downstream preservation: `DrugContextRetriever.java:54-69`; red/green regression: `ProxyInjectionTest.java:85-100`. | **Fixed.** Keep only product names that occur literally, case-insensitively, in the original user text. Keep treating extractor output as a bounded query, never as a fact. |
+| EX-02 | P0 | Say “I am allergic to ibuprofen” while explicitly naming an ibuprofen product, but omit `mermaid.exclude_ingredients`. The boolean declaration suppresses inferred ingredients, yet the real allergy comparison receives an empty avoided-ingredient set and can produce `no_match_found`. | `DrugContextRetriever.java:52-69` retains only the boolean and passes normalized extension values to retrieval; the server-written context then serializes the resulting status at `DrugContextRetriever.java:143-147`. | Define a reviewed way to bind free-text allergen names to canonical ingredients, or require the client to send a validated allergy profile. This is a safety/design decision and was not patched during the injection audit. |
+
+Suppression and over-fetch are otherwise bounded: invalid/empty extractor output becomes an empty query; the parser caps three ingredients and two product names, and downstream retrieval caps results/concurrency. An attacker can still force an empty search and thereby reduce available information, but an empty context is fail-closed with respect to naming medicines.
+
+## 4. Emergency-triage bypass
+
+| id | severity | attack | evidence | recommendation |
+|---|---|---|---|---|
+| ET-01 | P0 | Put emergency text in OpenAI array-of-parts content. The original `.asText("")` projection screened an empty string while forwarding the array to the model. | Fixed text projection: `ChatProxyService.java:137-179`; pre-model gate: `ChatProxyController.java:62-71`; red/green regression: `ProxyInjectionTest.java:45-57,115-135`. | **Fixed.** Flatten string and text-part content before both pass 1 and triage. |
+| ET-02 | P0 | Put an emergency in an earlier client-supplied user turn and end with a benign user turn. The original latest-only screen missed text that was still forwarded in history. | Fixed all-user safety projection: `ChatProxyService.java:148-160`; red/green regressions, including a trigger split across turns: `ProxyInjectionTest.java:59-83,115-135`. | **Fixed.** Screen all model-visible user turns for this stateless request, while pass 1 still searches only the newest turn. |
+| ET-03 | P0 | Obfuscate an otherwise recognized emergency with double spaces, newlines, a smart apostrophe, a hyphen, a typo, a zero-width character, or a homoglyph. | Literal regular expressions run over unnormalized text at `EmergencyTriage.java:36-67`; the source itself lists clinically important categories still awaiting review at `EmergencyTriage.java:29-34`. | Residual risk. Normalize only after a clinical/false-positive review, add adversarial fixtures, and complete DEV-405. Do not use the LLM's urgency field as proof that triage succeeded. |
+
+## 5. Output validation, JSON and SSE
+
+| id | severity | attack | evidence | recommendation |
+|---|---|---|---|---|
+| OUT-01 | P0 | Make the model return prose or malformed JSON such as an unfetched drug plus “completely safe.” The original fallback copied that text into `summary`, leaving no drug card for the allowlist to inspect. | Raw-copy branch remains visible at `StructuredOutputFallback.java:43-60`; the controller now rejects every `local-fallback` before grounding at `ChatProxyController.java:156-180`; red/green regression: `ProxyInjectionTest.java:102-113`. | **Fixed at the public response boundary.** Malformed model prose is replaced with a server-authored refusal. |
+| OUT-02 | P0 | Return schema-valid `summary`, guidance, warning, clarification, or urgency prose that diagnoses, names an unfetched medicine, claims a cure, says “safe,” or repeats the prompt/context. | The retrieved-name gate iterates only `drugs[]` at `AnswerValidator.java:88-95`; prose gets only a narrow URL/markup scan at `AnswerValidator.java:98-129`; `summary` is rendered at `frontend/src/components/ChatScreen.tsx:94`. A compiled production-class harness accepted both an unfetched medicine and a definite diagnosis with zero violations. | Do not add a fragile drug-name/diagnosis regex. Redesign pass 2 so user-visible medical fields are deterministically derived from server-held records, or add a separately reviewed semantic policy gate with fail-closed tests. |
+| OUT-03 | P0 | For a legitimately retrieved product, rewrite ingredients, warnings, directions, prescription status, or server-computed `allergyCheck`; for example downgrade `blocked` to `no_match_found`. | The context contains the server result at `DrugContextRetriever.java:102-147`, but `ground()` preserves model drug cards at `ChatProxyController.java:195-209`; `AnswerValidator.java:44-60,88-95` checks shape/name/source sets rather than equality to the retrieved record. | Pass authoritative product records into grounding/validation and overwrite fact fields server-side. The model should author explanation only, not safety-state facts. |
+| OUT-04 | P0 | On a triage miss, return `urgency: emergency`, a 119 action, and medication cards. | The emergency invariant checks only for the call action at `AnswerValidator.java:72-78`; the current UI renders both banner and cards at `frontend/src/components/ChatScreen.tsx:82-110`. The compiled harness accepted this shape. | Require empty `drugs` for emergency answers and replace the model answer with the code-authored emergency response when urgency is emergency. Coordinate with DEV-601 before changing validator contracts. |
+| OUT-05 | P2 | Claim `official_data` guidance with any fabricated nonempty source id. | `AnswerValidator.java:80-85` checks non-emptiness, not membership; a compiled harness accepted `src:fabricated`. | Validate every guidance id against server-owned sources, or remove model-authored evidence classification. Current first-party UI does not render guidance, which limits immediate impact. |
+| OUT-06 | P2 | Retrieve products A and B, then cite B's source from A's card. | Product and source memberships are checked independently at `AnswerValidator.java:39-48,88-95`; a compiled harness accepted the swapped pair. | Preserve a server-owned product-to-source map and validate the pair, not two unrelated sets. |
+| OUT-07 | P2 | On the supported schema-less retry path, return `drugs:[null]` or `guidance:[null]` and trigger a validator `NullPointerException`. | Null lists are normalized, but elements are dereferenced at `AnswerValidator.java:45,81`; both independent inputs crashed a compiled production-class harness. | Reject null elements during coercion or make the validator fail closed to the fixed refusal. Keep the two list instances as separate regression cases. |
+| OUT-08 | P1 | Return an `OPEN_FACILITY_MAP` action with `types:null`; backend deserialization accepts it and the current client indexes `types[0]`, hiding the answer and safety information. | Nullable record at `dto/UiAction.java:83-84`; client sink at `frontend/src/components/ChatScreen.tsx:112-120` and `NearbyFacilities.tsx:28`. | Validate action payloads after deserialization and reject/strip invalid actions. Frontend is out of scope for this task. |
+| OUT-09 | P2 | Put URLs or HTML-looking strings in rendered fields omitted by `userVisibleText`, such as `productNameEn` or emergency title/message. | Scan coverage at `AnswerValidator.java:115-129`; visible sinks at `frontend/src/components/ChatScreen.tsx:86-107`. A compiled harness accepted the omitted values. | Validate every rendered string or, preferably, constrain server-owned fields. React escapes these values today, so this is not an executable-XSS finding. |
+
+Both transport modes currently share this same output gate. `complete()` forces a non-streaming provider call (`ChatProxyService.java:63-78`); the controller builds JSON or one complete SSE event only after coercion, grounding, and validation (`ChatProxyController.java:74-113,131-180`). The first-party frontend consumes the stream fully and parses once at `frontend/src/lib/chatSession.tsx:117-126`. There is no token-by-token path that skips `AnswerValidator`.
+
+## 6. Secrets, prompt leakage, errors, and logs
+
+| id | severity | attack | evidence | recommendation |
+|---|---|---|---|---|
+| LEAK-01 | P1 | Induce rejected extractor terms, parse errors, or validation violations containing symptom, identity, prompt, or newline text; application logs can persist it and permit log-line forging. | Raw rejected terms are logged at `SearchTermExtractor.java:163-178`; model-derived violation text is logged at `ChatProxyController.java:172-175`; application package logging defaults to DEBUG in `application.yml:60-62`. | Log only invariant codes/counts and neutralize control characters. A log-capture test and deployment retention review are still needed; this was not patched on static evidence alone. |
+| LEAK-02 | P2 | Ask the model to repeat the system prompt or `DRUG_CONTEXT`. The prompt tells it not to, but no output control detects a schema-valid disclosure. | Prompt-only control at `SystemPromptProvider.java:38-40`; validator coverage at `AnswerValidator.java:88-129`. | Treat this as part of OUT-02's semantic policy redesign. The system prompt is repository text and current `DRUG_CONTEXT` is request-scoped government data, so this is a control/data disclosure, not a service-secret leak. |
+
+No path from user content to the LLM API key or government service key was found. The LLM key is attached only as the Authorization header at `ChatProxyService.java:81-90,121-130`; no WebClient wiretap or request-header logger is configured. Provider failures, missing choices, serialization errors, and global exceptions return fixed content rather than exception bodies. The reviewed logs do not contain the system prompt or full `DRUG_CONTEXT`; they do contain derived terms and model validation values as noted in LEAK-01.
+
+## What is already solid
+
+- The server owns the system prompt and now allowlists conversation roles. The complete `mermaid` extension is removed before relay.
+- Canonical scalar emergency phrases run before pass 1 and pass 2; a match returns a code-authored, drug-free 119 response and never calls the model.
+- Pass 1 output is shape/count bounded and remains a query. Government results, not extractor text, create product facts and the final product-name allowlist.
+- Model responses are buffered completely. JSON and SSE are two serializations of the same post-processed answer, and the frontend parses only after the SSE stream completes.
+- Top-level `sourceRefs` and `dataStatus` are overwritten from server-held retrieval results; fixture data cannot become live merely because the model says so.
+- Upstream destinations and models are operator-owned, query values are encoded, retrieval fan-out is bounded, and no client-controlled SSRF path was found.
+- No API key, upstream exception body, or stack trace was found in a client response. Fixed error and unreachable-provider answers are server-authored.
+
+## Residual risk and scope decisions
+
+- Triage rules are necessarily incomplete and currently formatting-sensitive. This review records the bypass surface but does not redesign clinical rules.
+- Client-authored `assistant` history is permitted by SA-01 and remains untrusted content. The current first-party frontend sends one scalar user message, but the public endpoint must not rely on that client behavior.
+- DC-01, SM-02, and provider storage/cost effects depend on the configured OpenAI-compatible provider. Static forwarding is proven; provider obedience, billing, and retention were not exercised with real credentials.
+- OUT-02 and OUT-03 need an architectural grounding decision, not a quick regex. OUT-04 through OUT-09 overlap validator-contract work owned by DEV-601, so this branch reports them without editing `AnswerValidator` or its owned tests/fixtures.
+- Allergy phrase completeness already has an accepted clinical-review boundary (AR-01). EX-02 is narrower: even a phrase the detector recognizes loses the ingredient value unless the extension supplies it.
+
+## Patch verification
+
+`ProxyInjectionTest` was run before the initial fixes and produced `5 tests completed, 5 failed`, one failure for each original attack regression (role allowlist, array content, earlier history, model-authored product name, raw prose). The same command then passed after the fixes. Self-review subsequently made the separator checks mutation-specific: one test splits the sole trigger (`chest pain`) across content parts and another splits it across user turns. Each focused test failed `1 test completed, 1 failed` when only its respective join was changed from a space to a newline, then passed after the production join was restored.
+
+Final required run:
+
+```text
+$ cd backend && ./gradlew clean test
+> Task :test
+
+BUILD SUCCESSFUL in 11s
+6 actionable tasks: 6 executed
+```
+
+The generated JUnit XML contains 310 tests, 0 failures, and 0 errors.

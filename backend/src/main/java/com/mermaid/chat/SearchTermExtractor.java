@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.drug.DrugService.RetrievalQuery;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -111,7 +112,7 @@ public class SearchTermExtractor {
                     chatProxyService
                             .completeJson(SYSTEM_PROMPT, userText, SCHEMA_NAME, objectMapper.readTree(SCHEMA_JSON))
                             .block();
-            RetrievalQuery query = parse(content, objectMapper);
+            RetrievalQuery query = bindProductNamesToUserText(parse(content, objectMapper), userText);
             log.debug("Extracted {} ingredient(s), {} product name(s)",
                     query.ingredientsEn().size(), query.productNamesKo().size());
             return query;
@@ -148,6 +149,15 @@ public class SearchTermExtractor {
         List<String> productNames =
                 accept(root.path("productNames"), PRODUCT_NAME, MAX_PRODUCT_NAMES, Integer.MAX_VALUE);
         return new RetrievalQuery(ingredients, productNames);
+    }
+
+    /** A product-name query has authority only when the user, rather than the model, supplied it. */
+    private static RetrievalQuery bindProductNamesToUserText(RetrievalQuery query, String userText) {
+        String foldedUserText = userText.toLowerCase(Locale.ROOT);
+        List<String> userNamedProducts = query.productNamesKo().stream()
+                .filter(name -> foldedUserText.contains(name.toLowerCase(Locale.ROOT)))
+                .toList();
+        return new RetrievalQuery(query.ingredientsEn(), userNamedProducts);
     }
 
     private static List<String> accept(JsonNode array, Pattern shape, int limit, int maxLength) {
