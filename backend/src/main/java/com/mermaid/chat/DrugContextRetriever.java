@@ -13,6 +13,7 @@ import com.mermaid.drug.DrugService.RetrievedContext;
 import com.mermaid.drug.IngredientNormalizer;
 import com.mermaid.drug.domain.Drug;
 import com.mermaid.drug.domain.DurWarning;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -96,13 +97,25 @@ public class DrugContextRetriever {
         BoundAllergens bound = allergyDeclared
                 ? allergenBinder.bind(extracted.allergens(), userText)
                 : BoundAllergens.NONE;
-        Set<String> avoidedKeys = normalizeAvoided(excludedIngredients);
-        avoidedKeys.addAll(bound.avoidedKeys());
+        Set<String> avoidedKeys = new HashSet<>(bound.avoidedKeys());
+        List<String> unresolved = new ArrayList<>(bound.unresolved());
+        for (String term : excludedIngredients) {
+            IngredientNormalizer.NormalizedTerm normalized = normalizer.normalize(term);
+            if (normalizer.isReviewedBinding(normalized)) {
+                avoidedKeys.add(normalized.key());
+            } else {
+                unresolved.add(term);
+            }
+        }
 
-        // A declared allergy with no authoritative key must not reach AllergyChecker with an empty
-        // set: that would manufacture no_match_found from "nothing was checked" (FR-004 / SC-001).
-        if (allergyDeclared && avoidedKeys.isEmpty()) {
-            log.info("Allergy declared but no candidate resolved — returning server clarification");
+        // A declared allergy must be accounted for IN FULL. If ANY declared allergen — free text or
+        // exclude_ingredients — did not resolve to an authoritative key, we cannot claim the drug was
+        // checked against it, so we fail closed even when other allergens did resolve. Screening only
+        // the "nothing resolved" case silently drops a mixed declaration and can manufacture
+        // no_match_found from "we did not check" (FR-004; #59 follow-up P0 on retrieve()).
+        if (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty())) {
+            log.info("Allergy declared with {} unresolved allergen(s) — returning server clarification",
+                    unresolved.size());
             return DrugContext.allergyClarification();
         }
 
@@ -159,17 +172,6 @@ public class DrugContextRetriever {
 
     private static long millisBetween(long fromNanos, long toNanos) {
         return (toNanos - fromNanos) / 1_000_000;
-    }
-
-    private Set<String> normalizeAvoided(Set<String> raw) {
-        Set<String> keys = new HashSet<>();
-        for (String term : raw) {
-            IngredientNormalizer.NormalizedTerm normalized = normalizer.normalize(term);
-            if (normalizer.isReviewedBinding(normalized)) {
-                keys.add(normalized.key());
-            }
-        }
-        return keys;
     }
 
     private String render(RetrievedContext retrieved, boolean allergyDeclared) {

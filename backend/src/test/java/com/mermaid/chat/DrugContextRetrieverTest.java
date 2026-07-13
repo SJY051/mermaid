@@ -438,6 +438,35 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("a mixed declaration — one resolved, one unresolved — still fails closed (#59 follow-up P0)")
+        void mixedResolvedAndUnresolvedAllergyFailsClosed() throws Exception {
+            // aspirin is a signed synonyms.tsv row (resolves); paracetamol is unsigned (unresolved).
+            // The old gate only fired when the whole avoided set was empty, so a mix passed and the
+            // unresolved allergen was silently dropped — a paracetamol drug could then show
+            // no_match_found. ANY unresolved declared allergen must fail closed.
+            CapturingDrugService freeText = new CapturingDrugService(RetrievedContext.EMPTY);
+            RetrievalQuery mixed = new RetrievalQuery(
+                    List.of("Naproxen"), List.of(), List.of("aspirin", "paracetamol"));
+
+            DrugContext context = gated(mixed, freeText)
+                    .retrieve("I am allergic to aspirin and paracetamol", Set.of());
+
+            MermAidAnswer answer = context.directAnswer().orElseThrow();
+            assertThat(freeText.seen).as("fail-closed must happen before retrieval").isNull();
+            assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(mapper.writeValueAsString(answer)).doesNotContain("no_match_found", "Naproxen");
+
+            // Same mix via the exclude_ingredients field.
+            CapturingDrugService viaField = new CapturingDrugService(RetrievedContext.EMPTY);
+            DrugContext fieldContext = gated(RetrievalQuery.EMPTY, viaField)
+                    .retrieve("I have a headache", Set.of("aspirin", "paracetamol"));
+
+            assertThat(fieldContext.directAnswer()).isPresent();
+            assertThat(viaField.seen).isNull();
+        }
+
+        @Test
         @DisplayName("with no allergy the model's ingredients pass through untouched")
         void noAllergyNoGate() {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);

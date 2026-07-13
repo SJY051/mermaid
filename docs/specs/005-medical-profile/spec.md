@@ -81,10 +81,14 @@ if it were unproblematic.
   against FR-001 and FR-002 before it affects any allergy state.
 
 ### Fail-closed on unresolved allergy
-- **FR-004**: When an allergy is declared but **no** allergen resolves to a signed
-  ingredient, the system MUST NOT return `no_match_found` for that turn. It MUST instead
-  return a **clarifying question** asking the user to name or confirm the ingredient,
-  and MUST continue to suppress the model's own drug suggestions (SA-08).
+- **FR-004**: When an allergy is declared and **any** declared allergen fails to resolve
+  to a signed ingredient — **even when others do resolve** — the system MUST NOT return
+  `no_match_found` for that turn. It MUST instead return a **clarifying question** asking
+  the user to name or confirm the ingredient, and MUST continue to suppress the model's own
+  drug suggestions (SA-08). Screening only the "nothing resolved" case silently drops a
+  mixed declaration (one bound, one unresolved) and can manufacture `no_match_found` from
+  "we did not check" — the #59 follow-up P0. This covers both free-text allergens and the
+  `exclude_ingredients` field.
 - **FR-005**: When an allergy is declared and at least one allergen resolves, the
   existing block/warning/no_match_found/unknown states apply unchanged, computed against
   the resolved avoided set.
