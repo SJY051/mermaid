@@ -1,7 +1,64 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileShell } from './MobileShell'
+
+// jsdom has no layout engine, so astryx's scroll-following ResizeObserver needs a no-op browser
+// boundary in component tests. The observer's behavior belongs to the kit; these tests own shell.
+vi.stubGlobal(
+  'ResizeObserver',
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+)
+
+const streamChatMock = vi.hoisted(() => vi.fn())
+vi.mock('../lib/openaiClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/openaiClient')>()
+  return { ...actual, streamChat: streamChatMock }
+})
+
+function pendingStream() {
+  let release!: (text: string) => void
+  const gate = new Promise<string>((resolve) => {
+    release = resolve
+  })
+  async function* stream() {
+    yield await gate
+  }
+  return { stream, release }
+}
+
+async function* completedStream(answer: string) {
+  yield answer
+}
+
+const validAnswer = JSON.stringify({
+  schemaVersion: '1.0',
+  answerId: 'a1',
+  language: 'en',
+  dataStatus: 'live',
+  urgency: { level: 'routine', title: 'T', message: 'M', reasonCodes: [], actions: [] },
+  summary: 'Drink water and rest.',
+  clarifyingQuestions: [],
+  guidance: [],
+  drugs: [],
+  uiActions: [],
+  sourceRefs: [],
+  warnings: [],
+  disclaimer: 'Server disclaimer.',
+})
+
+beforeEach(() => {
+  localStorage.clear()
+  sessionStorage.clear()
+})
+
+afterEach(() => {
+  streamChatMock.mockReset()
+})
 
 /**
  * What must never regress: native tab controls preserve every mounted screen, and the canonical
@@ -73,5 +130,69 @@ describe('MobileShell', () => {
     const { container } = render(<MobileShell />)
 
     expect(container.firstElementChild).toHaveAttribute('lang', 'en')
+  })
+
+  it("marks the Chat tab as busy while an answer is in progress", async () => {
+    const pending = pendingStream()
+    streamChatMock.mockReturnValue(pending.stream())
+    const user = userEvent.setup()
+    render(<MobileShell />)
+
+    await user.type(screen.getByRole('textbox'), 'I have a headache')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+    expect(
+      screen.getByRole('button', { name: 'Chat — answer in progress' }),
+    ).toBeInTheDocument()
+
+    pending.release(validAnswer)
+    await waitFor(() =>
+      expect(
+        screen.queryByRole('button', { name: 'Chat — answer in progress' }),
+      ).not.toBeInTheDocument(),
+    )
+  })
+
+  it('surfaces an emergency answer over another tab and offers one tap back to Chat', async () => {
+    const emergency = JSON.parse(validAnswer)
+    emergency.urgency = {
+      level: 'emergency',
+      title: 'Call 119 now',
+      message: 'Your symptoms need immediate care.',
+      reasonCodes: [],
+      actions: [],
+    }
+    const pending = pendingStream()
+    streamChatMock.mockReturnValue(pending.stream())
+    const user = userEvent.setup()
+    render(<MobileShell />)
+
+    await user.type(screen.getByRole('textbox'), 'crushing chest pain')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+    await user.click(screen.getByRole('button', { name: 'Map' }))
+    pending.release(JSON.stringify(emergency))
+
+    const alert = await screen.findByTestId('shell-emergency-alert')
+    expect(alert).toHaveAttribute('role', 'alert')
+    expect(alert).toHaveTextContent('Call 119 now')
+    expect(within(alert).getByRole('link', { name: 'Call 119' })).toHaveAttribute('href', 'tel:119')
+
+    await user.click(within(alert).getByRole('button', { name: 'Open Chat' }))
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByTestId('shell-emergency-alert')).not.toBeInTheDocument()
+  })
+
+  it('keeps the canonical disclaimer visible with an answered conversation (SA-02)', async () => {
+    streamChatMock.mockReturnValue(completedStream(validAnswer))
+    const user = userEvent.setup()
+    render(<MobileShell />)
+
+    await user.type(screen.getByRole('textbox'), 'I have a headache')
+    await user.click(screen.getByRole('button', { name: 'Ask' }))
+
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+    expect(
+      screen.getByText('General information, not medical advice · Emergency? Call 119'),
+    ).toBeVisible()
   })
 })
