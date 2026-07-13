@@ -1,4 +1,6 @@
+import { StrictMode } from 'react'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FacilityMap } from './FacilityMap'
 import { AUTH_FAILURE_MESSAGE } from '../hooks/useNaverMap'
@@ -17,13 +19,23 @@ interface MarkerStub {
   onClick?: () => void
 }
 
-function installNaverStub() {
+function installNaverStub({
+  autoInit = true,
+  scriptLoaded = true,
+  markerThrows = false,
+}: { autoInit?: boolean; scriptLoaded?: boolean; markerThrows?: boolean } = {}) {
   const markers: MarkerStub[] = []
   const infoWindow = { setContent: vi.fn(), open: vi.fn(), close: vi.fn() }
+  const readyHandlers: Array<() => void> = []
+  let mapsCreated = 0
 
   const naver = {
     maps: {
-      Map: class {},
+      Map: class {
+        constructor() {
+          mapsCreated += 1
+        }
+      },
       LatLng: class {},
       Point: class {},
       InfoWindow: class {
@@ -34,10 +46,19 @@ function installNaverStub() {
       Marker: class {
         setMap = vi.fn()
         constructor() {
+          if (markerThrows) throw new Error('Naver marker internals are unavailable')
           markers.push(this as unknown as MarkerStub)
         }
       },
       Event: {
+        once: (_target: unknown, event: string, handler: () => void) => {
+          if (event === 'tilesloaded') {
+            readyHandlers.push(handler)
+            if (autoInit) queueMicrotask(handler)
+          }
+          return { eventName: event, listener: handler, listenerId: '', target: _target }
+        },
+        removeListener: vi.fn(),
         addListener: (marker: MarkerStub, event: string, handler: () => void) => {
           if (event === 'click') marker.onClick = handler
         },
@@ -49,9 +70,17 @@ function installNaverStub() {
   // `loadNaverMapsScript` short-circuits when the tag is already present and the namespace is up.
   const script = document.createElement('script')
   script.id = 'naver-maps-sdk'
+  if (scriptLoaded) script.dataset.loaded = 'true'
   document.head.appendChild(script)
 
-  return { markers, infoWindow }
+  return {
+    markers,
+    infoWindow,
+    readyHandlers,
+    script,
+    mapsCreated: () => mapsCreated,
+    triggerTilesLoaded: () => readyHandlers.splice(0).forEach((handler) => handler()),
+  }
 }
 
 const facility = (over: Partial<Facility> = {}): Facility => ({
@@ -138,6 +167,59 @@ describe('the map never shows a blank box and calls it a map', () => {
     render(<FacilityMap center={centre} />)
     expect(screen.getByTestId('map-loading')).toBeInTheDocument()
   })
+
+  it('waits for the existing script tag to finish loading before constructing a map', async () => {
+    const { script, mapsCreated } = installNaverStub({ scriptLoaded: false })
+    render(
+      <StrictMode>
+        <FacilityMap center={centre} />
+      </StrictMode>,
+    )
+
+    expect(mapsCreated()).toBe(0)
+    await Promise.resolve()
+    expect(mapsCreated()).toBe(0)
+
+    script.dataset.loaded = 'true'
+    script.dispatchEvent(new Event('load'))
+
+    await waitFor(() => expect(mapsCreated()).toBe(1))
+  })
+
+  it('does not attach markers until the Naver map loads real tiles', async () => {
+    const { markers, readyHandlers, triggerTilesLoaded } = installNaverStub({ autoInit: false })
+    render(<FacilityMap center={centre} facilities={[facility()]} />)
+
+    await waitFor(() => expect(readyHandlers).toHaveLength(1))
+    expect(markers).toHaveLength(0)
+    expect(screen.getByTestId('map-loading')).toBeInTheDocument()
+
+    triggerTilesLoaded()
+
+    await waitFor(() => expect(markers).toHaveLength(1))
+  })
+
+  it('never attaches markers when authentication fails before tiles load', async () => {
+    const { markers, readyHandlers, triggerTilesLoaded } = installNaverStub({ autoInit: false })
+    render(<FacilityMap center={centre} facilities={[facility()]} />)
+
+    await waitFor(() => expect(readyHandlers).toHaveLength(1))
+    window.navermap_authFailure!()
+    triggerTilesLoaded()
+
+    expect(await screen.findByTestId('map-error')).toHaveTextContent(AUTH_FAILURE_MESSAGE)
+    expect(markers).toHaveLength(0)
+  })
+
+  it('keeps the facility list usable when the Naver marker SDK fails', async () => {
+    installNaverStub({ markerThrows: true })
+    render(<FacilityMap center={centre} facilities={[facility()]} />)
+
+    expect(await screen.findByTestId('map-error')).toHaveTextContent(
+      'Use the facility list below instead.',
+    )
+    expect(screen.getByRole('button', { name: /가나약국/ })).toBeInTheDocument()
+  })
 })
 
 describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', () => {
@@ -168,6 +250,18 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
     render(<FacilityMap center={centre} facilities={[facility({ distanceMeters: 140.4 })]} />)
 
     expect(await screen.findByTestId('facility-list')).toHaveTextContent('140m')
+  })
+})
+
+describe('facility details (UI-03, DEV-207)', () => {
+  it('opens the detail drawer when a facility in the accessible list is selected', async () => {
+    const user = userEvent.setup()
+    installNaverStub()
+    render(<FacilityMap center={centre} facilities={[facility()]} />)
+
+    await user.click(await screen.findByRole('button', { name: /가나약국/ }))
+
+    expect(screen.getByRole('dialog', { name: '가나약국' })).toBeInTheDocument()
   })
 })
 

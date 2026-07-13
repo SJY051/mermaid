@@ -55,9 +55,15 @@ if (typeof window !== 'undefined') {
 function loadNaverMapsScript(keyId: string): Promise<void> {
   const existing = document.getElementById(SCRIPT_ID)
   if (existing) {
-    return window.naver?.maps
-      ? Promise.resolve()
-      : new Promise((resolve) => existing.addEventListener('load', () => resolve()))
+    if (existing.dataset.loaded === 'true' && window.naver?.maps) return Promise.resolve()
+    return new Promise((resolve, reject) => {
+      existing.addEventListener('load', () => resolve(), { once: true })
+      existing.addEventListener(
+        'error',
+        () => reject(new Error('Naver Maps script could not be fetched. Are you offline?')),
+        { once: true },
+      )
+    })
   }
 
   return new Promise((resolve, reject) => {
@@ -68,7 +74,10 @@ function loadNaverMapsScript(keyId: string): Promise<void> {
     script.onload = () => {
       // `window.naver.maps` exists even for a key Naver rejects — measured. This guards only the
       // case where the script body failed to execute; it is NOT the authentication check.
-      if (window.naver?.maps) resolve()
+      if (window.naver?.maps) {
+        script.dataset.loaded = 'true'
+        resolve()
+      }
       else reject(new Error('Naver Maps loaded but defined no `naver.maps` namespace.'))
     }
     script.onerror = () => reject(new Error('Naver Maps script could not be fetched. Are you offline?'))
@@ -95,11 +104,14 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
     }
 
     let cancelled = false
+    let authFailed = false
+    let removeReadyListener: (() => void) | null = null
 
     // Register before loading. The SDK authenticates as it runs, and a key it rejects would
     // otherwise fail silently — `ready` true, tiles never painted, no error anywhere.
     const onAuthFailure = (e: Error) => {
       if (!cancelled) {
+        authFailed = true
         setReady(false)
         setError(e)
       }
@@ -108,12 +120,19 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
 
     loadNaverMapsScript(keyId)
       .then(() => {
-        if (cancelled || !containerRef.current || mapRef.current) return
-        mapRef.current = new naver.maps.Map(containerRef.current, {
-          center: new naver.maps.LatLng(center.lat, center.lng),
+        if (cancelled || authFailed || !containerRef.current || mapRef.current) return
+        const maps = naver.maps
+        mapRef.current = new maps.Map(containerRef.current, {
+          center: new maps.LatLng(center.lat, center.lng),
           zoom,
         })
-        setReady(true)
+        // A wrong key can construct and even initialise a map before authentication fails.
+        // Waiting for real tiles prevents markers from touching that half-built map, where the
+        // SDK otherwise dereferences a null KVO and tears down the whole React tree.
+        const readyListener = maps.Event.once(mapRef.current, 'tilesloaded', () => {
+          if (!cancelled && !authFailed) setReady(true)
+        })
+        removeReadyListener = () => maps.Event.removeListener(readyListener)
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e)
@@ -122,6 +141,11 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
     return () => {
       cancelled = true
       authFailureListeners.delete(onAuthFailure)
+      try {
+        removeReadyListener?.()
+      } catch {
+        // Authentication failure can invalidate the SDK's event registry before React cleans up.
+      }
     }
     // Re-creating the map on every centre change would throw away the user's panning.
     // Move the camera with `map.setCenter()` instead.
