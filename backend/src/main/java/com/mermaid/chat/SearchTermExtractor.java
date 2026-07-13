@@ -151,6 +151,11 @@ public class SearchTermExtractor {
         return new RetrievalQuery(ingredients, productNames);
     }
 
+    // TODO(DEV-560, spec 005): add an `allergens` field to SCHEMA_JSON and parse it here, bound to
+    //  the user's text exactly like productNames (origin binding, FR-001). The bound names go to
+    //  com.mermaid.drug.AllergenBinder, which alone decides what may enter the avoided set. Keep the
+    //  model's authority bounded: it proposes candidate allergens; the server validates and binds.
+
     /** A product-name query has authority only when the user, rather than the model, supplied it. */
     private static RetrievalQuery bindProductNamesToUserText(RetrievalQuery query, String userText) {
         String foldedUserText = userText.toLowerCase(Locale.ROOT);

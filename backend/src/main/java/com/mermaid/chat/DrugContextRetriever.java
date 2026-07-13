@@ -66,6 +66,13 @@ public class DrugContextRetriever {
         }
         long extractedAt = System.nanoTime();
 
+        // TODO(DEV-560, spec 005): merge free-text allergens into the avoided set. Today only the
+        //  `exclude_ingredients` extension fills it, so "I'm allergic to ibuprofen" typed in prose
+        //  avoids nothing and can return no_match_found — that is EX-02. Pass the pass-1 `allergens`
+        //  through com.mermaid.drug.AllergenBinder and union its avoidedKeys with the below.
+        //  FR-004 (fail-closed): if allergyDeclared but the merged avoided set is empty, return the
+        //  server-authored AllergyClarification question instead of retrieving — never a silent
+        //  no_match_found. Keep model-proposed ingredients suppressed meanwhile (SA-08).
         RetrievedContext retrieved = drugService.retrieve(query, normalizeAvoided(excludedIngredients));
         // Cold, the retrieval is roughly thirty sequential calls to 식약처. Warm, Redis answers.
         // Both numbers belong in the log; the gap between them is the case for parallelising.
