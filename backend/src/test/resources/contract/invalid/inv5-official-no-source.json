@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "invalid-inv5",
+  "language": "en",
+  "dataStatus": "unavailable",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "Ask a pharmacist if symptoms continue.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "One guidance item claims official evidence without citing it.",
+  "clarifyingQuestions": [],
+  "guidance": [
+    {
+      "id": "guidance:uncited",
+      "title": "Official guidance",
+      "body": "This statement claims to come from official data.",
+      "evidence": "official_data",
+      "sourceRefIds": []
+    }
+  ],
+  "drugs": [],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

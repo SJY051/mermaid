@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "valid-emergency",
+  "language": "en",
+  "dataStatus": "unavailable",
+  "urgency": {
+    "level": "emergency",
+    "title": "Emergency",
+    "message": "Call emergency services now.",
+    "reasonCodes": ["BREATHING_DIFFICULTY"],
+    "actions": [
+      {
+        "type": "SHOW_EMERGENCY_CALL",
+        "payload": {
+          "types": null,
+          "openNow": null,
+          "radiusM": null,
+          "drugId": null,
+          "phone": "119",
+          "label": "Call 119 (emergency services)",
+          "question": null
+        }
+      }
+    ]
+  },
+  "summary": "Call 119 now and do not wait for a medicine recommendation.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": ["Do not delay emergency care."],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}
