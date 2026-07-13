@@ -70,7 +70,11 @@ public class PharmacyApiClient {
      * honestly labelled.
      */
     @Cacheable(
-            value = "pharmaciesNear",
+            // v2: the cached value changed from List<RawPharmacy> to PharmacyBatch. Under the old
+            // name a six-hour-old Redis entry would still deserialize as a List, then throw
+            // ClassCastException when the cache hands it back as a PharmacyBatch. A new name sidesteps
+            // every stale entry at once.
+            value = "pharmaciesNear.v2",
             key = "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000)")
     public PharmacyBatch findNear(double lat, double lng) {
         if (dataMode.isFixtureOnly()) {

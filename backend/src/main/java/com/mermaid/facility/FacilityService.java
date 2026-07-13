@@ -54,8 +54,12 @@ public class FacilityService {
 
         PharmacyApiClient.PharmacyBatch batch = pharmacyApiClient.findNear(lat, lng);
         return batch.pharmacies().stream()
+                // The location API has no radius parameter and can return 100 rows. Filter before
+                // toFacility() so an out-of-radius pharmacy never spends an HPID detail call.
+                .filter(raw -> distanceMetres(raw, lat, lng) <= radiusMeters)
+                // TODO(BE-2): Fetch the remaining weekly timetables with bounded concurrency. An
+                // unbounded fan-out would trade the 1,000/day quota for a short first map load.
                 .map(raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
-                .filter(f -> f.distanceMeters() <= radiusMeters)
                 // `open_now=true` returns only status=open. A pharmacy whose timetable we could not
                 // read is excluded rather than guessed at, in either direction (spec §2-13).
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
