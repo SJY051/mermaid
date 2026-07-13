@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -27,8 +28,8 @@ class WeeklyHoursTest {
     private static WeeklyHours nightPharmacy() {
         return WeeklyHours.fromDutyTimes(
                 Map.of(
-                        1, new String[] {"2100", "0200"},
-                        2, new String[] {"0900", "1800"}));
+                        1, List.of("2100", "0200"),
+                        2, List.of("0900", "1800")));
     }
 
     @Nested
@@ -100,7 +101,7 @@ class WeeklyHoursTest {
         @Test
         void openOnHolidayWhenHolidayRowSaysSo() {
             WeeklyHours hours =
-                    WeeklyHours.fromDutyTimes(Map.of(8, new String[] {"1000", "1400"}));
+                    WeeklyHours.fromDutyTimes(Map.of(8, List.of("1000", "1400")));
             assertThat(hours.isOpenAt(at(7, 11, 0), true)).isTrue();
             assertThat(hours.isOpenAt(at(7, 15, 0), true)).isFalse();
         }

@@ -2,7 +2,7 @@ package com.mermaid.facility;
 
 import com.mermaid.common.GeoUtils;
 import com.mermaid.common.SourceRef;
-import com.mermaid.config.DataModeProperties;
+import com.mermaid.facility.domain.DutyTable;
 import com.mermaid.facility.domain.Facility;
 import com.mermaid.facility.domain.FacilityOperation;
 import com.mermaid.facility.domain.FacilityType;
@@ -15,7 +15,6 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -37,7 +36,6 @@ public class FacilityService {
 
     private final PharmacyApiClient pharmacyApiClient;
     private final HolidayCalendar holidayCalendar;
-    private final DataModeProperties dataMode;
     private final Clock clock;
 
     public List<Facility> findNearby(
@@ -54,9 +52,14 @@ public class FacilityService {
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         Instant retrievedAt = now.toInstant();
 
-        return pharmacyApiClient.findNear(lat, lng).stream()
-                .map(raw -> toFacility(raw, lat, lng, now, holiday, retrievedAt))
-                .filter(f -> f.distanceMeters() <= radiusMeters)
+        PharmacyApiClient.PharmacyBatch batch = pharmacyApiClient.findNear(lat, lng);
+        return batch.pharmacies().stream()
+                // The location API has no radius parameter and can return 100 rows. Filter before
+                // toFacility() so an out-of-radius pharmacy never spends an HPID detail call.
+                .filter(raw -> distanceMetres(raw, lat, lng) <= radiusMeters)
+                // TODO(BE-2): Fetch the remaining weekly timetables with bounded concurrency. An
+                // unbounded fan-out would trade the 1,000/day quota for a short first map load.
+                .map(raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
                 // `open_now=true` returns only status=open. A pharmacy whose timetable we could not
                 // read is excluded rather than guessed at, in either direction (spec §2-13).
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
@@ -66,11 +69,23 @@ public class FacilityService {
 
     private Facility toFacility(
             PharmacyApiClient.RawPharmacy raw,
+            SourceRef.DataMode listOrigin,
             double originLat,
             double originLng,
             ZonedDateTime now,
             boolean holiday,
             Instant retrievedAt) {
+
+        DutyTable weekly = pharmacyApiClient.weeklyHours(raw.hpid());
+
+        // The card's provenance is the whole truth behind it: fixture if the directory OR the schedule
+        // we actually used came from a fixture. An empty table is never consulted (§2-14).
+        boolean scheduleUsedFixture =
+                !weekly.byDay().isEmpty() && weekly.origin() == SourceRef.DataMode.FIXTURE;
+        SourceRef.DataMode origin =
+                (listOrigin == SourceRef.DataMode.FIXTURE || scheduleUsedFixture)
+                        ? SourceRef.DataMode.FIXTURE
+                        : SourceRef.DataMode.LIVE;
 
         return new Facility(
                 Facility.idOf(PHARMACY_PROVIDER, raw.hpid()),
@@ -83,8 +98,8 @@ public class FacilityService {
                 raw.latitude(),
                 raw.longitude(),
                 distanceMetres(raw, originLat, originLng),
-                operationOf(raw, now, holiday, retrievedAt),
-                sourceOf(raw, retrievedAt));
+                operationOf(raw, weekly, now, holiday, retrievedAt),
+                sourceOf(raw, retrievedAt, origin));
     }
 
     /**
@@ -102,16 +117,19 @@ public class FacilityService {
     /**
      * Open-now, from the best evidence we have.
      *
-     * <p>Once {@link PharmacyApiClient#weeklyHours} is implemented (DEV-202) this becomes {@code
-     * OFFICIAL_SCHEDULE} and handles wrap-past-midnight night pharmacies. Until then we infer from
-     * the single start/end pair the location endpoint returns, and say so.
+     * <p>With a published weekly table this is {@code OFFICIAL_SCHEDULE} and handles wrap-past-midnight
+     * night pharmacies; without one we infer from the single start/end pair the location endpoint
+     * returns, and say so ({@code INFERRED}).
      */
     private FacilityOperation operationOf(
-            PharmacyApiClient.RawPharmacy raw, ZonedDateTime now, boolean holiday, Instant retrievedAt) {
+            PharmacyApiClient.RawPharmacy raw,
+            DutyTable weekly,
+            ZonedDateTime now,
+            boolean holiday,
+            Instant retrievedAt) {
 
-        Map<Integer, String[]> weekly = pharmacyApiClient.weeklyHours(raw.hpid());
-        if (!weekly.isEmpty()) {
-            WeeklyHours hours = WeeklyHours.fromDutyTimes(weekly);
+        if (!weekly.byDay().isEmpty()) {
+            WeeklyHours hours = WeeklyHours.fromDutyTimes(weekly.byDay());
             if (!hours.hasAnySchedule()) {
                 return FacilityOperation.unknown(retrievedAt);
             }
@@ -129,13 +147,14 @@ public class FacilityService {
         return FacilityOperation.inferred(open, retrievedAt);
     }
 
-    private SourceRef sourceOf(PharmacyApiClient.RawPharmacy raw, Instant retrievedAt) {
+    private SourceRef sourceOf(
+            PharmacyApiClient.RawPharmacy raw, Instant retrievedAt, SourceRef.DataMode origin) {
         return new SourceRef(
                 "src:" + PHARMACY_PROVIDER + ":" + raw.hpid(),
                 "국립중앙의료원 전국 약국 정보",
                 raw.hpid(),
                 retrievedAt,
-                dataMode.isFixtureOnly() ? SourceRef.DataMode.FIXTURE : SourceRef.DataMode.LIVE,
+                origin,
                 "National Medical Center — pharmacy directory");
     }
 
