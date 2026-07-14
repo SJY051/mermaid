@@ -215,8 +215,12 @@ class StructuredOutputFallbackTest {
     }
 
     @Test
-    @DisplayName("coercion failures are logged only as a stable code and count")
+    @DisplayName("coercion failures name the field they choked on, and leak no model text")
     void coercionFailuresDoNotLeakModelText() {
+        // The line now names the exception and the JSON path, so a schema drift can be told from a
+        // broken model without reading the answer. The path is field names and indices. The one
+        // thing it must never carry is what Jackson's own message carries: the source text — which
+        // is this person's symptoms, and here is also a CRLF payload forging a second log line.
         Logger logger = (Logger) LoggerFactory.getLogger(StructuredOutputFallback.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
@@ -235,7 +239,10 @@ class StructuredOutputFallbackTest {
                 .toList();
         assertThat(warnings).singleElement().satisfies(event -> {
             assertThat(event.getFormattedMessage())
-                    .isEqualTo("model_answer_rejected code=COERCION_FAILED count=1");
+                    .startsWith("model_answer_rejected code=COERCION_FAILED exception=")
+                    .contains("path=");
+            assertThat(event.getFormattedMessage())
+                    .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
             assertThat(Arrays.deepToString(event.getArgumentArray()))
                     .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
         });
