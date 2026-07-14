@@ -44,7 +44,15 @@ interface ChatSessionContextValue {
   pendingQuestion: string
   /** Resolves true when an answer arrived. The composer clears on true, and only on true. */
   send: (text: string) => Promise<boolean>
-  confirmAllergies: (keys: string[], unverified: string[]) => void
+  /**
+   * `answersClarification` — is this confirmation the reply to a clarification the SERVER asked
+   * for? Only then may it cut off the questions that went unanswered before it. See below.
+   */
+  confirmAllergies: (
+    keys: string[],
+    unverified: string[],
+    answersClarification: boolean,
+  ) => void
   declareUnverifiableAllergy: () => void
   newConversation: () => void
 }
@@ -336,17 +344,28 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   )
 
   const confirmAllergies = useCallback(
-    (keys: string[], unverified: string[]) => {
+    (keys: string[], unverified: string[], answersClarification: boolean) => {
       const confirmed = [...keys]
       const unverifiedNames = [...unverified]
       sessionRef.current = {
         ...sessionRef.current,
         allergies: confirmed,
         unverifiedAllergens: unverifiedNames,
-        // The cut-off for `unanswered_questions`. Everything said before this moment has been in
-        // front of the person in the picker, pre-filled, and they have told us what to avoid. Without
-        // it, a failed declaration would keep asking for a clarification it has already received.
-        allergiesConfirmedAt: new Date().toISOString(),
+        // The cut-off for `unanswered_questions`, and it is earned only by answering the
+        // clarification the SERVER asked for. That clarification exists BECAUSE of those unanswered
+        // questions: it puts the picker in front of the person and asks them to state their
+        // allergies, so what they confirm supersedes what came before it.
+        //
+        // "Edit allergy list" is not that. Nobody asked; the person opened a menu to change one
+        // entry, and their failed "I am also allergic to aspirin" is not what they are looking at.
+        // Stamping there would drop that declaration from the next request while still sending a
+        // list that looks complete — and the server, seeing a resolved list, would retrieve. The
+        // seam this whole mechanism exists to close would reopen through the menu.
+        //
+        // So a manual edit leaves the cut-off where it was. The declaration stays reported, the
+        // server stays fail-closed, and the clarification comes back — which is exactly what should
+        // happen while an allergy the person stated is still unresolved.
+        ...(answersClarification ? { allergiesConfirmedAt: new Date().toISOString() } : {}),
       }
       setAllergies(confirmed)
       setUnverifiedAllergens(unverifiedNames)

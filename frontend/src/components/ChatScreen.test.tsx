@@ -554,6 +554,45 @@ describe('when the request fails', () => {
     expect(extension.mermaid.unanswered_questions).toBeUndefined()
   })
 
+  it('keeps reporting a failed declaration when the list is edited from the menu, not asked for (P0)', async () => {
+    // The cut-off is earned by ANSWERING a clarification, and "Edit allergy list" is not one.
+    // Nobody asked; the person opened the menu to change an entry, and their failed "I am also
+    // allergic to aspirin" is not what they are looking at. Confirming an unchanged list there must
+    // not drop it from the next request — the server would see a resolved, complete-looking list
+    // and retrieve, which is the exact seam unanswered_questions exists to close.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValueOnce(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(picker).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    // A second declaration, and its turn dies before the server ever hears it.
+    const failing = pendingStream()
+    streamChatMock.mockReturnValueOnce(failing.stream())
+    await user.type(screen.getByRole('textbox'), 'I am also allergic to aspirin')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    failing.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    // The person opens the list themselves and confirms it unchanged.
+    await user.click(screen.getByRole('button', { name: 'Edit allergy list' }))
+    const edit = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(edit).getByRole('button', { name: 'Use selected allergies' }))
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'what can I take for a headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    const extension = streamChatMock.mock.calls.at(-1)![2] as { mermaid: Record<string, unknown> }
+    expect(extension.mermaid.unanswered_questions).toEqual(['I am also allergic to aspirin'])
+    // And the list itself is still only what was actually resolved — the aspirin was never bound.
+    expect(extension.mermaid.exclude_ingredients).toEqual(['ibuprofen'])
+  })
+
   it('says the escape will clear the allergy list before the user takes it (P1)', async () => {
     // "Start a new conversation" is the way out of a non-retryable failure, and it resets the
     // session — allergies included. That list is what retrieval is filtered on. Recommending it

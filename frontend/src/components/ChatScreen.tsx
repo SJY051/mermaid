@@ -295,7 +295,10 @@ export function ChatScreen() {
     // already-selected allergy (ibuprofen selected, then "…and I'm allergic to ibuprofen") must
     // proceed on the existing list, not lock the conversation. Only "My allergy isn't listed"
     // (dismiss) declares something the list cannot express and ends lookup.
-    confirmAllergies(keys, unverified)
+    // One picker, two ways in — the server's clarification, and the user opening "Edit allergy
+    // list" themselves. Only the first was asked for, and only the first may cut off the questions
+    // that went unanswered before it (chatSession.confirmAllergies says why).
+    confirmAllergies(keys, unverified, clarificationNeedsSelection)
     // Confirming answers the current clarification: close the picker until a LATER one arrives.
     // The composer takes the picker's place again on the next render — its reappearance is the
     // cue to ask again, so no explicit focus call (which would race that remount) is needed.
