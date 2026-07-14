@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useNaverMap } from '../hooks/useNaverMap'
 import type { Facility } from '../lib/types'
 import { DetailDrawer } from './DetailDrawer'
@@ -22,10 +22,91 @@ function openLabel(facility: Facility): string {
   return 'Hours unknown'
 }
 
+function facilityTypeLabel(facility: Facility): string {
+  if (facility.type === 'pharmacy') return 'Pharmacy'
+  if (facility.type === 'hospital') return 'Hospital'
+  return 'Emergency room'
+}
+
+function operationGlyph(facility: Facility): string {
+  if (facility.operation.isOpenNow === true) return '✓'
+  if (facility.operation.isOpenNow === false) return '×'
+  return '?'
+}
+
+function operationStatus(facility: Facility): 'open' | 'closed' | 'unknown' {
+  if (facility.operation.isOpenNow === true) return 'open'
+  if (facility.operation.isOpenNow === false) return 'closed'
+  return 'unknown'
+}
+
 function markerColour(facility: Facility): string {
-  if (facility.operation.isOpenNow === true) return '#2db400'
-  if (facility.operation.isOpenNow === false) return '#8a8f98'
+  if (facility.operation.isOpenNow === true) return '#1a7a34'
+  if (facility.operation.isOpenNow === false) return '#9aa0a8'
   return '#e0a800'
+}
+
+function markerKindIcon(facility: Facility, colour: string): string {
+  if (facility.type === 'pharmacy') {
+    return (
+      `<svg data-kind-icon="pharmacy" width="16" height="16" viewBox="0 0 16 16" ` +
+      `aria-hidden="true"><rect x="5" y="1.4" width="6" height="13.2" rx="3" ` +
+      `transform="rotate(45 8 8)" fill="${colour}"/></svg>`
+    )
+  }
+  if (facility.type === 'hospital') {
+    return (
+      `<svg data-kind-icon="hospital" width="15" height="15" viewBox="0 0 16 16" ` +
+      `aria-hidden="true"><path d="M6.5 2h3v4.5H14v3H9.5V14h-3V9.5H2v-3h4.5z" ` +
+      `fill="${colour}"/></svg>`
+    )
+  }
+  return (
+    `<svg data-kind-icon="emergency_room" width="16" height="16" viewBox="0 0 16 16" ` +
+    `aria-hidden="true" style="transform:rotate(-45deg)">` +
+    `<path d="M8 13.5S2.7 10.4 2.7 6.2A2.8 2.8 0 0 1 8 4.8a2.8 2.8 0 0 1 5.3 1.4c0 4.2-5.3 7.3-5.3 7.3Z" ` +
+    `fill="none" stroke="${colour}" stroke-width="1.5"/>` +
+    `<path d="M1.8 8h3l1.1-2.1 1.8 4.2L9.2 8h5" fill="none" stroke="${colour}" ` +
+    `stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  )
+}
+
+function markerButtonContent(facility: Facility, index: number, idPrefix: string): string {
+  const status = operationStatus(facility)
+  const statusLabel = openLabel(facility)
+  const kindLabel = facilityTypeLabel(facility)
+  const glyph = operationGlyph(facility)
+  const pictogramColour = status === 'open' ? '#ffffff' : '#2a2d33'
+  const borderRadius =
+    facility.type === 'pharmacy' ? '50%' : facility.type === 'hospital' ? '8px' : '6px'
+  const rotation = facility.type === 'emergency_room' ? 'transform:rotate(45deg);' : ''
+  const nameId = `${idPrefix}-marker-${index}-name`
+  const detailId = `${idPrefix}-marker-${index}-detail`
+  const visuallyHidden =
+    'position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;' +
+    'clip:rect(0,0,0,0);white-space:nowrap;border:0'
+
+  // Naver accepts marker content only as an HTML string. The real button keeps native
+  // Enter/Space activation; the map container delegates its click to the selected facility.
+  return (
+    `<button type="button" data-facility-index="${index}" data-facility-kind="${facility.type}" ` +
+    `data-facility-status="${status}" aria-labelledby="${nameId} ${detailId}" ` +
+    `style="position:relative;width:44px;height:44px;display:grid;place-items:center;border:0;` +
+    `background:transparent;padding:7px;cursor:pointer;outline-offset:3px">` +
+    `<span aria-hidden="true" style="position:relative;width:30px;height:30px;display:grid;` +
+    `place-items:center;border-radius:${borderRadius};background:${markerColour(facility)};` +
+    `border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.32);${rotation}">` +
+    `${markerKindIcon(facility, pictogramColour)}` +
+    `</span>` +
+    `<span aria-hidden="true" data-status-glyph="${status}" style="position:absolute;top:1px;` +
+    `right:1px;width:16px;height:16px;display:grid;place-items:center;border-radius:50%;` +
+    `background:#fff;border:1.5px solid #2a2d33;color:#2a2d33;font:700 12px/1 system-ui">` +
+    `${glyph}</span>` +
+    `<span id="${nameId}" lang="ko" style="${visuallyHidden}">${escapeHtml(facility.nameKo)}</span>` +
+    `<span id="${detailId}" style="${visuallyHidden}">${kindLabel}, ${statusLabel}, ` +
+    `${Math.round(facility.distanceMeters)} metres away. Open details.</span>` +
+    `</button>`
+  )
 }
 
 function escapeHtml(value: string): string {
@@ -51,6 +132,7 @@ export function FacilityMap({
   notice,
 }: FacilityMapProps) {
   const { containerRef, map, ready, error } = useNaverMap({ center, zoom })
+  const markerIdPrefix = useId().replaceAll(':', '')
   const markersRef = useRef<naver.maps.Marker[]>([])
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null)
   const [markerError, setMarkerError] = useState<Error | null>(null)
@@ -58,6 +140,23 @@ export function FacilityMap({
   const visibleError = error ?? markerError
   const hasFixtureData =
     additionalFixtureData || facilities.some((facility) => facility.source.dataMode === 'fixture')
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const openMarkerDetails = (event: Event) => {
+      if (!(event.target instanceof Element)) return
+      const button = event.target.closest<HTMLButtonElement>('button[data-facility-index]')
+      if (!button || !container.contains(button)) return
+
+      const facility = facilities[Number(button.dataset.facilityIndex)]
+      if (facility) setSelectedFacility(facility)
+    }
+
+    container.addEventListener('click', openMarkerDetails)
+    return () => container.removeEventListener('click', openMarkerDetails)
+  }, [containerRef, facilities])
 
   useEffect(() => {
     if (!map || !ready) return
@@ -74,38 +173,16 @@ export function FacilityMap({
     }
     markersRef.current = []
 
-    let info: naver.maps.InfoWindow | null = null
-
     try {
-      info = new naver.maps.InfoWindow({ content: '' })
-
-      for (const facility of facilities) {
+      for (const [index, facility] of facilities.entries()) {
         const marker = new naver.maps.Marker({
           map,
           position: new naver.maps.LatLng(facility.latitude, facility.longitude),
           title: facility.nameKo,
           icon: {
-            content:
-              `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #fff;` +
-              `background:${markerColour(facility)};box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>`,
-            anchor: new naver.maps.Point(7, 7),
+            content: markerButtonContent(facility, index, markerIdPrefix),
+            anchor: new naver.maps.Point(22, 22),
           },
-        })
-
-        naver.maps.Event.addListener(marker, 'click', () => {
-          // The info window sits on Naver's own white panel, outside our theme. Without an explicit
-          // colour it inherits the page's light-on-dark text and is unreadable.
-          info!.setContent(
-            `<div style="padding:8px 10px;font:13px/1.5 system-ui;max-width:220px;color:#1a1a1a">` +
-              `<strong>${escapeHtml(facility.nameKo)}</strong><br/>` +
-              `${escapeHtml(openLabel(facility))} · ${Math.round(facility.distanceMeters)}m<br/>` +
-              // The name and phone come from a government API and reach this string as HTML.
-              (facility.phone
-                ? `<a style="color:#0b6bcb" href="tel:${escapeHtml(facility.phone)}">${escapeHtml(facility.phone)}</a>`
-                : '') +
-              `</div>`,
-          )
-          info!.open(map, marker)
         })
 
         markersRef.current.push(marker)
@@ -117,11 +194,6 @@ export function FacilityMap({
     }
 
     return () => {
-      try {
-        info?.close()
-      } catch {
-        // A rejected Naver key can invalidate an InfoWindow before React removes it.
-      }
       for (const marker of markersRef.current) {
         try {
           marker.setMap(null)
@@ -131,7 +203,9 @@ export function FacilityMap({
       }
       markersRef.current = []
     }
-  }, [map, ready, facilities])
+  }, [map, ready, facilities, markerIdPrefix])
+
+  const displayedFacilityTypes = new Set(facilities.map((facility) => facility.type))
 
   return (
     <section className="space-y-2" aria-label="Nearby facilities map">
@@ -142,6 +216,49 @@ export function FacilityMap({
           Sample data — availability may not reflect current conditions.
         </p>
       )}
+
+      <div
+        role="group"
+        aria-label="Map marker legend"
+        className="flex flex-wrap gap-x-4 gap-y-1 rounded-full border border-primary bg-surface px-3 py-2 text-xs font-medium text-primary"
+      >
+        {displayedFacilityTypes.has('pharmacy') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="pharmacy"
+              aria-hidden="true"
+              className="grid h-4 w-4 place-items-center rounded-full border border-primary"
+            >
+              <span className="h-1.5 w-2.5 rotate-45 rounded-full bg-primary" />
+            </span>
+            Pharmacy
+          </span>
+        )}
+        {displayedFacilityTypes.has('hospital') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="hospital"
+              aria-hidden="true"
+              className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary text-[13px] font-bold leading-none"
+            >
+              +
+            </span>
+            Hospital
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#1a7a34] text-[11px] font-bold text-white">✓</span>
+          Open now
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#e0a800] text-[11px] font-bold text-[#1a1a1a]">?</span>
+          Hours unknown
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#9aa0a8] text-[11px] font-bold text-[#1a1a1a]">×</span>
+          Closed
+        </span>
+      </div>
 
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />
@@ -181,8 +298,10 @@ export function FacilityMap({
                 <span className="truncate text-primary" lang="ko">
                   {facility.nameKo}
                 </span>
-                <span className="shrink-0">
-                  {openLabel(facility)} · {Math.round(facility.distanceMeters)}m
+                <span className="flex shrink-0 items-center gap-1">
+                  <span aria-hidden="true" className="font-bold">{operationGlyph(facility)}</span>
+                  {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
+                  {Math.round(facility.distanceMeters)}m
                 </span>
               </button>
             </li>
