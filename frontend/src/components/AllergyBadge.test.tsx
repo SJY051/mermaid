@@ -63,7 +63,13 @@ describe('AllergyBadge', () => {
 
     expect(screen.getByText(/Name match only/)).toBeInTheDocument()
     expect(screen.getByText(/A pharmacist must confirm this match/)).toBeInTheDocument()
-    expect(screen.getByText(/Possible match: Acetaminophen Granules/)).toBeInTheDocument()
+    // The callout names the ingredient (drug-card wording after the DEV-308 merge) and the server's
+    // sentence sits under it. Both must be on the card: the first says which medicine is affected,
+    // the second says why — a name match, not a reviewed one.
+    // It appears twice on purpose: once in the callout that names the affected medicine, once in
+    // the server's sentence that says WHY — a name match, not a reviewed one.
+    expect(screen.getAllByText(/Acetaminophen Granules/).length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText(/Possible ingredient match/)).toBeInTheDocument()
     expect(container.textContent).not.toMatch(/\bsafe\b/i)
     expect(container.innerHTML).not.toMatch(/green|success/i)
   })
