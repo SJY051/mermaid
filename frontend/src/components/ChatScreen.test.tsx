@@ -261,11 +261,13 @@ describe('when the request fails', () => {
     second.release(validAnswer)
     expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
 
-    // The retry sent the FAILED question; the draft survived untouched.
+    // The retry sent the FAILED question exactly once — the failed turn is REPLACED by the
+    // retry, so its text must not also ride as history (asserting only the last message would
+    // miss the duplicate). The draft survived untouched.
     const retryCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
-    expect(retryCall.filter((m) => m.role === 'user').at(-1)?.content).toBe(
-      'What can I take for a fever?',
-    )
+    expect(retryCall.filter((m) => m.role === 'user')).toEqual([
+      { role: 'user', content: 'What can I take for a fever?' },
+    ])
     expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
   })
 

@@ -146,10 +146,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // runs over ALL user messages in the request (spec 005 FR-013): the bare reply to the
       // allergy clarifying question ("ibuprofen") carries no allergy keyword, so a request that
       // carried only the newest turn would let that turn retrieve unguarded — and show the person
-      // the very ingredient they just declared. Turns that ended in a transport error are included
-      // on purpose: the person still said it, and over-including only errs toward the safe side.
+      // the very ingredient they just declared.
+      //
+      // The history is the turns this send KEEPS (nextTurns minus the pending one): a turn that
+      // ended in a transport error is being replaced by this very send, so including it too would
+      // put the failed question in the request twice on a retry. The conversation record and the
+      // transmitted history must be the same thing.
+      const historyTurns = previousTurns.at(-1)?.error
+        ? previousTurns.slice(0, -1)
+        : previousTurns
       const messages: OpenAI.ChatCompletionMessageParam[] = [
-        ...previousTurns.map(
+        ...historyTurns.map(
           (turn): OpenAI.ChatCompletionMessageParam => ({ role: 'user', content: turn.question }),
         ),
         { role: 'user', content: text },
