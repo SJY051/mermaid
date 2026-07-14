@@ -68,7 +68,7 @@ describe('SavedScreen', () => {
 
     expect(await screen.findByText('Hotel pharmacy')).toBeInTheDocument()
     expect(screen.getByText('National Medical Center · 2026-07-14')).toBeInTheDocument()
-    expect(screen.getByText('Hours unknown')).toBeInTheDocument()
+    expect(screen.getByText(/Hours not checked since 2026-07-14/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Late-night pharmacy' } })
     fireEvent.change(screen.getByRole('textbox', { name: 'Note' }), { target: { value: 'Call first' } })
@@ -111,16 +111,24 @@ describe('SavedScreen', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/profiles/test-device')
   })
 
-  it.each([
-    [true, 'Open now'],
-    [false, 'Closed'],
-    [null, 'Hours unknown'],
-  ] as const)('renders saved isOpenNow=%s as %s', async (isOpenNow, label) => {
-    mockFetch([{ json: async () => profile }])
-    seedSavedFacility('live', isOpenNow)
-    render(<FavoritesProvider><SavedScreen active /></FavoritesProvider>)
+  // This replaces a test that asserted the opposite — that a saved isOpenNow=true renders as
+  // "Open now". It did render that, and that was the defect: the snapshot was true when the place
+  // was saved and has not been checked since, because opening this tab reloads the alias and the
+  // note from the profile and never the facility's hours. A pharmacy saved on a Tuesday afternoon
+  // said "Open now" at 11pm on Friday. §2-3 refuses to draw an unknown state as "Closed"; a stale
+  // state must not be drawn as a current one at all.
+  it.each([[true], [false], [null]] as const)(
+    'never presents a saved isOpenNow=%s as a current open state (P1)',
+    async (isOpenNow) => {
+      mockFetch([{ json: async () => profile }])
+      seedSavedFacility('live', isOpenNow)
+      render(<FavoritesProvider><SavedScreen active /></FavoritesProvider>)
 
-    expect(await screen.findByText(label)).toBeInTheDocument()
-    if (isOpenNow === null) expect(screen.queryByText('Closed')).not.toBeInTheDocument()
-  })
+      expect(await screen.findByText(/Hours not checked since 2026-07-14/)).toBeInTheDocument()
+      expect(screen.queryByText('Open now')).not.toBeInTheDocument()
+      expect(screen.queryByText('Closed')).not.toBeInTheDocument()
+      // And it says where to find out, rather than leaving a dead end.
+      expect(screen.getByText(/open it on the Map/i)).toBeInTheDocument()
+    },
+  )
 })

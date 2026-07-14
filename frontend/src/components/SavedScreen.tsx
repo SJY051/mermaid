@@ -12,10 +12,19 @@ function typeLabel(type: string): string {
   return 'Emergency room'
 }
 
-function operationLabel(isOpenNow: boolean | null): string {
-  if (isOpenNow === true) return 'Open now'
-  if (isOpenNow === false) return 'Closed'
-  return 'Hours unknown'
+/**
+ * What a saved place can honestly say about its hours: nothing current.
+ *
+ * <p>The snapshot was true at the moment it was saved and has not been checked since — opening this
+ * tab reloads the alias and the note from the profile, never the facility's hours. Rendering that
+ * stored `isOpenNow` as "Open now" tells someone at 11pm that a pharmacy they saved last Tuesday
+ * afternoon is open, and sends them out to a locked door. The same reasoning as §2-3, one step
+ * further along: there, an unknown state must not be drawn as "Closed"; here, a *stale* state must
+ * not be drawn as anything at all. The date is the honest thing we hold, so the date is what it says.
+ */
+function savedOnLabel(retrievedAt: string): string {
+  const date = retrievedAt.slice(0, 10)
+  return `Hours not checked since ${date} — open it on the Map to see if it is open now.`
 }
 
 export function SavedScreen({ active }: SavedScreenProps) {
@@ -119,7 +128,9 @@ export function SavedScreen({ active }: SavedScreenProps) {
                 <p className="font-semibold text-primary" lang="ko">{favorite.alias || favorite.snapshot.nameKo}</p>
                 {favorite.alias && <p className="mt-1 text-sm text-secondary" lang="ko">{favorite.snapshot.nameKo}</p>}
                 <p className="mt-1 text-sm text-secondary">{typeLabel(favorite.snapshot.type)}</p>
-                <p className="mt-1 text-sm font-medium text-primary">{operationLabel(favorite.snapshot.operation.isOpenNow)}</p>
+                <p className="mt-1 text-sm text-secondary">
+                  {savedOnLabel(favorite.snapshot.source.retrievedAt)}
+                </p>
                 <p className="mt-1 text-sm text-secondary">{favorite.snapshot.addressKo ?? 'Address unavailable'}</p>
                 <p className="mt-2 text-xs text-primary">
                   {favorite.snapshot.source.title} · {favorite.snapshot.source.retrievedAt.slice(0, 10)}
