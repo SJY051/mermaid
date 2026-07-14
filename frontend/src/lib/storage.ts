@@ -80,6 +80,26 @@ export interface ChatSession {
    * lock: without it a reload could proceed on lists that do not cover the latest declaration.
    */
   unverifiableAllergy: boolean
+  /**
+   * A question that was asked and never answered — the request failed, or the tab was reloaded
+   * mid-flight. `messages` holds answered turns only, so without this the question would vanish
+   * on reload, and a failed "I am allergic to ibuprofen" would be gone before the next request.
+   * The server's allergy scan reads the questions in the request (spec 005 FR-013), so a question
+   * it never sees cannot guard anything. Kept here, it comes back in the composer and rides along
+   * with the next send. Cleared the moment an answer arrives.
+   */
+  pendingQuestion: string
+  /**
+   * When the person last confirmed their allergy list, or `''` if they never have.
+   *
+   * <p>The cut-off for `unanswered_questions` (spec 005 FR-013). A question that failed never got
+   * its clarification, so a declaration inside it never reached the picker — the server has to be
+   * told, or it will trust a list that was built for an earlier declaration. But once the picker HAS
+   * been confirmed, everything said before it was in front of the person, pre-filled, and they told
+   * us what to avoid. Without a cut-off, one failed sentence would demand a clarification it has
+   * already received, on every question, for the rest of the conversation.
+   */
+  allergiesConfirmedAt: string
 }
 
 const EMPTY_SESSION: ChatSession = {
@@ -88,6 +108,8 @@ const EMPTY_SESSION: ChatSession = {
   allergies: [],
   unverifiedAllergens: [],
   unverifiableAllergy: false,
+  pendingQuestion: '',
+  allergiesConfirmedAt: '',
 }
 
 export function loadChatSession(): ChatSession {

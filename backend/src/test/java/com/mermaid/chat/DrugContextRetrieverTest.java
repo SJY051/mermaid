@@ -64,11 +64,11 @@ class DrugContextRetrieverTest {
 
     /** A complete structured list, as a well-behaved client sends it. */
     private static MermaidRequestExtension.StructuredExclusions exclusions(String... terms) {
-        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), Set.of(), false);
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), Set.of(), Set.of(), false);
     }
 
     private static MermaidRequestExtension.StructuredExclusions unverified(String... terms) {
-        return new MermaidRequestExtension.StructuredExclusions(Set.of(), Set.of(terms), false);
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(), Set.of(terms), Set.of(), false);
     }
 
     private JsonNode contextJson(DrugContext context) throws Exception {
@@ -568,7 +568,7 @@ class DrugContextRetrieverTest {
             CapturingDrugService drugService = new CapturingDrugService(
                     new RetrievedContext(List.of(blocked), Set.of(blocked.nameKo()), List.of(TYLENOL_SOURCE)));
             var both = new MermaidRequestExtension.StructuredExclusions(
-                    Set.of("acetaminophen"), Set.of("acetaminophen"), false);
+                    Set.of("acetaminophen"), Set.of("acetaminophen"), Set.of(), false);
 
             DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
                     .retrieve("can I take 타이레놀?", "can I take 타이레놀?", both);
@@ -643,6 +643,54 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("FR-013: a declaration in a question that never got an answer clarifies (P0)")
+        void anUnansweredDeclarationClarifiesEvenWithACompleteList() throws Exception {
+            // The list is complete, resolved and signed — and it was built for an EARLIER declaration.
+            // The person then said "I am also allergic to aspirin" and that request failed, so the
+            // clarification that turns a declaration into a list never came back and aspirin never
+            // reached the picker. The sentence sits in the history; the gate, seeing a resolved list,
+            // used to let retrieval through and could hand them an aspirin product as no_match_found.
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            var listWithoutAspirin = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("ibuprofen"),
+                    Set.of(),
+                    Set.of("I am also allergic to aspirin"),
+                    false);
+
+            DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
+                    .retrieve(
+                            "what can I take for a headache?",
+                            "I am also allergic to aspirin\nwhat can I take for a headache?",
+                            listWithoutAspirin);
+
+            assertThat(context.directAnswer()).isPresent();
+            assertThat(drugService.seen)
+                    .as("a declaration nobody answered is a list we cannot trust — we ask, we do not retrieve")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("FR-013: an unanswered question that declares nothing does not block retrieval")
+        void anUnansweredOrdinaryQuestionDoesNotClarify() {
+            // Fail-closed must not mean fail-always: a network error on "I have a headache" is not an
+            // allergy declaration, and it must not put the picker in front of someone forever.
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            var ordinary = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("Ibuprofen"), Set.of(), Set.of("I have a headache"), false);
+
+            // A product the person named survives the SA-08 suppression that discards the model's own
+            // ingredient picks — without it there is no query left to make, and "no retrieval" would
+            // pass this test for the wrong reason.
+            gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "I have a headache\ncan I take 타이레놀?", ordinary);
+
+            assertThat(drugService.seen)
+                    .as("an unanswered question that names no allergy is just a lost turn — it must not gate")
+                    .isNotNull();
+            assertThat(drugService.avoidedKeys).containsExactly("ibuprofen");
+        }
+
+        @Test
         @DisplayName("SC-001: an unresolved structured entry returns the server clarification")
         void unresolvedStructuredEntryFailsClosed() throws Exception {
             // paracetamol's synonyms.tsv row is unsigned: it may aid lookup but must never gain
@@ -680,7 +728,7 @@ class DrugContextRetrieverTest {
             // A list we do not hold in full must clarify, like every other incomplete channel.
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
             var truncated = new MermaidRequestExtension.StructuredExclusions(
-                    Set.of("ibuprofen"), Set.of(), true);
+                    Set.of("ibuprofen"), Set.of(), Set.of(), true);
 
             DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
                     .retrieve("I have a headache", "I have a headache", truncated);
