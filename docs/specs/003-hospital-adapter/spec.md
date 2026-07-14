@@ -49,6 +49,13 @@ lookup supplies a `ykiho`, and a per-hospital detail lookup supplies operating h
 - **FR-005 (DEV-203c):** The N+1 detail calls MUST use the existing `Parallel.map` pattern with
   a bounded concurrency of **4**, preserving list order. Four matches the measured upstream limit
   used by `DrugService` and avoids turning the first map load into an unbounded API fan-out.
+  The HIRA list pages after the first MUST use the same bounded pattern: page 1 alone reports
+  `totalCount`, the rest are independent, and HIRA does not sort by distance — so every page must be
+  read. Reading the 8 pages of a 2 km Seoul City Hall radius one after another cost 23.9/35.0/25.0 s
+  cold, against 9.9/10.0/10.2 s concurrently; the whole `open_now=true` request went from a ~60 s
+  median to ~25 s (measured live 2026-07-14, both builds alternated inside one window). HIRA's own
+  latency drifts by more than this change is worth, so any future comparison MUST measure both sides
+  in the same window — a single timing proves nothing here.
 - **FR-006 (DEV-203d):** `FacilityService.hospitals()` MUST replace `501` with filtered,
   distance-sorted `Facility` results using IDs in the
   `facility:hira:<base64url(ykiho)>` namespace. The encoded segment is required because raw HIRA

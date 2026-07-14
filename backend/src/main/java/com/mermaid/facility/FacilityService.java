@@ -55,21 +55,25 @@ public class FacilityService {
      * because latency is the binding constraint, not because HIRA is scarce: with 10x the headroom it
      * has no reason to be the more conservative of the two.
      *
-     * <p>Measured live at Seoul City Hall, radius 2,000 m, cold cache (2026-07-14):
+     * <p>Measured live at Seoul City Hall, radius 2,000 m, cold cache (2026-07-14), with HIRA's list
+     * pages fetched concurrently:
      *
      * <pre>
-     *   hospital open_now=true  (100 candidates)  27.6 s
-     *   hospital open_now=false ( 10 candidates)  18.4 s
-     *   hospital list paging alone (limit=1)      20.7 s   &lt;-- dominates
-     *   pharmacy open_now=true  (100 candidates)   1.1 s
-     *   any of the above, warm cache              0.07 s
+     *   hospital open_now=true  (100 details)  39.3 / 22.6 / 14.5 / 28.4 s   &lt;-- dominates
+     *   hospital list alone     (limit=1)       9.9 / 10.0 / 10.2 s
+     *   hospital open_now=false ( 10 details)  10.7 s
+     *   pharmacy open_now=true  (100 timetables) 1.1 s
+     *   any of the above, warm cache            0.07 s
      * </pre>
      *
-     * <p>So widening the candidate set costs roughly 7-9 s, and <b>this constant is not the dial that
-     * matters</b>: HIRA's list paging is sequential ({@code HospitalApiClient} walks totalCount page by
-     * page) and costs ~20 s on its own. Lowering this cap would buy back seconds while leaving a sick
-     * person waiting twenty of them. Fetch the pages concurrently first, then re-measure before tuning
-     * anything here.
+     * <p>The hospital cold path is dominated by the 100 HIRA <i>detail</i> calls, and their latency
+     * swings by 3x between identical runs — <b>one timing here is worth nothing; take several, and take
+     * them in the same window as whatever you are comparing against.</b>
+     *
+     * <p>Lowering this cap is the obvious lever and the wrong one to reach for blind: it trades away
+     * the farther open hospital this constant exists to find. The cheap win is elsewhere — the list
+     * caches on an exact {@code lat:lng:radius}, so real users standing a few metres apart almost never
+     * reach that 0.07 s warm path.
      */
     private static final int MAX_OPEN_NOW_CANDIDATES = 100;
     private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;

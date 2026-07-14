@@ -2,6 +2,7 @@ package com.mermaid.facility;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
@@ -13,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,8 +30,39 @@ public class HospitalApiClient {
     private static final int PAGE_SIZE = 100;
     // 20 pages = 2,000 hospitals, far past any real radius (the densest fixture radius is 440).
     // The cap protects one user request from a runaway/hostile totalCount turning into thousands
-    // of sequential blocking calls — the service only shows the nearest handful anyway.
+    // of blocking calls — the service only shows the nearest handful anyway.
     static final int MAX_PAGES = 20;
+    /**
+     * How many list pages may be in flight at once.
+     *
+     * <p>Every page after the first is fetched concurrently, because HIRA does not sort by distance
+     * and we cannot stop early. Measured live at Seoul City Hall, radius 2,000 m: {@code totalCount}
+     * is 717 (8 pages), page 2 carries 100 hospitals all nearer than page 1's farthest, and page 2's
+     * nearest (139 m) beats page 1's (176 m). Reading only the pages we felt like reading would drop
+     * the closest hospital on the map.
+     *
+     * <p>Reading those 8 pages one after another against four at a time, cold, alternating between the
+     * two builds inside one window (2026-07-14 21:5x KST):
+     *
+     * <pre>
+     *   list alone (limit=1)  sequential  23.9 / 35.0 / 25.0 s
+     *                         concurrent   9.9 / 10.0 / 10.2 s
+     *   whole open_now=true   sequential  58.5 / 30.0 / 60.9 / 60.9 s
+     *                         concurrent  39.3 / 22.6 / 14.5 / 28.4 s
+     * </pre>
+     *
+     * <p><b>Measure both builds in the same window or do not measure at all.</b> HIRA's own latency
+     * drifts by more than this change is worth: the identical sequential build read the same 8 pages in
+     * 20.7 s an hour earlier and 23.9-35.0 s here. Comparing a number taken now against one taken then
+     * is how you conclude a speed-up made things slower — which is exactly what happened on the first
+     * attempt at this measurement.
+     *
+     * <p>Four matches the detail fan-out. Whether HIRA rewards more has never been measured, so raise
+     * it only against a number — and note that four-at-once on the ministry's DUR calls measured a
+     * 2.1x speed-up, not 4x, because the upstream throttles.
+     */
+    private static final int LIST_PAGE_CONCURRENCY = 4;
+
     private static final String FIXTURE = "hospital_list.json";
 
     private final WebClient publicApiWebClient;
@@ -132,9 +165,16 @@ public class HospitalApiClient {
                     pages,
                     MAX_PAGES);
         }
-        for (int pageNo = 2; pageNo <= lastPage; pageNo++) {
-            hospitals.addAll(parsePage(fetchPage(lat, lng, radiusMeters, pageNo)).hospitals());
-        }
+        // Page 1 has to land first — it carries the totalCount that tells us how many more there are.
+        // The rest are independent, so they go together. Parallel.map emits in input order, so the
+        // rows stay in page order and the fixtures/tests stay deterministic. parsePage always returns
+        // a list (empty at worst), never null: a null here would be dropped and shift every later page.
+        Parallel.map(
+                        IntStream.rangeClosed(2, lastPage).boxed().toList(),
+                        LIST_PAGE_CONCURRENCY,
+                        pageNo -> parsePage(fetchPage(lat, lng, radiusMeters, pageNo)).hospitals())
+                .forEach(hospitals::addAll);
+
         return new HospitalBatch(hospitals, SourceRef.DataMode.LIVE, Instant.now(clock));
     }
 
