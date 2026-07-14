@@ -1,4 +1,3 @@
-import { Badge } from '@astryxdesign/core/Badge'
 import type { AllergyCheck } from '../lib/types'
 
 /**
@@ -9,53 +8,85 @@ import type { AllergyCheck } from '../lib/types'
  * reassuring word, because a green badge is exactly what a worried parent would read as
  * permission. Plain, quiet text instead.
  *
- * `unknown` also gets a visible badge: being unable to compare is a warning, not a pass.
+ * `unknown` also gets a visible warning callout: being unable to compare is not a pass.
  *
- * The badge is a summary, never the whole finding. The server writes a message saying which
- * ingredient matched what — "Name match only: Acetaminophen Granules matched the unverified
- * allergen name yellow dye" — and an answer can carry several cards. A badge reading "Possible
- * ingredient match" on each of them tells the reader that something is wrong somewhere, which is
- * the one thing they already knew. The server's sentence is the finding, so it is shown.
+ * Two things had to be true at once here, and this keeps both.
+ *
+ * The **callout** is what a person reads at a glance: `blocked` is a `role="alert"` that says, in
+ * words, not to take it — and says on purpose that no substitute is offered, because choosing an
+ * alternative medicine is the one clinical judgement we refuse to let a model make (SA-08).
+ *
+ * The **server's sentence** is the finding itself. The server writes which ingredient matched what
+ * — "Name match only: Acetaminophen Granules matched the unverified allergen name yellow dye" — and
+ * an answer can carry several cards. A callout reading "Possible ingredient match" on each of them
+ * tells the reader the one thing they already knew: that something, somewhere, is wrong. So the
+ * sentence is rendered under the callout, and the card says which medicine and which ingredient.
  */
 export function AllergyBadge({ check }: { check: AllergyCheck }) {
+  const matchedIngredients = check.matchedIngredients.join(', ')
   const detail = check.message?.trim()
 
   switch (check.status) {
     case 'blocked':
       return (
-        <div className="flex flex-col gap-1">
-          <Badge variant="error" label={`Contains ${check.matchedIngredients.join(', ')}`} />
-          {detail && <p className="text-sm text-primary">{detail}</p>}
+        <div
+          role="alert"
+          data-allergy-state="blocked"
+          className="flex flex-col gap-1 rounded-lg border-2 border-[#c62828] bg-[#fdf1f1] p-3 text-sm"
+        >
+          <strong className="text-[#8f1d1d]">
+            {matchedIngredients
+              ? `Contains ${matchedIngredients} — an allergy you listed`
+              : 'Contains an ingredient that matches an allergy you listed'}
+          </strong>
+          <p className="text-[#2a2d33]">
+            Don&apos;t take this one. A pharmacist can help you find the right option — no
+            substitute is suggested here, on purpose.
+          </p>
+          {/* No server sentence here, and only here. For a block it says "Contains Ibuprofen, which
+              you asked to avoid" — which is what the line above already said, in the same words. The
+              sentence earns its place on `warning` and `unknown`, where it says something the callout
+              cannot: that the match was a name and not a reviewed binding, or that we could not read
+              the ingredients at all. Repeating a sentence is how a reader learns to skip them. */}
         </div>
       )
 
     case 'warning':
       return (
-        <div className="flex flex-col gap-1">
-          <Badge
-            variant="warning"
-            label={
-              check.matchedIngredients.length > 0
-                ? `Possible match: ${check.matchedIngredients.join(', ')}`
-                : 'Possible ingredient match'
-            }
-          />
-          {detail && <p className="text-sm text-primary">{detail}</p>}
+        <div
+          role="status"
+          data-allergy-state="warning"
+          className="flex flex-col gap-1 rounded-lg border-2 border-[#e0a800] bg-[#fbf3d9] p-3 text-sm text-[#2a2d33]"
+        >
+          <p>
+            <strong>
+              Possible ingredient match{matchedIngredients ? ` — ${matchedIngredients}` : ''}.
+            </strong>{' '}
+            Check with a pharmacist before taking this.
+          </p>
+          {detail && <p>{detail}</p>}
         </div>
       )
 
     case 'unknown':
       return (
-        <div className="flex flex-col gap-1">
-          <Badge variant="warning" label="Ingredients could not be checked" />
-          {detail && <p className="text-sm text-primary">{detail}</p>}
+        <div
+          role="status"
+          data-allergy-state="unknown"
+          className="flex flex-col gap-1 rounded-lg border-2 border-[#e0a800] bg-[#fbf3d9] p-3 text-sm text-[#2a2d33]"
+        >
+          <p>
+            <strong>Ingredients could not be checked.</strong> The ingredient list did not load, so
+            your allergies were not compared. Ask a pharmacist before taking it.
+          </p>
+          {detail && <p>{detail}</p>}
         </div>
       )
 
     case 'no_match_found':
-      // Deliberately not a badge, and deliberately not the word "safe".
+      // Deliberately not a callout, and deliberately not the word "safe".
       return (
-        <p className="text-sm text-secondary">
+        <p data-allergy-state="no_match_found" className="text-sm text-secondary">
           {detail ||
             'No match found in the listed ingredients. This is not a guarantee — confirm with a pharmacist.'}
         </p>

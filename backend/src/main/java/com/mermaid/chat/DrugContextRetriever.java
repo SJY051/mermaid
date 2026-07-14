@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -292,12 +294,80 @@ public class DrugContextRetriever {
             grounded.put(
                     drug.nameKo(),
                     new GroundedDrug(
-                            drug.source().id(), Set.copyOf(ingredientKeys), drug.allergyCheck()));
+                            drug.source().id(),
+                            Set.copyOf(ingredientKeys),
+                            drug.allergyCheck(),
+                            drug.nameEn(),
+                            List.copyOf(drug.ingredientsEn()),
+                            drug.narrative() == null ? null : drug.narrative().useMethod(),
+                            drug.narrative() == null ? null : drug.narrative().efficacy(),
+                            MermAidAnswer.DrugCard.PrescriptionStatus.from(
+                                    drug.prescriptionStatus().wire()),
+                            cardWarnings(drug),
+                            officialCautionKo(drug)));
         }
         if (rejectedCount > 0) {
             log.warn("drug_grounding_failed code=UNNORMALIZABLE_INGREDIENT count={}", rejectedCount);
         }
         return Map.copyOf(grounded);
+    }
+
+    /**
+     * The card's warnings, finished, in the server's own words (invariant 8).
+     *
+     * <p>Until 2026-07-14 the model was <i>asked</i> to copy these onto the card, and nothing
+     * checked that it had. A model that dropped one dropped a government contraindication; a model
+     * that added one put an unsourced medical claim under a footer naming 식약처. Neither is
+     * detectable in an answer that is otherwise entirely correct — same product, same ingredients,
+     * same source — which is precisely why the copy could not stay the model's job. We hold the
+     * record. We render it.
+     *
+     * <p>병용금기 stays a count and not a list, as it was in the context: it is a property of a
+     * <i>pair</i>, 나르펜정400밀리그램 has twenty of them, and the twenty-six-warning card that came out of
+     * a live model named Korean medicines the reader has never heard of. Whether any of them applies
+     * depends on what else the person takes, which we did not ask. So the fact we can state is how
+     * many there are and who to tell; {@code GET /drugs/{id}} still returns every one.
+     */
+    private static List<String> cardWarnings(Drug drug) {
+        List<String> warnings = new ArrayList<>();
+        int combinations = 0;
+        for (DurWarning warning : drug.durWarnings()) {
+            if (warning.kind() == DurWarning.Kind.COMBINATION) {
+                combinations++;
+            } else {
+                warnings.add(warning.describe());
+            }
+        }
+        if (combinations > 0) {
+            warnings.add(
+                    "식약처 publishes "
+                            + combinations
+                            + (combinations == 1
+                                    ? " medicine that must not be taken with this one."
+                                    : " medicines that must not be taken with this one.")
+                            + " Tell the pharmacist everything else you are taking — they can check"
+                            + " the list against it. Source: MFDS DUR.");
+        }
+        return List.copyOf(warnings);
+    }
+
+    /**
+     * Everything the ministry says about using this medicine carefully, joined, in Korean.
+     *
+     * <p>All four fields, not just 주의사항: a card's {@code labelCautions} summarises the lot, so this
+     * is the text its numbers are checked against, and leaving 상호작용 out would make a faithful
+     * sentence about an interaction look invented.
+     */
+    private static String officialCautionKo(Drug drug) {
+        Drug.Narrative n = drug.narrative();
+        if (n == null) {
+            return null;
+        }
+        String joined =
+                Stream.of(n.caution(), n.warning(), n.interaction(), n.sideEffect())
+                        .filter(text -> text != null && !text.isBlank())
+                        .collect(Collectors.joining("\n"));
+        return joined.isBlank() ? null : joined;
     }
 
     private static long millisBetween(long fromNanos, long toNanos) {
@@ -335,13 +405,14 @@ public class DrugContextRetriever {
         putIfPresent(official, "interaction", n.interaction());
         putIfPresent(official, "sideEffect", n.sideEffect());
 
-        // Age, pregnancy and elderly warnings are properties of this medicine, and go in whole.
+        // The model no longer copies these onto the card — the server renders them itself, from the
+        // same record (see cardWarnings). They stay in the context because the model still has to
+        // write a responsible `summary` about a medicine it is being told is contraindicated in
+        // pregnancy, and it cannot do that without knowing.
         //
-        // 병용금기 is not: it is a property of a *pair*. 나르펜정400밀리그램 has twenty of them, and a model
-        // told to copy them dutifully produced a card with twenty-six warnings naming Korean medicines
-        // the reader has never heard of. Whether any applies depends on what else they take, which we
-        // did not ask. So the model gets the count and an instruction, and `GET /drugs/{id}` still
-        // returns every one of them for anyone who wants the list.
+        // 병용금기 remains a count and not a list, here and on the card, for the reason it always was:
+        // it is a property of a *pair*, 나르펜정400밀리그램 has twenty, and whether any applies depends on
+        // what else the person takes, which we did not ask.
         ArrayNode dur = node.putArray("durWarnings");
         int combinations = 0;
         for (DurWarning w : drug.durWarnings()) {
@@ -467,13 +538,14 @@ public class DrugContextRetriever {
                 fills it in.
 
                 `officialTextKo` is the ministry's own wording. Translate and summarise it. Do not add \
-                indications, dosages or warnings it does not state. Copy every entry of `durWarnings` \
-                into that drug's `warnings`. Never describe a medicine as safe.
+                indications, dosages or cautions it does not state. Never describe a medicine as safe.
 
-                Where `combinationContraindicationCount` is present, add exactly one warning saying \
-                that this many combination contraindications are published for the medicine and that \
-                the reader must tell a pharmacist what else they are taking. Do not invent the list — \
-                we did not ask what they take, so we do not know which apply.
+                Leave each drug card's `warnings` as an empty array and its `prescriptionStatus` as \
+                "unknown". The server writes both from the government record, as it does with \
+                `source_refs` — a warning is not yours to copy, and copying is not something we can \
+                check. `durWarnings` and `combinationContraindicationCount` are given to you so that \
+                you know what this medicine is contraindicated for; write nothing about them in the \
+                card.
                 """
                     .formatted(count);
         }
@@ -492,9 +564,51 @@ public class DrugContextRetriever {
      * stamps its own verdict back onto the card in post-processing rather than trusting the copy.
      */
     public record GroundedDrug(
-            String sourceRefId, Set<String> ingredientKeys, AllergyCheck allergyCheck) {
+            String sourceRefId,
+            Set<String> ingredientKeys,
+            AllergyCheck allergyCheck,
+            /**
+             * 식약처's own 용법용량 for this product, in Korean, exactly as retrieved — and the only
+             * dosing text that exists. The model translates it; post-processing checks that every
+             * number it wrote is one of these numbers. Null when the ministry gave us no dosing
+             * text: then there is nothing to check the model against, and nothing it may say.
+             */
+            /**
+             * The ministry's own display names — {@code Drug.nameEn} and {@code Drug.ingredientsEn},
+             * exactly as retrieved. The model copies them; post-processing stamps them back, AFTER
+             * validation, so a card can never SHOW a name the ministry did not return while invariant
+             * 6 still gets to judge the name the model actually claimed.
+             */
+            String productNameEn,
+            List<String> ingredientNamesEn,
+            String officialDosageKo,
+            /**
+             * 식약처's 효능효과 for this product, in Korean. What the model's {@code indicationSummary}
+             * is checked against — because a field the model owns is a field the model can put a DOSE
+             * in, and "For: take 8 tablets every 2 hours" renders above the official dose on the card.
+             */
+            String officialEfficacyKo,
+            /**
+             * The MFDS licence record's 전문/일반 classification. A server fact with a wire value
+             * already, so there is nothing for the model to add and nothing to check — the server
+             * writes it onto the card (invariant 8).
+             */
+            MermAidAnswer.DrugCard.PrescriptionStatus prescriptionStatus,
+            /**
+             * The card's {@code warnings}, rendered by the server from {@link Drug#durWarnings()} —
+             * the finished English strings, not the model's copy of them. Empty means 식약처 has
+             * published no DUR contraindication for this product, which the card says in words.
+             */
+            List<String> warnings,
+            /**
+             * 식약처's 주의사항·경고·상호작용·부작용 for this product, joined, in Korean. What a card's
+             * {@code labelCautions} is checked against, by the same digit rule as the dosing. Null
+             * when the ministry gave us none — then a caution on the card has no source at all.
+             */
+            String officialCautionKo) {
         public GroundedDrug {
             ingredientKeys = Set.copyOf(ingredientKeys);
+            warnings = List.copyOf(warnings);
         }
     }
 }

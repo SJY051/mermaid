@@ -13,7 +13,18 @@
 const SCHEMA_VERSION = '1.0'
 
 const DEVICE_ID_KEY = 'mermaid.deviceId.v1'
-const CHAT_SESSION_KEY = 'mermaid.chatSession.v1'
+// v2, and the bump IS the fix. A turn stored before the grounding invariants (7 and 8) carries a
+// card whose directions, warnings and prescription status the MODEL wrote — and the card that renders
+// it now labels `directionsSummary` as "official dosing from the Ministry of Food and Drug Safety, in
+// Korean, we do not translate doses". Restore one of those turns and English prose the model invented
+// is presented as the ministry's own words, under the verified footer. A reload is enough.
+//
+// There is no migration to write: the missing facts were never in the blob, so nothing can recover
+// them. Renaming the key makes the old shape unreadable, which is the honest outcome — the
+// conversation is gone, and it was never meant to outlive the tab anyway (§2-5). Bumping the shared
+// SCHEMA_VERSION instead would have taken the user's saved location and preferences with it.
+const CHAT_SESSION_KEY = 'mermaid.chatSession.v2'
+const CHAT_SESSION_KEY_V1 = 'mermaid.chatSession.v1'
 const SAVED_FACILITIES_KEY = 'mermaid.savedFacilities.v1'
 const PREFERENCES_KEY = 'mermaid.preferences.v1'
 
@@ -113,6 +124,9 @@ const EMPTY_SESSION: ChatSession = {
 }
 
 export function loadChatSession(): ChatSession {
+  // Sweep the pre-grounding blob rather than leaving it to expire with the tab: it holds a medical
+  // conversation, and a key nobody reads is still a key someone can read.
+  sessionStorage.removeItem(CHAT_SESSION_KEY_V1)
   return read(sessionStorage, CHAT_SESSION_KEY, EMPTY_SESSION)
 }
 

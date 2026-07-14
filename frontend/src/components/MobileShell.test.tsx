@@ -107,12 +107,45 @@ describe('MobileShell', () => {
     expectActive('Map')
 
     await user.click(screen.getByRole('button', { name: 'Saved' }))
-    expect(screen.getByText('Saved places are stored in your anonymous profile. This device keeps a display copy.')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Saved' })).toBeVisible()
+    // The storage/transmission line is what the Saved tab must never get wrong (it says the places
+    // go to the profile and the device keeps a display copy), so the shell test keeps asserting it.
+    expect(
+      screen.getByText(
+        'Saved places are stored in your anonymous profile. This device keeps a display copy.',
+      ),
+    ).toBeVisible()
     expectActive('Saved')
 
     await user.click(screen.getByRole('button', { name: 'Settings' }))
-    expect(screen.getByText('Dark mode follows your device for now.')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeVisible()
     expectActive('Settings')
+  })
+
+  it('does not load the saved-places profile until the tab is opened', async () => {
+    // Every screen stays mounted so the chat survives a tab switch — which means SavedScreen exists
+    // from the first paint, and a profile request would go out before anyone had asked for one. The
+    // `active` prop is what stops it. Nothing guarded that until this test: flipping it to a constant
+    // `true` left the whole suite green, so the shell could have started fetching on load again
+    // without anyone noticing.
+    // Answer by URL. Every screen is mounted in this shell, so a stub that returns the profile shape
+    // to everyone hands MapScreen an object where it expects an array of facilities — which surfaces
+    // as an unhandled rejection and a runner exit code of 1 while every test still reports green.
+    const fetchMock = vi.fn(async (url: unknown) =>
+      String(url).includes('/profiles/')
+        ? { ok: true, status: 200, json: async () => ({ favorites: [] }) }
+        : { ok: true, status: 200, json: async () => [] },
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+    render(<MobileShell />)
+
+    const profileCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/profiles/'))
+    expect(profileCalls()).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Saved' }))
+    await waitFor(() => expect(profileCalls().length).toBeGreaterThan(0))
   })
 
   it('bounds the shell to a handheld width, tab bar and disclaimer included', () => {
@@ -134,6 +167,21 @@ describe('MobileShell', () => {
     expect(shell.textContent).toContain('General information, not medical advice')
   })
 
+  it('gives every tab its own scroll box, not one shared with the others (P1)', () => {
+    // A single scroll container on the shell wrapper would carry one tab's scroll position over to
+    // the next: read a long answer, open Map, and land halfway down a map. #78 introduced exactly
+    // that while adding the width bound, and its comment still promised per-tab scroll. Each section
+    // owns its box; the wrapper owns none.
+    render(<MobileShell />)
+
+    const shell = screen.getByTestId('app-shell')
+    const wrapper = shell.querySelector('.min-h-0.flex-1')!
+    expect(wrapper.className).not.toMatch(/overflow-y-auto/)
+    for (const label of ['Chat screen', 'Map screen', 'Saved screen', 'Settings screen']) {
+      expect(screen.getByLabelText(label).className).toMatch(/overflow-y-auto/)
+    }
+  })
+
   it('keeps the disclaimer visible on every tab', async () => {
     const user = userEvent.setup()
     render(<MobileShell />)
@@ -143,6 +191,28 @@ describe('MobileShell', () => {
       await user.click(screen.getByRole('button', { name: tab }))
       expect(screen.getByText(copy)).toBeVisible()
     }
+  })
+
+  it('keeps each screen scroll position independent', async () => {
+    const user = userEvent.setup()
+    const { container } = render(<MobileShell />)
+    const chat = container.querySelector<HTMLElement>('section[aria-label="Chat screen"]')!
+    const saved = container.querySelector<HTMLElement>('section[aria-label="Saved screen"]')!
+
+    expect(chat).toHaveClass('h-full', 'overflow-y-auto')
+    expect(saved).toHaveClass('h-full', 'overflow-y-auto')
+    expect(chat.parentElement).not.toHaveClass('overflow-y-auto')
+
+    chat.scrollTop = 320
+    await user.click(screen.getByRole('button', { name: 'Saved' }))
+    expect(saved.scrollTop).toBe(0)
+
+    saved.scrollTop = 48
+    await user.click(screen.getByRole('button', { name: 'Chat' }))
+    expect(chat.scrollTop).toBe(320)
+
+    await user.click(screen.getByRole('button', { name: 'Saved' }))
+    expect(saved.scrollTop).toBe(48)
   })
 
   it('marks the shell content as English', () => {

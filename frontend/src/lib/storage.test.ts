@@ -18,7 +18,8 @@ beforeEach(() => {
   sessionStorage.clear()
 })
 
-const CHAT_KEY = 'mermaid.chatSession.v1'
+const CHAT_KEY = 'mermaid.chatSession.v2'
+const CHAT_KEY_V1 = 'mermaid.chatSession.v1'
 const PREFS_KEY = 'mermaid.preferences.v1'
 const SAVED_FACILITIES_STORAGE = 'mermaid.savedFacilities.v1'
 
@@ -179,5 +180,27 @@ describe('deviceId is anonymous and stable', () => {
     saveSavedFacilities([savedFacility])
     expect(getDeviceId()).toBe(id)
     expect(loadSavedFacilities()).toHaveLength(1)
+  })
+
+  it('refuses a conversation stored before the grounding invariants, and deletes it (P0)', () => {
+    // A turn saved before invariants 7 and 8 holds a card whose directions, warnings and prescription
+    // status the MODEL wrote. The card that renders it now labels the directions as the ministry's own
+    // Korean text — "we do not translate doses". Restore one and English prose the model invented is
+    // presented as the government's words, under the verified footer. A reload is enough to do it.
+    //
+    // There is no migration: the facts were never in the blob. The old key must simply be unreadable,
+    // and gone — it holds a medical conversation, and a key nobody reads is still a key someone can read.
+    sessionStorage.setItem(
+      CHAT_KEY_V1,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: { sessionId: 's', messages: [{ id: 'm1', role: 'user', content: 'headache', createdAt: 'x' }] },
+      }),
+    )
+
+    const restored = loadChatSession()
+
+    expect(restored.messages).toEqual([])
+    expect(sessionStorage.getItem(CHAT_KEY_V1)).toBeNull()
   })
 })

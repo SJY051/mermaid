@@ -186,6 +186,65 @@ describe('when the answer arrives', () => {
 
     expect(await screen.findByText('Call 119 now')).toBeInTheDocument()
   })
+
+  it('resolves each drug provenance by sourceRefId and labels a fixture card in a mixed answer', async () => {
+    const mixedAnswer = JSON.parse(validAnswer)
+    mixedAnswer.dataStatus = 'mixed'
+    mixedAnswer.drugs = [
+      {
+        id: 'drug:mfds:fixture',
+        productNameKo: '타이레놀정500밀리그람',
+        productNameEn: 'Tylenol 500 mg',
+        ingredients: [
+          {
+            nameKo: '아세트아미노펜',
+            nameEn: 'Acetaminophen',
+            normalizedKey: 'acetaminophen',
+            amount: '500',
+            unit: 'mg',
+          },
+        ],
+        indicationSummary: 'For headache and fever.',
+        directionsSummary: 'Follow the official label.',
+        labelCautions: null,
+        warnings: ['Do not combine with other acetaminophen products.'],
+        prescriptionStatus: 'otc',
+        allergyCheck: { status: 'no_match_found', matchedIngredients: [], message: '' },
+        sourceRefId: 'src:referenced-fixture',
+      },
+    ]
+    mixedAnswer.sourceRefs = [
+      {
+        id: 'src:decoy-live',
+        provider: 'Decoy live source',
+        recordId: 'live-1',
+        retrievedAt: '2026-07-12T00:00:00Z',
+        dataMode: 'live',
+        title: 'This source does not back the drug',
+      },
+      {
+        id: 'src:referenced-fixture',
+        provider: '식품의약품안전처',
+        recordId: 'fixture-1',
+        retrievedAt: '2026-07-11T05:00:00Z',
+        dataMode: 'fixture',
+        title: 'MFDS fixture record',
+      },
+    ]
+    const { stream, release } = pendingStream()
+    streamChatMock.mockReturnValue(stream())
+    renderChat()
+    await ask()
+    release(JSON.stringify(mixedAnswer))
+
+    const card = await screen.findByRole('article', { name: '타이레놀정500밀리그람' })
+    expect(within(card).getByText('Sample data')).toBeInTheDocument()
+    expect(within(card).getByText('식품의약품안전처')).toBeInTheDocument()
+    expect(within(card).getByText('MFDS fixture record')).toBeInTheDocument()
+    expect(screen.queryByText('Decoy live source')).not.toBeInTheDocument()
+    // The answer-level copy is fixture-only; mixed answers rely on the referenced card label.
+    expect(screen.queryByText(/showing sample data/i)).not.toBeInTheDocument()
+  })
 })
 
 describe('when the request fails', () => {
@@ -872,7 +931,7 @@ describe('conversation state', () => {
     expect(screen.queryByText('Drink water and rest.')).not.toBeInTheDocument()
     expect(screen.queryByText('I have a headache')).not.toBeInTheDocument()
     expect(loadChatSession().messages).toEqual([])
-    expect(sessionStorage.getItem('mermaid.chatSession.v1')).toBeNull()
+    expect(sessionStorage.getItem('mermaid.chatSession.v2')).toBeNull()
   })
 
   it('survives a malformed stored session instead of leaving the app blank', () => {
@@ -881,7 +940,7 @@ describe('conversation state', () => {
     // to an empty conversation, never crash ChatProvider into a blank screen.
     for (const messages of [null, [null], [{ role: 'user' }]]) {
       sessionStorage.setItem(
-        'mermaid.chatSession.v1',
+        'mermaid.chatSession.v2',
         JSON.stringify({
           schemaVersion: '1.0',
           data: { sessionId: 's', messages, allergies: [] },
@@ -1157,7 +1216,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
     // key, but it must proceed on the existing list — restating a known allergy must not end
     // drug lookup (that would block care for anyone who mentions their allergy again).
     sessionStorage.setItem(
-      'mermaid.chatSession.v1',
+      'mermaid.chatSession.v2',
       JSON.stringify({
         schemaVersion: '1.0',
         data: {
@@ -1205,7 +1264,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
     // chip that vanished on reload would leave its ingredient un-warned — a product containing it
     // could then read as no_match_found (§2-2). This asserts the chip is both restored AND sent.
     sessionStorage.setItem(
-      'mermaid.chatSession.v1',
+      'mermaid.chatSession.v2',
       JSON.stringify({
         schemaVersion: '1.0',
         data: {
@@ -1241,7 +1300,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
 
   it('new conversation clears verified selections, unverified chips, and the lock', async () => {
     sessionStorage.setItem(
-      'mermaid.chatSession.v1',
+      'mermaid.chatSession.v2',
       JSON.stringify({
         schemaVersion: '1.0',
         data: {
@@ -1271,7 +1330,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
       'placeholder',
       "I have a sore throat and a fever, and it's 11pm.",
     )
-    expect(sessionStorage.getItem('mermaid.chatSession.v1')).toBeNull()
+    expect(sessionStorage.getItem('mermaid.chatSession.v2')).toBeNull()
   })
 
   it('edit re-entry shows both lists and cancel without changes changes nothing', async () => {

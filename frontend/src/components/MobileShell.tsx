@@ -40,20 +40,44 @@ function MobileShellContent() {
         data-testid="app-shell"
         className="flex h-full w-full max-w-3xl flex-col border-primary bg-surface md:border-x"
       >
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        {/* No scroll on this wrapper. The SECTIONS scroll, one box each, and that is what makes the
+            comment below true: a single shared container would carry one tab's scroll position over
+            to the next, so opening Map after reading a long answer would drop you halfway down a map.
+            #78 introduced that regression while adding the bound above, and #77 kept the per-section
+            boxes — both halves of this conflict were right about their own half. */}
+        <div className="min-h-0 flex-1">
         {/* Keep every screen mounted so each tab retains its own scroll and interaction state. */}
-        <section aria-label="Chat screen" hidden={activeTab !== 'chat'}>
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Chat screen"
+          hidden={activeTab !== 'chat'}
+        >
           <ChatScreen />
         </section>
-        <section aria-label="Map screen" hidden={activeTab !== 'map'}>
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Map screen"
+          hidden={activeTab !== 'map'}
+        >
           {/* active gates the location prompt and facility fetch: the screen stays mounted for
               scroll state, but must not spend the pharmacy quota until the user opens the tab. */}
           <MapScreen active={activeTab === 'map'} />
         </section>
-        <section aria-label="Saved screen" hidden={activeTab !== 'saved'}>
+        {/* `active` matters as much as the scroll box: SavedScreen refreshes the profile when it
+            becomes active, and mounting it eagerly would send that request before anyone opened the
+            tab. Both sides of this merge were right about their own half. */}
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Saved screen"
+          hidden={activeTab !== 'saved'}
+        >
           <SavedScreen active={activeTab === 'saved'} />
         </section>
-        <section aria-label="Settings screen" hidden={activeTab !== 'settings'}>
+        <section
+          className="h-full overflow-y-auto"
+          aria-label="Settings screen"
+          hidden={activeTab !== 'settings'}
+        >
           <SettingsScreen />
         </section>
         </div>

@@ -11,9 +11,13 @@ import com.mermaid.common.SourceRef;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -61,6 +65,7 @@ public class ChatProxyController {
     private final StructuredOutputFallback fallback;
     private final AnswerValidator answerValidator;
     private final EmergencyTriage emergencyTriage;
+    private final com.mermaid.drug.IngredientNormalizer ingredientNormalizer;
     private final ObjectMapper objectMapper;
 
     /**
@@ -213,7 +218,95 @@ public class ChatProxyController {
                     "I could not verify that answer against official data, so I will not show it. "
                             + "Please describe your symptoms again, or visit a pharmacy.");
         }
-        return coerced;
+        // Two independent things keep this from laundering a hallucination, and EITHER alone is enough:
+        //
+        //   1. it runs after the validator, so a card invariant 6 rejected never reaches it, and
+        //   2. the substitution is key-preserving — a name is only ever replaced by the ministry's name
+        //      for the SAME normalized key, so a fabricated ingredient keeps the model's own text and
+        //      invariant 6 still sees it.
+        //
+        // Measured, not assumed: break either one and the suite stays green, because the other covers
+        // it. Break BOTH — stamp before validation AND substitute positionally — and a card naming a
+        // drug we never retrieved gets relabelled into a valid one, and the test that pins this goes
+        // red. An earlier comment here claimed the ordering was "the whole design"; that was a claim
+        // the code did not support, and the mutation that proved it took thirty seconds. Keep both.
+        return withMinistryDisplayNames(coerced, context);
+    }
+
+    /**
+     * The name on the card is the ministry's name. Invariant 8, for the two fields left.
+     *
+     * <p>{@code productNameEn} was never validated by anything. A card could name the retrieved Korean
+     * 타이레놀 with the right source and the right ingredients — and print <b>"Advil"</b> as its English
+     * name, under a footer citing 식약처. And an ingredient's {@code nameEn} survived only a NORMALIZED
+     * comparison, so an alias or a salt form ("Ibuprofen Lysine" where the ministry said "Ibuprofen")
+     * passed invariant 6 and was shown as the ministry's word for it.
+     *
+     * <p>We hold both — {@code Drug.nameEn} and {@code Drug.ingredientsEn} — so neither is the model's
+     * to write.
+     *
+     * <p><b>The substitution is key-preserving, and that is the invariant.</b> An ingredient name is
+     * replaced only by the ministry's name for the SAME normalized key; a name the record does not hold
+     * is left exactly as the model wrote it, so invariant 6 still sees it and still rejects the card.
+     * This must never become a positional substitution — mapping the ministry's first ingredient onto
+     * the model's first row would let a card naming the wrong drug be quietly relabelled into a valid
+     * one, and the hallucination gate would be rescuing hallucinations. A test pins this.
+     */
+    private MermAidAnswer withMinistryDisplayNames(MermAidAnswer answer, DrugContext context) {
+        List<MermAidAnswer.DrugCard> stamped = new ArrayList<>(answer.drugs().size());
+        for (MermAidAnswer.DrugCard drug : answer.drugs()) {
+            DrugContextRetriever.GroundedDrug source =
+                    context.groundedDrugs().get(drug.productNameKo());
+            if (source == null) {
+                stamped.add(drug);
+                continue;
+            }
+            stamped.add(new MermAidAnswer.DrugCard(
+                    drug.id(),
+                    drug.productNameKo(),
+                    source.productNameEn(),
+                    ministryIngredientNames(drug.ingredients(), source),
+                    drug.indicationSummary(),
+                    drug.directionsSummary(),
+                    drug.labelCautions(),
+                    drug.warnings(),
+                    drug.prescriptionStatus(),
+                    drug.allergyCheck(),
+                    drug.sourceRefId()));
+        }
+        return new MermAidAnswer(
+                answer.schemaVersion(),
+                answer.answerId(),
+                answer.language(),
+                answer.dataStatus(),
+                answer.urgency(),
+                answer.summary(),
+                answer.clarifyingQuestions(),
+                answer.guidance(),
+                List.copyOf(stamped),
+                answer.uiActions(),
+                answer.sourceRefs(),
+                answer.warnings(),
+                answer.disclaimer());
+    }
+
+    private List<MermAidAnswer.Ingredient> ministryIngredientNames(
+            List<MermAidAnswer.Ingredient> ingredients, DrugContextRetriever.GroundedDrug source) {
+        Map<String, String> byKey = new HashMap<>();
+        for (String name : source.ingredientNamesEn()) {
+            byKey.putIfAbsent(ingredientNormalizer.normalizeIdentity(name).key(), name);
+        }
+        List<MermAidAnswer.Ingredient> named = new ArrayList<>(ingredients.size());
+        for (MermAidAnswer.Ingredient i : ingredients) {
+            String key =
+                    i.nameEn() == null
+                            ? null
+                            : ingredientNormalizer.normalizeIdentity(i.nameEn()).key();
+            String ministry = key == null ? null : byKey.get(key);
+            named.add(new MermAidAnswer.Ingredient(
+                    null, ministry != null ? ministry : i.nameEn(), i.normalizedKey(), null, null));
+        }
+        return List.copyOf(named);
     }
 
     private static MermAidAnswer withUnverifiedAllergenCaveat(
@@ -280,11 +373,289 @@ public class ChatProxyController {
                 answer.summary(),
                 answer.clarifyingQuestions(),
                 answer.guidance(),
-                groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
+                groundServerRecord(
+                        groundDirections(
+                                groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
+                                context.groundedDrugs()),
+                        context.groundedDrugs()),
                 distinct(answer.uiActions()),
                 context.sources(),
                 answer.warnings(),
                 answer.disclaimer());
+    }
+
+    /** A run of digits, with the separators a dose is written with (1.5, 1~2, 1-2, 1,000). */
+    private static final Pattern NUMBER = Pattern.compile("\\d[\\d.,]*");
+
+    /**
+     * The dose is the ministry's, verbatim, or there is no dose. Post-processing invariant 7.
+     *
+     * <p>The model used to write this field, and nothing checked it: a schema-valid answer could say
+     * <em>"take 8 tablets every 2 hours"</em> for a label reading 1회 1~2정, 1일 3~4회 — under a footer
+     * naming 식약처 as the source. A government-branded overdose (OUT-03).
+     *
+     * <p>The first fix checked that every number the model wrote appeared in the ministry's text.
+     * Review broke it in one line: 만 12세 이상 … 1회 1~2정 contains "12", so <em>"Take 12 tablets once
+     * daily"</em> passed — the digit was there, as an AGE. Numbers have roles, and a substring does
+     * not carry one. Any check that tries to recover the role has to parse Korean dosage prose, and
+     * a parser that is wrong about a dose is the same defect wearing a lab coat.
+     *
+     * <p>So we stopped trying to check the model and removed its authority instead. <b>The server
+     * writes this field.</b> It carries 식약처's own 용법용량, exactly as retrieved, and the model's
+     * version is discarded unread. Nothing to verify, because nothing was authored. The card labels
+     * it as the official Korean text and says we do not translate doses — the pharmacist reads it
+     * with the person, which is where an exact dose was always going to come from.
+     *
+     * <p>The model keeps what a person only READS. Explaining what a medicine is for, in English, is
+     * the job we gave it, and a wrong word there is not an overdose. That is the line this and
+     * invariant 8 both draw: bind the model to the record on what a person ACTS on.
+     */
+    private static List<MermAidAnswer.DrugCard> groundDirections(
+            List<MermAidAnswer.DrugCard> drugs,
+            Map<String, DrugContextRetriever.GroundedDrug> groundedDrugs) {
+
+        List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
+        for (MermAidAnswer.DrugCard drug : drugs) {
+            DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
+            String official = source == null ? null : source.officialDosageKo();
+            grounded.add(
+                    withDirections(drug, official == null || official.isBlank() ? null : official));
+        }
+        return List.copyOf(grounded);
+    }
+
+    /**
+     * Every number the model wrote appears somewhere in the ministry's text.
+     *
+     * <p><b>Read this before you trust it, and before you add another rule to it.</b> It scans DIGITS.
+     * A model that writes <em>"take eight tablets every two hours"</em> passes it, because there are no
+     * digits in that sentence to check — review found exactly that. Adding "eight" and "two" to a word
+     * list buys nothing: the next sentence is "a couple of tablets", and the one after that is "twice
+     * the usual amount". <b>Every filter of this shape has a next bypass, and a filter that looks like
+     * a gate is worse than none, because we stop worrying.</b>
+     *
+     * <p>It is kept because it does remove the digit form, and removing it would be strictly worse. It
+     * is NOT a gate, and this code must not be extended as if it could become one. The problem it
+     * gestures at — model prose stating a dose — is not a property of one field: the same model writes
+     * `summary` and `guidance` in the chat bubble directly above this card, with no check at all, and
+     * a dose there is exactly as dangerous. Hardening the card while leaving the bubble open is
+     * theatre.
+     *
+     * <p>The real fix is the semantic output gate — a check on MEANING, not on characters —
+     * specified at {@code docs/specs/006-semantic-output-gate/spec.md} and tracked as OUT-02. Until it
+     * exists, what actually holds the line is: the ministry's own dose is on the card, verbatim, in the
+     * only field that may carry one (invariant 7); the system prompt forbids stating a dose anywhere
+     * else, in digits or in words; and the card says which of its sentences are a summary rather than
+     * the ministry's words. The prompt is an instruction, not an invariant. We know.
+     *
+     * <p><b>A filter, not a proof.</b> It catches an invented quantity; it cannot tell what ROLE a
+     * number played — 만 12세 이상 contains "12", so a sentence reusing it as a tablet count passes.
+     * That is exactly why dosing (invariant 7) no longer relies on this and is server-written
+     * instead. Cautions still do, because unlike a dose they must be translated to be usable at all,
+     * and a caution's numbers are rarely the thing a person acts on. The residual risk — a plausible
+     * mistranslation carrying no number — is OUT-02, and still open.
+     */
+    private static boolean numbersAreGrounded(String directions, String official) {
+        Matcher numbers = NUMBER.matcher(directions);
+        if (official == null || official.isBlank()) {
+            // Nothing to check against. Prose with no quantity in it still says nothing a label
+            // could contradict, so it survives; the moment it names a number, it has no source.
+            return !numbers.find();
+        }
+        while (numbers.find()) {
+            // Trailing separators are punctuation, not part of the quantity: "1일 3회." ends a
+            // sentence, and "3." must still match the label's "3".
+            String number = numbers.group().replaceAll("[.,]+$", "");
+            if (!official.contains(number)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static MermAidAnswer.DrugCard withDirections(
+            MermAidAnswer.DrugCard drug, String officialDosageKo) {
+        return new MermAidAnswer.DrugCard(
+                drug.id(),
+                drug.productNameKo(),
+                drug.productNameEn(),
+                drug.ingredients(),
+                drug.indicationSummary(),
+                officialDosageKo,
+                drug.labelCautions(),
+                drug.warnings(),
+                drug.prescriptionStatus(),
+                drug.allergyCheck(),
+                drug.sourceRefId());
+    }
+
+    /**
+     * The card's warnings, prescription status and cautions, taken back from the model. Invariant 8.
+     *
+     * <p>Three fields, one principle, and it is invariant 7's: <b>bind the model to the server's
+     * record on what a person acts on; leave it free on what they only read.</b>
+     *
+     * <ul>
+     *   <li><b>{@code warnings}</b> — 식약처's DUR contraindications. The model was told to copy every
+     *       one of them onto the card and nothing checked that it had, so a dropped contraindication
+     *       reached the reader and an invented one reached them under a footer naming the ministry.
+     *       Neither shows up in any other invariant: the product, the ingredients and the source are
+     *       all still right. We hold the record, so we write it, and the model's array is discarded.
+     *   <li><b>{@code prescriptionStatus}</b> — a server fact with a wire value already
+     *       ({@code SPCLTY_PBLC}/{@code ETC_OTC_CODE}). There was never anything for the model to
+     *       add here, only something for it to get wrong.
+     *   <li><b>{@code labelCautions}</b> — the model's English summary of 주의사항·경고·상호작용·부작용.
+     *       This one <i>is</i> a translation, like the indication and the directions, so it stays the
+     *       model's to write — and is checked the way the directions are, by invariant 7's digit
+     *       rule: every number in it must be a number the ministry wrote. A caution for a product
+     *       whose caution text we do not hold has no source at all, and does not survive.
+     * </ul>
+     *
+     * <p>A stripped caution becomes {@code null} and the card says so in words — it never becomes an
+     * absent section. Silence where a caution was reads as "nothing to be careful about", which is
+     * the same trap as {@code no_match_found} read as "safe" (§2-2). The same holds for a product
+     * with no DUR record at all: an empty warnings array is a statement, and the card states it.
+     *
+     * <p>A card naming a product we did not retrieve is left untouched, as in {@link
+     * #groundAllergyChecks}: invariant 6 rejects the whole answer for it moments later, and dressing
+     * it in server facts first would only disguise the violation.
+     */
+    private static List<MermAidAnswer.DrugCard> groundServerRecord(
+            List<MermAidAnswer.DrugCard> drugs,
+            Map<String, DrugContextRetriever.GroundedDrug> groundedDrugs) {
+
+        List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
+        for (MermAidAnswer.DrugCard drug : drugs) {
+            DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
+            if (source == null) {
+                grounded.add(drug);
+                continue;
+            }
+            grounded.add(new MermAidAnswer.DrugCard(
+                    drug.id(),
+                    drug.productNameKo(),
+                    drug.productNameEn(),
+                    onlyGroundedIngredientFields(drug.ingredients()),
+                    groundedIndication(drug, source),
+                    drug.directionsSummary(),
+                    groundedCautions(drug, source),
+                    source.warnings(),
+                    source.prescriptionStatus(),
+                    drug.allergyCheck(),
+                    drug.sourceRefId()));
+        }
+        return List.copyOf(grounded);
+    }
+
+    /**
+     * Null — and the card's own words — for a caution we cannot trace to the ministry's text.
+     *
+     * <p>Stricter than the directions in one place, and the difference is the point. Directions with
+     * no quantity in them survive a product we hold no 용법용량 for, because <em>"follow the dosing on
+     * the package"</em> is a pointer and contradicts no label. There is no equivalent caution: a
+     * sentence in this field is a medical claim whatever numbers it does or does not contain, and
+     * <em>"take care if you have liver problems"</em> is exactly as unsourced as a wrong age
+     * threshold. No official caution text, no caution.
+     */
+    /**
+     * An ingredient fact we never retrieved is not a fact. Invariant 8, applied to the whole row.
+     *
+     * <p>We hold ingredient names <b>in English</b>, and nothing else. {@link
+     * com.mermaid.drug.domain.Drug} carries {@code ingredientsEn} — parsed from 허가정보's {@code
+     * ITEM_INGR_NAME}, which is English — and the context the model is handed carries the same. There
+     * is no Korean ingredient name in the record, no {@code amount} and no {@code unit}, anywhere.
+     *
+     * <p>So three of the five fields on a card's ingredient row had no source at all, and {@link
+     * AnswerValidator} compares normalized ENGLISH keys, which means a row could read
+     *
+     * <pre>  Acetaminophen · 이부프로펜 · 5000 mg  </pre>
+     *
+     * and pass every invariant: the English name is the retrieved one, so INV6 is satisfied, while the
+     * Korean name beside it is a different drug entirely and the strength is ten times the licensed
+     * dose — all of it printed under a footer naming 식약처.
+     *
+     * <p>They are removed. The English name survives; that one IS grounded, and invariant 6 checks it.
+     * The Korean the person needs in a pharmacy is the PRODUCT name, which the card already shows and
+     * the server already owns (타이레놀정500밀리그람) — it is what they point at on a shelf.
+     *
+     * <p>Same rule as invariants 7 and 8 everywhere else: where an output cannot be checked cheaply and
+     * soundly, take away the authority to produce it. If 허가정보's {@code MATERIAL_NAME} is ever parsed,
+     * these become server facts and can come back.
+     */
+    private static List<MermAidAnswer.Ingredient> onlyGroundedIngredientFields(
+            List<MermAidAnswer.Ingredient> ingredients) {
+        if (ingredients == null) {
+            return List.of();
+        }
+        // A null ELEMENT, not a null list. The schema-less retry path accepts `ingredients: [null]`
+        // as valid JSON, and this mapper runs BEFORE AnswerValidator gets to fail closed — so a
+        // dereference here turns a refusable answer into a 500, and the person gets "something went
+        // wrong on our side" instead of the server-authored refusal (OUT-07's shape, one field over).
+        // Drop them: a null ingredient carries no name, so invariant 6 will reject the card anyway if
+        // the rest of it lies, and dropping is the behaviour that keeps the validator in charge.
+        return ingredients.stream()
+                .filter(Objects::nonNull)
+                .map(i -> new MermAidAnswer.Ingredient(null, i.nameEn(), i.normalizedKey(), null, null))
+                .toList();
+    }
+
+    /**
+     * A dose does not stop being a dose because it is written in the "For" box.
+     *
+     * <p>Invariant 7 took the model's authority over {@code directionsSummary} away and the card now
+     * prints 식약처's own 용법용량 there, untranslated. That closed one field. It did not close the
+     * FIELD NEXT TO IT: {@code indicationSummary} is model-owned, rendered on the same card under the
+     * same government footer, and rendered <em>above</em> the official dose. Nothing stopped a card
+     * from saying
+     *
+     * <pre>  For: Take 8 tablets every 2 hours.  </pre>
+     *
+     * and the whole dose gate was bypassed by moving the sentence one box up. Review found this; we
+     * had locked a door and left the window.
+     *
+     * <p>So the indication is bound the same way the cautions are: it is a translation of 식약처's
+     * 효능효과, and every number in it must be a number that text contains. A dose is made of numbers
+     * the efficacy text does not have, so it does not survive. With no official efficacy text held,
+     * no number survives at all.
+     *
+     * <p>The digit rule remains a filter and not a proof (see {@link #numbersAreGrounded}) — a
+     * plausible wrong sentence carrying no number is OUT-02 and still open. What it does close is the
+     * one thing that is machine-decidable and that a person acts on: a quantity with no source.
+     */
+    private static String groundedIndication(
+            MermAidAnswer.DrugCard drug, DrugContextRetriever.GroundedDrug source) {
+        String indication = drug.indicationSummary();
+        if (indication == null || indication.isBlank()) {
+            return null;
+        }
+        String official = source.officialEfficacyKo();
+        if (official != null && !official.isBlank() && numbersAreGrounded(indication, official)) {
+            return indication;
+        }
+        log.warn(
+                "indication_ungrounded product={} hasOfficialEfficacy={}",
+                drug.productNameKo(),
+                source.officialEfficacyKo() != null);
+        return null;
+    }
+
+    private static String groundedCautions(
+            MermAidAnswer.DrugCard drug, DrugContextRetriever.GroundedDrug source) {
+        String cautions = drug.labelCautions();
+        if (cautions == null || cautions.isBlank()) {
+            return null;
+        }
+        String official = source.officialCautionKo();
+        if (official != null && !official.isBlank() && numbersAreGrounded(cautions, official)) {
+            return cautions;
+        }
+        // The product name is ours — it came from the ministry. The rejected sentence is model
+        // output shaped by whatever the user typed, and a log is not a place to put that (§2-5).
+        log.warn(
+                "cautions_ungrounded product={} hasOfficialCautions={}",
+                drug.productNameKo(),
+                source.officialCautionKo() != null);
+        return null;
     }
 
     /**
@@ -313,6 +684,7 @@ public class ChatProxyController {
                     drug.ingredients(),
                     drug.indicationSummary(),
                     drug.directionsSummary(),
+                    drug.labelCautions(),
                     drug.warnings(),
                     drug.prescriptionStatus(),
                     source.allergyCheck(),
