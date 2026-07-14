@@ -4,9 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.mermaid.common.ApiException;
+import com.mermaid.facility.domain.Facility;
 import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.profile.domain.MatchConfidence;
 import com.mermaid.profile.dto.ProfileDtos.*;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -34,6 +36,8 @@ class ProfileCrudTest {
     private static final String DEVICE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 
     @Autowired ProfileService service;
+
+    @Autowired Validator validator;
 
     @Test
     @DisplayName("reading an unknown deviceId creates the profile — there is no signup (FR-01)")
@@ -163,6 +167,21 @@ class ProfileCrudTest {
                             new FavoriteCreateRequest("facility:nmc:C1110693", FacilityType.PHARMACY, null, null));
 
             assertThat(f.facilityId()).startsWith("facility:nmc:");
+        }
+
+        @Test
+        @DisplayName("a long base64url HIRA id fits the favorite request and database column")
+        void savesLongHospitalId() {
+            String facilityId = "facility:hira:" + Facility.urlSafeSegment("a".repeat(80));
+            FavoriteCreateRequest request =
+                    new FavoriteCreateRequest(facilityId, FacilityType.HOSPITAL, null, null);
+
+            FavoriteResponse saved =
+                    service.addFavorite(DEVICE, request);
+
+            assertThat(facilityId).hasSize(121);
+            assertThat(validator.validate(request)).isEmpty();
+            assertThat(saved.facilityId()).isEqualTo(facilityId);
         }
     }
 
