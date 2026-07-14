@@ -123,12 +123,16 @@ if it were unproblematic.
   MUST therefore send every user turn of the session in each request**
   (`chatSession.send`), or the scan has nothing to see — the server-side scan and the
   client-side transport are one requirement, not two. Scope of the guarantee, honestly
-  stated: the scan sees only what the request carries. Forged **additions** fail
-  closed (extra allergy text can only produce the clarification), but a client that
-  **trims** the declaration turn out of its history is indistinguishable from a
-  conversation in which it never happened — that residual risk sits with any client
-  that violates the send-every-turn obligation, and server-owned pending-allergy state
-  is deliberately out of scope (§2-5 keeps transcripts off the server).
+  stated: the scan sees only what the request carries. A declaration in the **newest
+  turn** always clarifies (FR-001); one in an **earlier turn** clarifies while no
+  fully-resolved structured list is present. Once a complete structured list arrives
+  it governs by design (the loop-closing path), so a forged earlier-turn declaration
+  alongside one changes nothing — and a client that **trims** the declaration turn is
+  indistinguishable from a conversation in which it never happened. Both reduce to
+  the same fact: a client can always under-declare its own requests. That residual
+  risk sits with any client violating the send-every-turn obligation; server-owned
+  pending-allergy state is deliberately out of scope (§2-5 keeps transcripts off the
+  server).
 - **FR-014 (structured-reply affordance)**: The frontend MUST treat the clarification
   answer (`answerId "allergy-clarification"`) as the signal to collect allergens
   **structurally**: render an ingredient input and send the collected list as
