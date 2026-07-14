@@ -145,6 +145,18 @@ export interface Facility {
 }
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/geocode
+// ---------------------------------------------------------------------------
+
+export interface GeocodeResult {
+  roadAddress: string
+  jibunAddress: string
+  englishAddress: string
+  latitude: number
+  longitude: number
+}
+
+// ---------------------------------------------------------------------------
 // Errors — mirrors backend `ErrorCode` and `GlobalExceptionHandler` (spec §5-2)
 // ---------------------------------------------------------------------------
 
