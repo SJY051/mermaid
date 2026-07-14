@@ -39,7 +39,8 @@ function drug(overrides: Partial<DrugCardData> = {}): DrugCardData {
       },
     ],
     indicationSummary: 'For headache, fever, and mild aches.',
-    directionsSummary: 'Adults: take one tablet every 4–6 hours.',
+    // Server-written: 식약처's own 용법용량, verbatim and untranslated (invariant 7).
+    directionsSummary: '만 12세 이상 소아 및 성인: 1회 1~2정씩 1일 3~4회 필요시 복용합니다.',
     labelCautions: 'Ask a doctor before use if you drink alcohol daily.',
     warnings: [
       'Do not combine with other acetaminophen products.',
@@ -74,7 +75,7 @@ describe('DrugCard', () => {
     expect(ingredientRows[1]).toHaveTextContent('카페인무수물 · 32 mg')
     expect(within(ingredientRows[1]).getByText('카페인무수물')).toHaveAttribute('lang', 'ko')
     expect(within(card).getByText('For headache, fever, and mild aches.')).toBeInTheDocument()
-    expect(within(card).getByText('Adults: take one tablet every 4–6 hours.')).toBeInTheDocument()
+    expect(within(card).getByTestId('official-dosage')).toHaveTextContent('1회 1~2정씩 1일 3~4회')
     expect(
       within(card).getByText('Do not combine with other acetaminophen products.'),
     ).toBeInTheDocument()
@@ -146,16 +147,28 @@ describe('DrugCard', () => {
     expect(screen.getByText('Ingredient list unavailable.')).toBeInTheDocument()
   })
 
+  it("shows the ministry's dose verbatim, in Korean, and says it is not translated (P0)", () => {
+    // The dose a person acts on is the ministry's, in the ministry's words. The model does not write
+    // this field — a mistranslated dose is an overdose, and a check that merely compared numbers
+    // passed "Take 12 tablets once daily" because the label's 만 12세 contains a 12.
+    render(<DrugCard drug={drug()} source={source} />)
+
+    const dose = screen.getByTestId('official-dosage')
+    expect(dose).toHaveTextContent('1회 1~2정씩 1일 3~4회')
+    expect(dose).toHaveAttribute('lang', 'ko')
+    expect(screen.getByText(/we do not translate doses/i)).toBeInTheDocument()
+    expect(screen.getByText(/show this to the pharmacist/i)).toBeInTheDocument()
+  })
+
   it('says a dose is missing rather than leaving the card silent (P0)', () => {
-    // The server strips dosing it cannot trace to 식약처's own 용법용량 (invariant 7), so `null` here
-    // means "we would not stand behind that number" — never "this medicine has no particular
+    // `null` means the ministry published no 용법용량 — never "this medicine has no particular
     // dosing". Rendering nothing would let the second reading through, in the exact place a person
     // looks for a number. The same trap as a no_match_found allergy read as reassurance (§2-2).
     render(<DrugCard drug={drug({ directionsSummary: null })} source={source} />)
 
     expect(screen.getByRole('heading', { name: 'Directions' })).toBeInTheDocument()
-    expect(screen.getByText(/not showing a dose/i)).toBeInTheDocument()
-    expect(screen.getByText(/ask the pharmacist/i)).toBeInTheDocument()
+    expect(screen.getByText(/no official dosing for this medicine/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/ask the pharmacist/i).length).toBeGreaterThan(0)
   })
 
   it('says the cautions are missing rather than leaving the card silent (P0)', () => {
