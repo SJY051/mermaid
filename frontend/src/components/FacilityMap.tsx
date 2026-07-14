@@ -1,6 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
 import { useNaverMap } from '../hooks/useNaverMap'
-import type { Facility } from '../lib/types'
+import type { Facility, GeocodeResult } from '../lib/types'
 import { DetailDrawer } from './DetailDrawer'
 
 export interface FacilityMapProps {
@@ -17,6 +17,9 @@ export interface FacilityMapProps {
   manualLocation?: {
     canClear: boolean
     onUseSpot: (center: { lat: number; lng: number }) => void
+    onSearchAddress: (query: string) => Promise<GeocodeResult[]>
+    onUseAddress: (result: GeocodeResult) => void
+    currentLabel?: string
     onClear: () => void
   }
 }
@@ -144,6 +147,11 @@ export function FacilityMap({
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null)
   const [markerError, setMarkerError] = useState<Error | null>(null)
   const [choosingLocation, setChoosingLocation] = useState(false)
+  const [addressQuery, setAddressQuery] = useState('')
+  const [addressResults, setAddressResults] = useState<GeocodeResult[]>([])
+  const [addressSearchState, setAddressSearchState] = useState<
+    'idle' | 'loading' | 'results' | 'empty' | 'error'
+  >('idle')
 
   const visibleError = error ?? markerError
   const hasFixtureData =
@@ -215,6 +223,25 @@ export function FacilityMap({
 
   const displayedFacilityTypes = new Set(facilities.map((facility) => facility.type))
 
+  async function searchAddress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!manualLocation || !addressQuery.trim()) return
+
+    setAddressSearchState('loading')
+    setAddressResults([])
+    try {
+      const results = await manualLocation.onSearchAddress(addressQuery.trim())
+      setAddressResults(results)
+      setAddressSearchState(results.length > 0 ? 'results' : 'empty')
+    } catch {
+      setAddressSearchState('error')
+    }
+  }
+
+  function addressLabel(result: GeocodeResult): string {
+    return result.roadAddress || result.jibunAddress || result.englishAddress
+  }
+
   return (
     <section className="space-y-2" aria-label="Nearby facilities map">
       {caption && <p className="text-sm text-secondary">{caption}</p>}
@@ -226,27 +253,91 @@ export function FacilityMap({
       )}
 
       {manualLocation && (
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
-            onClick={() => setChoosingLocation(true)}
-          >
-            Set your location
-          </button>
-          {manualLocation.canClear && (
+        <section aria-label="Set your location" className="space-y-2 rounded border border-primary p-3">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
-              onClick={() => {
-                setChoosingLocation(false)
-                manualLocation.onClear()
-              }}
+              onClick={() => setChoosingLocation(true)}
             >
-              Clear
+              Set your location
             </button>
+            {manualLocation.canClear && (
+              <button
+                type="button"
+                className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+                onClick={() => {
+                  setChoosingLocation(false)
+                  manualLocation.onClear()
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <form className="space-y-2" onSubmit={searchAddress}>
+            <label htmlFor={`${markerIdPrefix}-address`} className="block text-sm font-medium text-primary">
+              Search an address
+            </label>
+            <div className="flex gap-2">
+              <input
+                id={`${markerIdPrefix}-address`}
+                type="search"
+                value={addressQuery}
+                onChange={(event) => setAddressQuery(event.target.value)}
+                className="min-h-11 min-w-0 flex-1 rounded border border-primary bg-surface px-3 text-sm text-primary"
+                autoComplete="street-address"
+              />
+              <button
+                type="submit"
+                disabled={!addressQuery.trim() || addressSearchState === 'loading'}
+                className="min-h-11 rounded bg-primary px-4 text-sm font-medium text-surface disabled:opacity-50"
+              >
+                {addressSearchState === 'loading' ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+          </form>
+
+          {manualLocation.currentLabel && (
+            <p className="text-sm text-primary">Chosen centre: {manualLocation.currentLabel}</p>
           )}
-        </div>
+          {addressSearchState === 'empty' && (
+            <p className="text-sm text-secondary">No address matched. Try a more specific address.</p>
+          )}
+          {addressSearchState === 'error' && (
+            <p role="alert" className="text-sm text-secondary">
+              We could not search for that address. Please try again.
+            </p>
+          )}
+          {addressSearchState === 'results' && (
+            <ul aria-label="Address search results" className="space-y-1">
+              {addressResults.map((result) => {
+                const label = addressLabel(result)
+                return (
+                  <li key={`${result.latitude}:${result.longitude}:${label}`}>
+                    <button
+                      type="button"
+                      className="min-h-11 w-full rounded border border-primary px-3 py-2 text-left text-sm text-primary"
+                      onClick={() => {
+                        manualLocation.onUseAddress(result)
+                        setAddressQuery(label)
+                        setAddressResults([])
+                        setAddressSearchState('idle')
+                        setChoosingLocation(false)
+                      }}
+                    >
+                      <span className="block">{label}</span>
+                      {result.englishAddress && result.englishAddress !== label && (
+                        <span className="block text-xs text-secondary">{result.englishAddress}</span>
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
       )}
 
       <div

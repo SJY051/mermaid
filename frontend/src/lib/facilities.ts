@@ -1,4 +1,4 @@
-import type { Facility, FacilityType } from './types'
+import type { Facility, FacilityType, GeocodeResult } from './types'
 import { loadPreferences } from './storage'
 
 export interface FacilityQuery {
@@ -38,6 +38,17 @@ export async function fetchFacilities(
   return response.json() as Promise<Facility[]>
 }
 
+/** Searches addresses through our server so the Naver Client Secret never enters the bundle. */
+export async function fetchGeocode(query: string, signal?: AbortSignal): Promise<GeocodeResult[]> {
+  const params = new URLSearchParams({ query })
+  const response = await fetch(`/api/v1/geocode?${params}`, { signal })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.error?.message ?? `Could not search addresses (HTTP ${response.status}).`)
+  }
+  return response.json() as Promise<GeocodeResult[]>
+}
+
 /**
  * Where to centre the map.
  *
@@ -58,6 +69,8 @@ export interface ResolvedLocation {
   lat: number
   lng: number
   source: LocationSource
+  /** Present only for a user-chosen manual centre. */
+  label?: string
 }
 
 export function locationNotice(location: ResolvedLocation): string | undefined {
@@ -70,7 +83,12 @@ export function resolveLocation(timeoutMs = 8000): Promise<ResolvedLocation> {
   const manualLocation = loadPreferences().manualLocation
   const withoutDevice = (): ResolvedLocation =>
     manualLocation
-      ? { lat: manualLocation.lat, lng: manualLocation.lng, source: 'manual' }
+      ? {
+          lat: manualLocation.lat,
+          lng: manualLocation.lng,
+          source: 'manual',
+          label: manualLocation.label,
+        }
       : { ...SEOUL_CITY_HALL, source: 'fallback' }
 
   if (!navigator.geolocation) {

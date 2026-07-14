@@ -70,6 +70,12 @@ mermaid:
   # hybrid  — call them, fall back to fixtures on failure, and label the data as such
   # fixture — never touch the network (reproducible demos, CI, and the 1,000/day quota)
   data-mode: ${DATA_MODE:hybrid}
+  naver-map:
+    # Geocoding is server-only: Vite must never see the Client Secret. This is the one host that
+    # answered for our subscribed NCP application; naveropenapi.apigw.ntruss.com answered 401.
+    client-id: ${VITE_NAVER_MAP_CLIENT_ID:}
+    client-secret: ${NAVER_MAP_CLIENT_SECRET:}
+    geocode-base-url: https://maps.apigw.ntruss.com/map-geocode/v2/geocode
   llm:
     # Any OpenAI-compatible endpoint. See .env.example.
     #
