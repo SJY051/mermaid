@@ -171,10 +171,15 @@ export function ChatScreen() {
   // correct next move IS an edit (INPUT_TOO_LARGE: shorten it and ask again).
   const askBlocked =
     sendError !== null && !sendError.retryable && input === sendError.forInput
-  const submitBlocked = !input.trim() || streaming || askBlocked
+  // While the picker is open, any request would carry the STALE exclude_ingredients — the newly
+  // declared allergen is not in the list until the user confirms. Sending first would let the
+  // backend proceed on a resolved-but-incomplete list and show a product containing it as
+  // no_match_found. So the structured list must be updated (confirm) or the picker answered
+  // (dismiss) before anything is sent. The picker itself, not the composer, is the next action.
+  const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen
 
   function submit(text: string) {
-    if (!text.trim() || streaming || askBlocked) return
+    if (!text.trim() || streaming || askBlocked || pickerOpen) return
     void send(text)
   }
 

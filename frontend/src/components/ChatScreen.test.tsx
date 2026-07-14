@@ -518,6 +518,29 @@ describe('allergen picker (spec 005 FR-014)', () => {
     })
   })
 
+  it('blocks Ask while an allergy clarification is unresolved, so no stale list is sent (P0)', async () => {
+    // Re-opening the picker is not enough on its own: a user can ignore the overlay, type a
+    // fresh question, and press Ask. That request would carry the STALE exclude_ingredients (the
+    // newly declared allergen not yet selected), and a keyword-free question like "What can I
+    // take?" lets the backend proceed on the resolved-but-incomplete list. Ask must be blocked
+    // until the picker is answered.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am allergic to a pain medicine')
+    await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+
+    await user.type(screen.getByRole('textbox'), 'What can I take?')
+    const askButton = screen.getByRole('button', { name: /ask/i })
+    expect(askButton).toBeDisabled()
+    await user.click(askButton)
+
+    // No second request went out, and the picker is still up waiting to be answered.
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog', { name: /tell us your allergy/i })).toBeInTheDocument()
+  })
+
   it("dismisses an unlisted allergy without sending or adding a mermaid field later", async () => {
     serveAllergenOptions()
     streamChatMock
