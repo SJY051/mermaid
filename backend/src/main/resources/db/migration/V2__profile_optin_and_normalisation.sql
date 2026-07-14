@@ -40,7 +40,7 @@ ALTER TABLE favorite_facility
         AFTER facility_type;
 
 -- facility_id now carries a provider namespace (spec §4-3): `facility:nmc:C1110693`
--- or `facility:hira:<base64url(ykiho)>`. The old comment described a bare hpid/ykiho.
+-- or `facility:hira:<ykiho>`. The old comment described a bare hpid/ykiho.
 ALTER TABLE favorite_facility
     MODIFY COLUMN facility_id VARCHAR(120) NOT NULL
         COMMENT 'Provider-namespaced id, e.g. facility:nmc:C1110693. Never a name.';
