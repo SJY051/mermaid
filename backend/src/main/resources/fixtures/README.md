@@ -13,7 +13,7 @@
 | `permission_detail.json` | `…/getDrugPrdtPrmsnDtlInq06` | 상세. `MAIN_INGR_ENG`, `MAIN_ITEM_INGR`(`[M######]…`) |
 | `dur_usjnt.json` | `DURPrdlstInfoService03/getUsjntTabooInfoList03` | 병용금기. `MIXTURE_*` 블록, `PROHBT_CONTENT` |
 | `dur_age.json` | `…/getSpcifyAgrdeTabooInfoList03` | 연령금기. **나이 필드가 없습니다.** `PROHBT_CONTENT` 한국어 자유 텍스트 |
-| `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCdNm`. **진료시간이 없습니다** |
+| `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCd`(종별코드: 문자열/숫자 혼합), `clCdNm`(표시명). **진료시간이 없습니다** |
 | `hospital_detail.json` | `MadmDtlInfoService2.8/`**`getDtlInfo2.8`** | `ykiho` 단건. **여기에 `trmtMonStart`~`trmtSatEnd`, `lunchWeek`, `noTrmtSun`, `emyNgtYn`이 있습니다** |
 
 ## 실물을 열어보고 알게 된 것 (조사 문서와 달랐던 것)

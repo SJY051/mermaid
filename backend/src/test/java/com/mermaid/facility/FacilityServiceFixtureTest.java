@@ -65,6 +65,15 @@ class FacilityServiceFixtureTest {
             HospitalDetailApiClient.HospitalDetail detail,
             SourceRef.DataMode listOrigin,
             SourceRef.DataMode detailOrigin) {
+        return serviceWithDetail(clock, detail, listOrigin, detailOrigin, new HolidayCalendar());
+    }
+
+    private FacilityService serviceWithDetail(
+            Clock clock,
+            HospitalDetailApiClient.HospitalDetail detail,
+            SourceRef.DataMode listOrigin,
+            SourceRef.DataMode detailOrigin,
+            HolidayCalendar holidayCalendar) {
         var props =
                 new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
@@ -99,7 +108,7 @@ class FacilityServiceFixtureTest {
                 new PharmacyApiClient(null, props, dataMode, loader),
                 listClient,
                 detailClient,
-                new HolidayCalendar(),
+                holidayCalendar,
                 clock);
     }
 
@@ -250,8 +259,11 @@ class FacilityServiceFixtureTest {
         assertThat(afternoon.operation().statusConfidence())
                 .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
         assertThat(afternoon.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
+        // Emergency availability travels to the card for the matched hospital (fixture emyNgtYn=Y)...
+        assertThat(afternoon.emergencyNight()).isTrue();
         assertThat(lunch.operation().isOpenNow()).isFalse();
-        assertThat(hospitalNamed(afternoonResults, "아미나요양병원").operation().isOpenNow()).isNull();
+
+        assertThat(afternoonResults).noneMatch(f -> "아미나요양병원".equals(f.nameKo()));
     }
 
     @Test
@@ -259,14 +271,15 @@ class FacilityServiceFixtureTest {
     void hospitalRadiusExcludesByMetres() {
         var service = serviceAt(FRIDAY_AFTERNOON);
 
-        // The three fixture rows sit at 903.8 m (아미나요양병원), 932.2 m (강북삼성병원), and 974.2 m
-        // (서울적십자병원) from 서울시청. A 950 m radius must keep the first two and drop the third —
-        // which only works if HIRA's decimal string is read as metres, not the pharmacy API's km.
+        // The HIRA fixture rows sit at 903.8 m (아미나요양병원, 요양병원), 932.2 m (강북삼성병원),
+        // and 974.2 m (서울적십자병원). The default acute-care search excludes only the nursing
+        // category; a 950-m radius then retains 강북삼성병원 and drops 서울적십자병원 by metres.
         List<Facility> wide = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
         List<Facility> narrow = service.findNearby(LAT, LNG, 950, false, FacilityType.HOSPITAL);
 
-        assertThat(wide).hasSize(3);
-        assertThat(narrow).hasSize(2);
+        assertThat(wide).extracting(Facility::nameKo).containsExactly("강북삼성병원", "서울적십자병원");
+        assertThat(wide).noneMatch(f -> "아미나요양병원".equals(f.nameKo()));
+        assertThat(narrow).singleElement().extracting(Facility::nameKo).isEqualTo("강북삼성병원");
         assertThat(narrow).allSatisfy(f -> assertThat(f.distanceMeters()).isLessThanOrEqualTo(950.0));
         assertThat(narrow).noneMatch(f -> "서울적십자병원".equals(f.nameKo()));
         assertThat(wide)
@@ -282,7 +295,7 @@ class FacilityServiceFixtureTest {
                 serviceWithDetail(
                         FRIDAY_AFTERNOON,
                         new HospitalDetailApiClient.HospitalDetail(
-                                "YKIHO-1", Map.of(), Optional.empty(), false, false),
+                                "YKIHO-1", Map.of(), Optional.empty(), false, false, null, null),
                         SourceRef.DataMode.LIVE,
                         SourceRef.DataMode.LIVE);
 
@@ -307,7 +320,9 @@ class FacilityServiceFixtureTest {
                                         new HospitalDetailApiClient.LunchBreak(
                                                 java.time.LocalTime.of(12, 30), java.time.LocalTime.of(13, 30))),
                                 false,
-                                false),
+                                false,
+                                null,
+                                null),
                         SourceRef.DataMode.LIVE,
                         SourceRef.DataMode.LIVE);
 
@@ -324,7 +339,7 @@ class FacilityServiceFixtureTest {
                 serviceWithDetail(
                         sunday,
                         new HospitalDetailApiClient.HospitalDetail(
-                                "YKIHO-1", Map.of(1, List.of("0830", "1700")), Optional.empty(), false, false),
+                                "YKIHO-1", Map.of(1, List.of("0830", "1700")), Optional.empty(), false, false, null, null),
                         SourceRef.DataMode.LIVE,
                         SourceRef.DataMode.FIXTURE);
 
@@ -335,20 +350,44 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("an explicit Sunday closure wins over a contradictory Sunday time range")
-    void hospitalExplicitSundayClosureWinsOverSundayHours() {
+    @DisplayName("an explicit Sunday closure applies even without published treatment hours")
+    void hospitalExplicitSundayClosureAppliesWithoutSundayHours() {
         Clock sunday = Clock.fixed(Instant.parse("2026-07-12T05:00:00Z"), ZoneId.of("UTC"));
         var service =
                 serviceWithDetail(
                         sunday,
                         new HospitalDetailApiClient.HospitalDetail(
-                                "YKIHO-1", Map.of(7, List.of("0830", "1700")), Optional.empty(), true, false),
+                                "YKIHO-1", Map.of(), Optional.empty(), true, false, null, null),
                         SourceRef.DataMode.LIVE,
                         SourceRef.DataMode.LIVE);
 
         Facility hospital = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL).getFirst();
 
         assertThat(hospital.operation().isOpenNow()).isFalse();
+    }
+
+    @Test
+    @DisplayName("an explicit holiday closure applies even without published treatment hours")
+    void hospitalExplicitHolidayClosureAppliesWithoutTreatmentHours() {
+        var service =
+                serviceWithDetail(
+                        FRIDAY_AFTERNOON,
+                        new HospitalDetailApiClient.HospitalDetail(
+                                "YKIHO-1", Map.of(), Optional.empty(), false, true, null, null),
+                        SourceRef.DataMode.LIVE,
+                        SourceRef.DataMode.LIVE,
+                        new HolidayCalendar() {
+                            @Override
+                            public boolean isHoliday(java.time.LocalDate date) {
+                                return true;
+                            }
+                        });
+
+        Facility hospital = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL).getFirst();
+
+        assertThat(hospital.operation().isOpenNow()).isFalse();
+        assertThat(hospital.operation().status())
+                .isEqualTo(FacilityOperation.OperationStatus.CLOSED);
     }
 
     @Test
@@ -400,7 +439,7 @@ class FacilityServiceFixtureTest {
                         }
                         return new HospitalDetailBatch(
                                 new HospitalDetail(
-                                        ykiho, Map.of(1, List.of("0830", "1700")), Optional.empty(), false, false),
+                                        ykiho, Map.of(1, List.of("0830", "1700")), Optional.empty(), false, false, null, null),
                                 SourceRef.DataMode.LIVE);
                     }
                 };
@@ -416,6 +455,71 @@ class FacilityServiceFixtureTest {
 
         assertThat(found).hasSize(8);
         assertThat(maximum).hasValue(4);
+    }
+
+    @Test
+    @DisplayName("fetches details for only the nearest hospitals, never one call per row in a dense radius")
+    void hospitalDetailFetchIsCappedAtNearest() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
+        var loader = new FixtureLoader(new ObjectMapper());
+        // One closest nursing hospital plus 69 acute-care candidates: the nursing row must not spend
+        // a detail call or consume one of the public result limit's slots.
+        List<HospitalApiClient.RawHospital> many =
+                IntStream.range(0, 70)
+                        .mapToObj(
+                                i ->
+                                        new HospitalApiClient.RawHospital(
+                                                "YKIHO-" + i,
+                                                i == 0 ? "Nursing hospital" : "Hospital " + i,
+                                                "Seoul",
+                                                null,
+                                                null,
+                                                i == 0 ? "28" : "11", // 종별코드: 28=요양병원, 11=종합병원
+                                                LAT, LNG, 10.0 + i))
+                        .toList();
+        var listClient =
+                new HospitalApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public HospitalBatch findNear(double lat, double lng, int radiusMeters) {
+                        return new HospitalBatch(many, SourceRef.DataMode.LIVE);
+                    }
+                };
+        var detailCalls = new AtomicInteger();
+        var nursingDetailCalls = new AtomicInteger();
+        var detailClient =
+                new HospitalDetailApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public HospitalDetailBatch findByYkiho(String ykiho) {
+                        detailCalls.incrementAndGet();
+                        if ("YKIHO-0".equals(ykiho)) {
+                            nursingDetailCalls.incrementAndGet();
+                        }
+                        return new HospitalDetailBatch(
+                                new HospitalDetail(
+                                        ykiho, Map.of(1, List.of("0830", "1700")), Optional.empty(),
+                                        false, false, null, null),
+                                SourceRef.DataMode.LIVE);
+                    }
+                };
+        var service =
+                new FacilityService(
+                        new PharmacyApiClient(null, props, dataMode, loader),
+                        listClient,
+                        detailClient,
+                        new HolidayCalendar(),
+                        FRIDAY_AFTERNOON);
+
+        List<Facility> found = service.findNearby(LAT, LNG, 2000, false, FacilityType.HOSPITAL, 10);
+
+        // The public `limit` controls both cards and detail calls, so changing it cannot silently
+        // restore an unbounded fan-out behind a seemingly small map response.
+        assertThat(detailCalls).hasValue(10);
+        assertThat(nursingDetailCalls).hasValue(0);
+        assertThat(found).hasSize(10);
+        assertThat(found).noneMatch(f -> "Nursing hospital".equals(f.nameKo()));
+        assertThat(found).allSatisfy(f -> assertThat(f.distanceMeters()).isLessThanOrEqualTo(20.0));
     }
 
     @Test

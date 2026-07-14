@@ -110,7 +110,9 @@ public class HospitalDetailApiClient {
                 Map.copyOf(weekdayHours),
                 lunchBreak(PublicApiResponse.text(row, "lunchWeek")),
                 isClosed(PublicApiResponse.text(row, "noTrmtSun")),
-                isClosed(PublicApiResponse.text(row, "noTrmtHoli")));
+                isClosed(PublicApiResponse.text(row, "noTrmtHoli")),
+                yn(PublicApiResponse.text(row, "emyDayYn")),
+                yn(PublicApiResponse.text(row, "emyNgtYn")));
     }
 
     private static void addHours(
@@ -147,16 +149,34 @@ public class HospitalDetailApiClient {
         return "휴진".equals(raw) || "Y".equalsIgnoreCase(raw);
     }
 
-    /** Official detail values, including a separately modelled lunch closure. */
+    /** HIRA's emergency flags are Y/N; anything else (absent, blank) is genuinely unknown, so null. */
+    private static Boolean yn(String raw) {
+        if ("Y".equalsIgnoreCase(raw)) {
+            return Boolean.TRUE;
+        }
+        if ("N".equalsIgnoreCase(raw)) {
+            return Boolean.FALSE;
+        }
+        return null;
+    }
+
+    /**
+     * Official detail values, including a separately modelled lunch closure.
+     *
+     * @param emergencyDay HIRA {@code emyDayYn}: daytime ER available; {@code null} when unknown
+     * @param emergencyNight HIRA {@code emyNgtYn}: night ER available; {@code null} when unknown
+     */
     public record HospitalDetail(
             String ykiho,
             Map<Integer, List<String>> weekdayHours,
             Optional<LunchBreak> lunchBreak,
             boolean sundayClosed,
-            boolean holidayClosed) {
+            boolean holidayClosed,
+            Boolean emergencyDay,
+            Boolean emergencyNight) {
 
         private static HospitalDetail empty(String ykiho) {
-            return new HospitalDetail(ykiho, Map.of(), Optional.empty(), false, false);
+            return new HospitalDetail(ykiho, Map.of(), Optional.empty(), false, false, null, null);
         }
     }
 

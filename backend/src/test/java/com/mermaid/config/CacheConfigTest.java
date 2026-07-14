@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.SourceRef;
+import com.mermaid.facility.HospitalApiClient;
 import com.mermaid.facility.HospitalDetailApiClient;
 import com.mermaid.facility.PharmacyApiClient;
 import com.mermaid.facility.domain.DutyTable;
@@ -60,6 +61,21 @@ class CacheConfigTest {
     }
 
     @Test
+    @DisplayName("the hospital-list cache value round-trips, provenance included")
+    void hospitalBatchRoundTrips() {
+        var raw =
+                new HospitalApiClient.RawHospital(
+                        "YKIHO-1", "Hospital", "Seoul", "03181", "02-000-0000", "11", 37.5, 126.9, 125.0);
+        var batch = new HospitalApiClient.HospitalBatch(List.of(raw), SourceRef.DataMode.FIXTURE);
+
+        Object back = pair().read(pair().write(batch));
+
+        assertThat(back).isEqualTo(batch);
+        assertThat(((HospitalApiClient.HospitalBatch) back).origin())
+                .isEqualTo(SourceRef.DataMode.FIXTURE);
+    }
+
+    @Test
     @DisplayName("the hospital-detail cache value round-trips through the JSON serializer intact")
     void hospitalDetailCacheValueRoundTripsAsJson() {
         var value =
@@ -71,7 +87,9 @@ class CacheConfigTest {
                                         new HospitalDetailApiClient.LunchBreak(
                                                 LocalTime.of(12, 30), LocalTime.of(13, 30))),
                                 true,
-                                true),
+                                true,
+                                true,
+                                false),
                         SourceRef.DataMode.FIXTURE);
 
         Object restored = pair().read(pair().write(value));

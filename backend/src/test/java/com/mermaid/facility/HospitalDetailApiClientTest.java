@@ -59,6 +59,27 @@ class HospitalDetailApiClientTest {
         assertThat(detail.lunchBreak()).contains(new HospitalDetailApiClient.LunchBreak(LocalTime.of(12, 30), LocalTime.of(13, 30)));
         assertThat(detail.sundayClosed()).isTrue();
         assertThat(detail.holidayClosed()).isTrue();
+        assertThat(detail.emergencyDay()).isTrue();
+        assertThat(detail.emergencyNight()).isTrue();
+    }
+
+    @Test
+    @DisplayName("leaves emergency availability null when HIRA sends neither Y nor N")
+    void leavesUnknownEmergencyFlagsNull() throws Exception {
+        JsonNode response =
+                new ObjectMapper()
+                        .readTree(
+                                """
+                                {"response":{"header":{"resultCode":"00"},"body":{"items":{"item":
+                                  {"emyDayYn":"","emyNgtYn":"maybe"}
+                                }}}}
+                                """);
+
+        HospitalDetailApiClient.HospitalDetail detail =
+                fixtureClient(response).findByYkiho(FIXTURE_YKIHO).detail();
+
+        assertThat(detail.emergencyDay()).isNull();
+        assertThat(detail.emergencyNight()).isNull();
     }
 
     @Test
@@ -94,8 +115,9 @@ class HospitalDetailApiClientTest {
                                 }}}}
                                 """);
 
+        // Must use the matching ykiho, or the fixture guard returns empty before the lunch parser runs.
         HospitalDetailApiClient.HospitalDetail detail =
-                fixtureClient(response).findByYkiho("YKIHO-1").detail();
+                fixtureClient(response).findByYkiho(FIXTURE_YKIHO).detail();
 
         assertThat(detail.lunchBreak()).isEmpty();
     }
@@ -112,8 +134,9 @@ class HospitalDetailApiClientTest {
                                 }}}}
                                 """);
 
+        // Must use the matching ykiho, or the fixture guard returns empty before the lunch parser runs.
         HospitalDetailApiClient.HospitalDetail detail =
-                fixtureClient(response).findByYkiho("YKIHO-1").detail();
+                fixtureClient(response).findByYkiho(FIXTURE_YKIHO).detail();
 
         assertThat(detail.lunchBreak()).isEmpty();
     }

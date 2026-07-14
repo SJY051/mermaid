@@ -63,6 +63,11 @@ class HospitalApiClientTest {
         assertThat(first.longitude()).isEqualTo(126.96775);
         assertThat(first.latitude()).isEqualTo(37.5684083);
         assertThat(first.distanceMeters()).isBetween(932.0, 933.0);
+        // HIRA mixes JSON strings and numbers for clCd in one response; downstream policy compares
+        // the normalised code, never the changeable clCdNm label.
+        assertThat(hospitals)
+                .extracting(HospitalApiClient.RawHospital::classificationCode)
+                .containsExactly("01", "11", "28");
     }
 
     @Test
@@ -118,6 +123,25 @@ class HospitalApiClientTest {
         assertThat(batch.hospitals())
                 .extracting(HospitalApiClient.RawHospital::ykiho)
                 .containsExactly("page-1", "page-2", "page-3");
+    }
+
+    @Test
+    @DisplayName("stops paging at the hard cap even when HIRA reports far more pages")
+    void stopsPagingAtMaxPages() throws Exception {
+        List<JsonNode> manyPages = new ArrayList<>();
+        for (int i = 1; i <= HospitalApiClient.MAX_PAGES + 5; i++) {
+            // totalCount 100,000 = 1,000 pages; the cap must stop us long before then.
+            manyPages.add(page(100_000, "page-" + i, 126.90 + i / 1000.0));
+        }
+        var client = new PaginatedHospitalClient(manyPages);
+
+        HospitalApiClient.HospitalBatch batch = client.findNear(37.5, 126.9, 1000);
+
+        assertThat(client.requestedPages).hasSize(HospitalApiClient.MAX_PAGES);
+        assertThat(client.requestedPages)
+                .contains(HospitalApiClient.MAX_PAGES)
+                .doesNotContain(HospitalApiClient.MAX_PAGES + 1);
+        assertThat(batch.hospitals()).hasSize(HospitalApiClient.MAX_PAGES);
     }
 
     private static JsonNode page(int totalCount, String ykiho, double longitude) throws Exception {

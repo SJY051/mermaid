@@ -37,6 +37,10 @@ public class FacilityService {
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
     private static final int METRES_PER_KM = 1000;
     private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;
+    /** HIRA 종별코드 for 요양병원 (long-term-care hospitals) — the stable code, not the label. */
+    private static final String NURSING_HOSPITAL_CODE = "28";
+    /** The public API's maximum result count, keeping one map load within a bounded detail fan-out. */
+    public static final int MAX_FACILITY_RESULTS = 50;
 
     private final PharmacyApiClient pharmacyApiClient;
     private final HospitalApiClient hospitalApiClient;
@@ -46,14 +50,23 @@ public class FacilityService {
 
     public List<Facility> findNearby(
             double lat, double lng, int radiusMeters, boolean openNow, FacilityType type) {
+        return findNearby(lat, lng, radiusMeters, openNow, type, MAX_FACILITY_RESULTS);
+    }
 
+    /**
+     * Returns the nearest requested number of facilities. Hospital detail calls are bounded by the
+     * same public result limit because a dense HIRA radius otherwise creates one upstream call per row.
+     */
+    public List<Facility> findNearby(
+            double lat, double lng, int radiusMeters, boolean openNow, FacilityType type, int limit) {
         return switch (type) {
-            case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow);
-            case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow);
+            case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow, limit);
+            case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow, limit);
         };
     }
 
-    private List<Facility> pharmacies(double lat, double lng, int radiusMeters, boolean openNow) {
+    private List<Facility> pharmacies(
+            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         Instant retrievedAt = now.toInstant();
@@ -70,6 +83,7 @@ public class FacilityService {
                 // read is excluded rather than guessed at, in either direction (spec §2-13).
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
                 .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .limit(limit)
                 .toList();
     }
 
@@ -105,7 +119,9 @@ public class FacilityService {
                 raw.longitude(),
                 distanceMetres(raw, originLat, originLng),
                 operationOf(raw, weekly, now, holiday, retrievedAt),
-                sourceOf(raw, retrievedAt, origin));
+                sourceOf(raw, retrievedAt, origin),
+                null, // the pharmacy API has no emergency-room flags
+                null);
     }
 
     /**
@@ -164,23 +180,34 @@ public class FacilityService {
                 "National Medical Center — pharmacy directory");
     }
 
-    private List<Facility> hospitals(double lat, double lng, int radiusMeters, boolean openNow) {
+    private List<Facility> hospitals(
+            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         Instant retrievedAt = now.toInstant();
         HospitalApiClient.HospitalBatch batch = hospitalApiClient.findNear(lat, lng, radiusMeters);
 
         // HIRA's radius is authoritative, but its distance is a decimal string. Resolve each metre
-        // value once — here, so a malformed/out-of-contract row is dropped before the N+1 detail
-        // fan-out and the same figure is reused on the card instead of recomputed (Haversine twice).
-        List<NearbyHospital> inRadius =
+        // value once — here, so a malformed/out-of-contract row is dropped before the detail fan-out
+        // and the same figure is reused on the card instead of recomputed (Haversine twice).
+        //
+        // HIRA classifies 요양병원 (long-term-care hospitals) under 종별코드 28. The default search is
+        // for acute care, so omit only that exact code before any detail call, matching the stable code
+        // rather than the display label; unknown/other codes remain visible rather than guessed out.
+        //
+        // Sort by distance and keep the API's requested nearest N *before* the fan-out: distance comes
+        // from the list, so we spend a detail call only on facilities that can appear in this response.
+        List<NearbyHospital> nearest =
                 batch.hospitals().stream()
                         .map(h -> new NearbyHospital(h, hospitalDistanceMetres(h, lat, lng)))
                         .filter(h -> h.distanceMeters() <= radiusMeters)
+                        .filter(h -> !NURSING_HOSPITAL_CODE.equals(h.raw().classificationCode()))
+                        .sorted(Comparator.comparingDouble(NearbyHospital::distanceMeters))
+                        .limit(limit)
                         .toList();
 
         return Parallel.map(
-                        inRadius,
+                        nearest,
                         HOSPITAL_DETAIL_CONCURRENCY,
                         h -> toHospital(h.raw(), h.distanceMeters(), batch.origin(), now, holiday, retrievedAt))
                 .stream()
@@ -205,8 +232,9 @@ public class FacilityService {
                 listOrigin == SourceRef.DataMode.LIVE && detailBatch.origin() == SourceRef.DataMode.LIVE
                         ? SourceRef.DataMode.LIVE
                         : SourceRef.DataMode.FIXTURE;
+        HospitalDetailApiClient.HospitalDetail detail = detailBatch.detail();
         return new Facility(
-                Facility.idOf(HOSPITAL_PROVIDER, raw.ykiho()),
+                Facility.idOf(HOSPITAL_PROVIDER, Facility.urlSafeSegment(raw.ykiho())),
                 FacilityType.HOSPITAL,
                 raw.nameKo(),
                 null,
@@ -216,14 +244,16 @@ public class FacilityService {
                 raw.latitude(),
                 raw.longitude(),
                 distanceMeters,
-                hospitalOperation(detailBatch.detail(), now, holiday, retrievedAt),
+                hospitalOperation(detail, now, holiday, retrievedAt),
                 new SourceRef(
                         "src:" + HOSPITAL_PROVIDER + ":" + raw.ykiho(),
                         "건강보험심사평가원 병원정보서비스",
                         raw.ykiho(),
                         retrievedAt,
                         origin,
-                        "Health Insurance Review & Assessment Service — hospital directory"));
+                        "Health Insurance Review & Assessment Service — hospital directory"),
+                detail.emergencyDay(),
+                detail.emergencyNight());
     }
 
     /** HIRA reports metres (unlike the pharmacy API's kilometres); only malformed omissions use Haversine. */
@@ -239,18 +269,19 @@ public class FacilityService {
             ZonedDateTime now,
             boolean holiday,
             Instant retrievedAt) {
+        if (holiday && detail.holidayClosed()) {
+            return FacilityOperation.closed(retrievedAt);
+        }
+        if (now.getDayOfWeek() == DayOfWeek.SUNDAY && detail.sundayClosed()) {
+            return FacilityOperation.closed(retrievedAt);
+        }
         if (detail.weekdayHours().isEmpty()) {
             return FacilityOperation.unknown(retrievedAt);
         }
         if (holiday) {
-            return detail.holidayClosed()
-                    ? FacilityOperation.closed(retrievedAt)
-                    : FacilityOperation.unknown(retrievedAt);
+            return FacilityOperation.unknown(retrievedAt);
         }
         if (now.getDayOfWeek() == DayOfWeek.SUNDAY) {
-            if (detail.sundayClosed()) {
-                return FacilityOperation.closed(retrievedAt);
-            }
             if (!detail.weekdayHours().containsKey(DayOfWeek.SUNDAY.getValue())) {
                 return FacilityOperation.unknown(retrievedAt);
             }
