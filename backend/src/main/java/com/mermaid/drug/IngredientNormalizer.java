@@ -136,7 +136,9 @@ public class IngredientNormalizer {
     }
 
     /**
-     * Whether a normalized user term has enough authority to enter the free-text avoided set.
+     * Whether a normalized user term has enough authority to enter the avoided set — since the
+     * 2026-07-14 redesign, that means an {@code exclude_ingredients} entry (the structured channel
+     * is the only one left; a free-text declaration clarifies instead of binding).
      *
      * <p>An exact canonical name is identity, not an alias mapping. A synonym needs a human-signed
      * {@code synonyms.tsv} row. Unsigned TSV aliases and in-code spelling variants remain available

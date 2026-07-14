@@ -43,7 +43,12 @@ final class AllergyDeclaration {
 
     private AllergyDeclaration() {}
 
-    /** @param userText the newest user turn, exactly as they wrote it */
+    /**
+     * @param userText user text exactly as written — one turn, or every user turn in the request
+     *     joined. The caller scans the whole conversation (spec 005 FR-013): the bare reply to our
+     *     own clarifying question carries no allergy keyword, and screening only the newest turn
+     *     would let it retrieve unguarded.
+     */
     static boolean presentIn(String userText) {
         if (userText == null || userText.isBlank()) {
             return false;
