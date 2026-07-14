@@ -134,7 +134,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const turnId = crypto.randomUUID()
       const pendingTurn: ChatTurn = { id: turnId, question: text }
       const previousTurns = turnsRef.current
-      const nextTurns = previousTurns.at(-1)?.error
+      const lastTurn = previousTurns.at(-1)
+      // A retry resends the failed question verbatim, so it REPLACES the failed turn — sending it
+      // again would duplicate that question. Any OTHER send after a failure (a different question
+      // typed into the composer once it clears) KEEPS the failed turn: the person still asked it,
+      // and its text must stay in the record and the transmitted history. Dropping it would let a
+      // failed "I am allergic to ibuprofen" vanish before the next turn, and the server's allergy
+      // scan over the request would then never see it (FR-013) — unguarded retrieval.
+      const retryingLast = lastTurn?.error != null && lastTurn.question === text
+      const nextTurns = retryingLast
         ? [...previousTurns.slice(0, -1), pendingTurn]
         : [...previousTurns, pendingTurn]
 
@@ -142,25 +150,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setTurns(nextTurns)
       setStreaming(true)
 
-      // Every user turn of this conversation rides along, newest last. The server's allergy scan
-      // runs over ALL user messages in the request (spec 005 FR-013): the bare reply to the
-      // allergy clarifying question ("ibuprofen") carries no allergy keyword, so a request that
-      // carried only the newest turn would let that turn retrieve unguarded — and show the person
-      // the very ingredient they just declared.
-      //
-      // The history is the turns this send KEEPS (nextTurns minus the pending one): a turn that
-      // ended in a transport error is being replaced by this very send, so including it too would
-      // put the failed question in the request twice on a retry. The conversation record and the
-      // transmitted history must be the same thing.
-      const historyTurns = previousTurns.at(-1)?.error
-        ? previousTurns.slice(0, -1)
-        : previousTurns
-      const messages: OpenAI.ChatCompletionMessageParam[] = [
-        ...historyTurns.map(
-          (turn): OpenAI.ChatCompletionMessageParam => ({ role: 'user', content: turn.question }),
-        ),
-        { role: 'user', content: text },
-      ]
+      // The transmitted history IS the conversation record: every kept turn's question, newest
+      // last. The server's allergy scan runs over ALL user messages in the request (spec 005
+      // FR-013) — a request carrying only the newest turn would let the bare reply to the
+      // clarifying question ("ibuprofen") retrieve unguarded. Because nextTurns already decided
+      // what this send keeps (a retry replaced the failed turn; any other send kept it), mapping
+      // over it sends each question exactly once — no duplicate on retry, no lost context on a
+      // drafted follow-up.
+      const messages: OpenAI.ChatCompletionMessageParam[] = nextTurns.map(
+        (turn): OpenAI.ChatCompletionMessageParam => ({ role: 'user', content: turn.question }),
+      )
 
       try {
         let latest = ''

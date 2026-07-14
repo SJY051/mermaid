@@ -271,6 +271,35 @@ describe('when the request fails', () => {
     expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
   })
 
+  it('keeps the failed question as context when a DIFFERENT follow-up is sent (P1)', async () => {
+    // Dedup on retry must not drop the failed turn for a genuinely different follow-up. A failed
+    // "I am allergic to ibuprofen" followed by a drafted "and I also have fever" sent with Ask
+    // (not Try again) must still carry the allergy declaration, or the server's FR-013 scan never
+    // sees it and can retrieve an unguarded medicine.
+    const first = pendingStream()
+    const second = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream()).mockReturnValueOnce(second.stream())
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+
+    // Box cleared at hand-off; the user drafts a different follow-up while the request is pending.
+    await user.type(screen.getByRole('textbox'), 'and I also have fever')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    // Retryable failure leaves Ask enabled; the user presses Ask (not Try again) to send the draft.
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    second.release(validAnswer)
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    // Both questions reached the server, in order — the failed allergy context was retained.
+    const secondCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    expect(secondCall.filter((m) => m.role === 'user')).toEqual([
+      { role: 'user', content: 'I am allergic to ibuprofen' },
+      { role: 'user', content: 'and I also have fever' },
+    ])
+  })
+
   it('retries from the error state and succeeds', async () => {
     const first = pendingStream()
     const second = pendingStream()
