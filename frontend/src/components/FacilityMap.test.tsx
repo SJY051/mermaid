@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FacilityMap } from './FacilityMap'
+import { FavoritesProvider } from '../lib/favorites'
 import { AUTH_FAILURE_MESSAGE } from '../hooks/useNaverMap'
 import type { Facility } from '../lib/types'
 
@@ -257,7 +258,11 @@ describe('facility details (UI-03, DEV-207)', () => {
   it('opens the detail drawer when a facility in the accessible list is selected', async () => {
     const user = userEvent.setup()
     installNaverStub()
-    render(<FacilityMap center={centre} facilities={[facility()]} />)
+    render(
+      <FavoritesProvider>
+        <FacilityMap center={centre} facilities={[facility()]} />
+      </FavoritesProvider>,
+    )
 
     await user.click(await screen.findByRole('button', { name: /가나약국/ }))
 
