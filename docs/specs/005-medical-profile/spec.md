@@ -133,14 +133,33 @@ if it were unproblematic.
   risk sits with any client violating the send-every-turn obligation; server-owned
   pending-allergy state is deliberately out of scope (§2-5 keeps transcripts off the
   server).
-- **FR-014 (structured-reply affordance)**: The frontend MUST treat the clarification
-  answer (`answerId "allergy-clarification"`) as the signal to collect allergens
-  **structurally**: render an ingredient input and send the collected list as
-  `mermaid.exclude_ingredients` on every subsequent request in the session. This is the
-  provision that closes the FR-001 restriction's loop; without it a free-text allergy
-  is a clarification the user cannot answer. Ship it immediately after the restriction
-  (FE-1 lane, follow-up slice); until it ships, the degraded state is the safe one
-  (clarify, name no medicine) — never the unguarded one.
+- **FR-014 (structured-reply affordance, refined 2026-07-14 PM)**: The frontend MUST
+  treat the clarification answer (`answerId "allergy-clarification"`) as the signal to
+  collect allergens **structurally**, as an explicit overlay above the composer (a
+  hint buried in the composer is too easy to miss), offering ONLY the bounded option
+  list from FR-015 plus a "My allergy isn't listed" escape that keeps the
+  see-a-pharmacist copy. A bounded picker beats a free-text input because a selection
+  always resolves — the typo → clarify → typo loop cannot form. Selected keys ride as
+  `mermaid.exclude_ingredients` on every subsequent request in the session
+  (sessionStorage, §2-5). v1 flow is **manual re-ask**: after picking, the user asks
+  their question again (product names in their own words keep working); v2 MAY
+  auto-resend with fixed neutral copy, relying on the FR-013 history transport for
+  symptom context — never by resending the original text, whose allergy keywords
+  would re-trigger FR-001. This affordance is the provision that closes the FR-001
+  restriction's loop; until it ships, the degraded state is the safe one (clarify,
+  name no medicine) — never the unguarded one. The scan stays conversation-wide on
+  purpose: narrowing it to the newest message was considered (2026-07-14) and
+  rejected — it reopens the bare-reply hole; the picker, not a narrower scan, is
+  what ends the clarification loop.
+- **FR-015 (bounded allergen options)**: The server MUST publish the selectable
+  allergen list (`GET /api/v1/ingredients/allergen-options`, `[{key, label}]`),
+  derived from the ingredient dictionary's canonical keys — never hard-coded in the
+  client, which would drift from the dictionary. **Every offered option MUST resolve
+  through `isReviewedBinding`** (an option that cannot bind would reintroduce the
+  clarify loop the picker exists to end; enforced by test). The FR-007 opt-in profile
+  MUST store allergens as the same canonical keys, so a stored profile fills
+  `exclude_ingredients` directly and a profile-holding user skips the clarification
+  entirely — the gate already proceeds on a fully-resolved structured list.
 
 ### Normalization
 - **FR-006**: User-supplied allergen text MUST be normalized before binding:
