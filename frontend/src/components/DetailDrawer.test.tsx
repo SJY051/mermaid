@@ -37,6 +37,7 @@ describe('DetailDrawer', () => {
   it('shows the selected facility name, type, address, distance, and source', () => {
     render(<DetailDrawer facility={facility()} onClose={() => {}} />)
 
+    expect(screen.getByRole('dialog')).toHaveClass('bg-surface')
     expect(screen.getByRole('heading', { name: '가나약국' })).toBeInTheDocument()
     expect(screen.getByText('Pharmacy')).toBeInTheDocument()
     expect(screen.getByText('서울특별시 중구 세종대로 110')).toBeInTheDocument()
@@ -52,6 +53,25 @@ describe('DetailDrawer', () => {
       'href',
       'tel:02-123-4567',
     )
+  })
+
+  it('uses a surface token for an operation notice', () => {
+    render(
+      <DetailDrawer
+        facility={facility({
+          operation: {
+            isOpenNow: true,
+            status: 'open',
+            statusConfidence: 'official_schedule',
+            verifiedAt: '2026-07-10T12:00:00Z',
+            notice: 'Call before visiting.',
+          },
+        })}
+        onClose={() => {}}
+      />,
+    )
+
+    expect(screen.getByText('Call before visiting.')).toHaveClass('bg-muted')
   })
 
   it('treats a government-supplied name and phone as text, not markup', () => {

@@ -62,7 +62,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-primary bg-primary p-5 shadow-2xl"
+        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
       >
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-tertiary" aria-hidden="true" />
 
@@ -123,7 +123,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
           )}
 
           {facility.operation.notice && (
-            <p className="rounded-lg bg-secondary p-3 text-primary">{facility.operation.notice}</p>
+            <p className="rounded-lg bg-muted p-3 text-primary">{facility.operation.notice}</p>
           )}
 
           <div className="border-t border-primary pt-4">

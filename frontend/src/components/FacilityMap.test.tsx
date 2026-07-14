@@ -368,7 +368,13 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
       map.querySelector('[data-facility-kind="emergency_room"][data-facility-status="closed"] [data-status-glyph="closed"]'),
     ).toHaveTextContent('×')
 
-    const legend = screen.getByLabelText('Map marker status legend')
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    expect(legend).toHaveTextContent('Pharmacy')
+    expect(legend).toHaveTextContent('Hospital')
+    expect(legend).toHaveTextContent('Emergency room')
+    expect(legend.querySelector('[data-legend-kind="pharmacy"]')).not.toBeNull()
+    expect(legend.querySelector('[data-legend-kind="hospital"]')).not.toBeNull()
+    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).not.toBeNull()
     expect(legend).toHaveTextContent('Open now')
     expect(legend).toHaveTextContent('Hours unknown')
     expect(legend).toHaveTextContent('Closed')
