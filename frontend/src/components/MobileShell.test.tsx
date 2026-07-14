@@ -124,7 +124,11 @@ describe('MobileShell', () => {
     render(<MobileShell />)
     const shell = screen.getByTestId('app-shell')
 
-    expect(shell.className).toMatch(/max-w-/)
+    // The bound is asserted by NAME, not by the substring `max-w-`: `max-w-full` and `max-w-none`
+    // both match that substring and both put the app back across a 1600px monitor. The class is the
+    // contract (SC-001 measures the pixels in a browser).
+    expect(shell.className).toMatch(/\bmax-w-3xl\b/)
+    expect(shell.className).not.toMatch(/\bmax-w-(full|none)\b/)
     expect(shell.parentElement?.className).toMatch(/justify-center/)
     expect(shell).toContainElement(screen.getByRole('button', { name: 'Chat' }))
     expect(shell.textContent).toContain('General information, not medical advice')

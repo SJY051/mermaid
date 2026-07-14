@@ -153,7 +153,10 @@ describe('DetailDrawer', () => {
     // covering the screen is its job.
     renderDrawer()
 
-    expect(screen.getByRole('dialog').className).toMatch(/max-w-/)
+    // By name, not by substring: `max-w-full` contains `max-w-` and is exactly the regression this
+    // guards. The cap must be the SHELL's cap — a drawer wider than the app is the bug.
+    expect(screen.getByRole('dialog').className).toMatch(/\bmax-w-3xl\b/)
+    expect(screen.getByRole('dialog').className).not.toMatch(/\bmax-w-(full|none)\b/)
     expect(screen.getByTestId('detail-drawer-backdrop').className).toMatch(/justify-center/)
   })
 
