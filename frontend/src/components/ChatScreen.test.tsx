@@ -310,6 +310,32 @@ describe('conversation state', () => {
     ])
   })
 
+  it('clears the composer after a successful send, so the next question is sent alone', async () => {
+    const secondAnswer = JSON.stringify({
+      ...JSON.parse(validAnswer),
+      answerId: 'a2',
+      summary: 'Keep monitoring your temperature.',
+    })
+    streamChatMock
+      .mockReturnValueOnce(completedStream(validAnswer))
+      .mockReturnValueOnce(completedStream(secondAnswer))
+    renderChat()
+    const user = await ask('I have a headache but I am allergic to ibuprofen')
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    // Deliberately NO user.clear() here — that call in the test above is what masked this
+    // bug live: the answered question stayed in the box and rode, unnoticed, in front of
+    // the next one ("…ibuprofenibuprofen", verified in a browser 2026-07-14).
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    await user.type(screen.getByRole('textbox'), 'I also have a fever')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+
+    expect(await screen.findByText('Keep monitoring your temperature.')).toBeInTheDocument()
+    const secondCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    const lastUserMessage = secondCall.filter((m) => m.role === 'user').at(-1)
+    expect(lastUserMessage?.content).toBe('I also have a fever')
+  })
+
   it('persists a completed turn and restores it in a fresh provider', async () => {
     streamChatMock.mockReturnValue(completedStream(validAnswer))
     const firstRender = renderChat()

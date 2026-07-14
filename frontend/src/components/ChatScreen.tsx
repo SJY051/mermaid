@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { Card } from '@astryxdesign/core/Card'
@@ -206,8 +206,22 @@ export function ChatScreen() {
 
   function submit(text: string) {
     if (!text.trim() || streaming || askBlocked || pickerOpen) return
+    // Clear at hand-off: a question left in the box gets silently resent glued to the front
+    // of the next one (verified live 2026-07-14 — "…ibuprofenibuprofen"). Failures come back
+    // via the effect below.
+    setInput('')
     void send(text)
   }
+
+  // FailedAnswer promises "it is still in the box above", and both Try again and the
+  // non-retryable block read the composer — so a failed question must reappear there.
+  // Only into an empty box: never over text typed while the answer was pending.
+  // Layout effect, not effect: the banner and the restored text must land in the same
+  // paint, or the promise is visibly false for a frame.
+  useLayoutEffect(() => {
+    if (!sendError) return
+    setInput((current) => (current === '' ? sendError.forInput : current))
+  }, [sendError])
 
   function startNewConversation() {
     newConversation()
