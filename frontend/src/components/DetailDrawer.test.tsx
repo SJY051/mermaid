@@ -42,6 +42,7 @@ describe('DetailDrawer', () => {
     expect(screen.getByText('서울특별시 중구 세종대로 110')).toBeInTheDocument()
     expect(screen.getByText('140 m away')).toBeInTheDocument()
     expect(screen.getByTestId('facility-source')).toHaveTextContent('국립중앙의료원 · 2026-07-10')
+    expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('✓')
   })
 
   it('offers a telephone link when the facility has a phone number', () => {
@@ -50,6 +51,22 @@ describe('DetailDrawer', () => {
     expect(screen.getByRole('link', { name: 'Call 02-123-4567' })).toHaveAttribute(
       'href',
       'tel:02-123-4567',
+    )
+  })
+
+  it('treats a government-supplied name and phone as text, not markup', () => {
+    const hostile = facility({
+      nameKo: '<img src=x onerror="alert(1)">약국',
+      phone: '02-000-0000"><script>alert(1)</script>',
+    })
+    const { container } = render(<DetailDrawer facility={hostile} onClose={() => {}} />)
+
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('script')).toBeNull()
+    expect(screen.getByRole('heading', { name: hostile.nameKo })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: `Call ${hostile.phone}` })).toHaveAttribute(
+      'href',
+      `tel:${hostile.phone}`,
     )
   })
 
@@ -67,6 +84,7 @@ describe('DetailDrawer', () => {
 
     expect(screen.getByText('Hours unknown')).toBeInTheDocument()
     expect(screen.queryByText('Closed')).not.toBeInTheDocument()
+    expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('?')
   })
 
   it('renders false opening hours as "Closed", not "Hours unknown"', () => {
@@ -83,6 +101,7 @@ describe('DetailDrawer', () => {
 
     expect(screen.getByText('Closed')).toBeInTheDocument()
     expect(screen.queryByText('Hours unknown')).not.toBeInTheDocument()
+    expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('×')
   })
 
   it('closes through an accessible close button', async () => {

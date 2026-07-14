@@ -23,10 +23,16 @@ function operationLabel(facility: Facility): string {
   return 'Hours unknown'
 }
 
-function operationDotClass(facility: Facility): string {
-  if (facility.operation.isOpenNow === true) return 'bg-[#1a7a34]'
-  if (facility.operation.isOpenNow === false) return 'bg-[#8a8f98]'
-  return 'bg-[#e0a800]'
+function operationGlyph(facility: Facility): string {
+  if (facility.operation.isOpenNow === true) return '✓'
+  if (facility.operation.isOpenNow === false) return '×'
+  return '?'
+}
+
+function operationGlyphClass(facility: Facility): string {
+  if (facility.operation.isOpenNow === true) return 'bg-[#1a7a34] text-white'
+  if (facility.operation.isOpenNow === false) return 'bg-[#9aa0a8] text-[#1a1a1a]'
+  return 'bg-[#e0a800] text-[#1a1a1a]'
 }
 
 /**
@@ -85,9 +91,12 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
             </span>
             <span className="flex items-center gap-2 font-medium text-primary">
               <span
-                className={`h-2.5 w-2.5 rounded-full ${operationDotClass(facility)}`}
+                data-testid="detail-operation-glyph"
+                className={`grid h-5 w-5 place-items-center rounded-full text-xs font-bold ${operationGlyphClass(facility)}`}
                 aria-hidden="true"
-              />
+              >
+                {operationGlyph(facility)}
+              </span>
               {operationLabel(facility)}
             </span>
             <span className="text-secondary">{Math.round(facility.distanceMeters)} m away</span>
