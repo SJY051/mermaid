@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { Card } from '@astryxdesign/core/Card'
@@ -13,7 +13,9 @@ import {
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
+import type { MermAidAnswer } from '../lib/types'
 import { AllergyBadge } from './AllergyBadge'
+import { AllergenPicker } from './AllergenPicker'
 import { NearbyFacilities } from './NearbyFacilities'
 
 const SESSION_COPY =
@@ -132,9 +134,32 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
 }
 
 export function ChatScreen() {
-  const { turns, streaming, elapsedS, sendError, send, newConversation } = useChatSession()
+  const {
+    turns,
+    streaming,
+    elapsedS,
+    sendError,
+    latestAnswer,
+    allergies,
+    send,
+    confirmAllergies,
+    newConversation,
+  } = useChatSession()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [dismissedClarification, setDismissedClarification] =
+    useState<MermAidAnswer | null>(null)
+  const [editingAllergies, setEditingAllergies] = useState(false)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+
+  const clarificationNeedsSelection =
+    latestAnswer?.answerId === 'allergy-clarification' &&
+    latestAnswer !== dismissedClarification &&
+    allergies.length === 0
+  const pickerOpen = editingAllergies || clarificationNeedsSelection
+  const composerPlaceholder = allergies.length
+    ? 'Ask your question again — answers will avoid your selected ingredients.'
+    : "I have a sore throat and a fever, and it's 11pm."
 
   // `retryable: false` means "this exact request will not succeed if resent" — so the block
   // lifts the moment the question is edited. Locking Ask outright would trap the user whose
@@ -152,37 +177,70 @@ export function ChatScreen() {
     newConversation()
     setInput('')
     setMenuOpen(false)
+    setDismissedClarification(null)
+    setEditingAllergies(false)
+  }
+
+  function confirmSelectedAllergies(keys: string[]) {
+    confirmAllergies(keys)
+    setEditingAllergies(false)
+    composerRef.current?.focus()
+  }
+
+  function dismissAllergenPicker() {
+    setDismissedClarification(latestAnswer)
+    setEditingAllergies(false)
+    composerRef.current?.focus()
   }
 
   const composer = (
-    <div className="flex flex-col gap-1 px-3 pb-2">
-      {/* SA-04: nudge people away from typing identifying details into a chat box. */}
-      <ChatComposer
-        density="compact"
-        value={input}
-        onChange={setInput}
-        onSubmit={submit}
-        placeholder="I have a sore throat and a fever, and it's 11pm."
-        input={
-          <TextArea
-            label="Describe your symptoms"
-            description="Please do not enter your passport number or date of birth."
-            placeholder="I have a sore throat and a fever, and it's 11pm."
-            rows={3}
-            value={input}
-            onChange={setInput}
-          />
-        }
-        sendButton={
+    <div className="flex flex-col gap-2 pb-2">
+      {pickerOpen && (
+        <AllergenPicker
+          initialSelectedKeys={allergies}
+          onConfirm={confirmSelectedAllergies}
+          onDismiss={dismissAllergenPicker}
+        />
+      )}
+      {allergies.length > 0 && !pickerOpen && (
+        <div className="flex justify-end px-3">
           <Button
-            label={streaming ? 'Working…' : 'Ask'}
-            variant="primary"
-            isLoading={streaming}
-            isDisabled={submitBlocked}
-            onClick={() => submit(input)}
+            label="Edit allergy list"
+            variant="secondary"
+            onClick={() => setEditingAllergies(true)}
           />
-        }
-      />
+        </div>
+      )}
+      {/* SA-04: nudge people away from typing identifying details into a chat box. */}
+      <div className="px-3">
+        <ChatComposer
+          density="compact"
+          value={input}
+          onChange={setInput}
+          onSubmit={submit}
+          placeholder={composerPlaceholder}
+          input={
+            <TextArea
+              ref={composerRef}
+              label="Describe your symptoms"
+              description="Please do not enter your passport number or date of birth."
+              placeholder={composerPlaceholder}
+              rows={3}
+              value={input}
+              onChange={setInput}
+            />
+          }
+          sendButton={
+            <Button
+              label={streaming ? 'Working…' : 'Ask'}
+              variant="primary"
+              isLoading={streaming}
+              isDisabled={submitBlocked}
+              onClick={() => submit(input)}
+            />
+          }
+        />
+      </div>
     </div>
   )
 

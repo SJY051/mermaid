@@ -26,6 +26,7 @@ vi.stubGlobal(
  * no fabricated drugs) are part of what the screen shows.
  */
 const streamChatMock = vi.hoisted(() => vi.fn())
+const fetchMock = vi.fn()
 vi.mock('../lib/openaiClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/openaiClient')>()
   return { ...actual, streamChat: streamChatMock }
@@ -65,6 +66,24 @@ const validAnswer = JSON.stringify({
   disclaimer: 'Server disclaimer.',
 })
 
+const clarificationAnswer = JSON.stringify({
+  ...JSON.parse(validAnswer),
+  answerId: 'allergy-clarification',
+  summary: 'Tell us the exact ingredient, or ask a pharmacist if it is not listed.',
+})
+
+const allergenOptions = [
+  { key: 'ibuprofen', label: 'Ibuprofen' },
+  { key: 'acetylsalicylic-acid', label: 'Aspirin (acetylsalicylic acid)' },
+]
+
+function serveAllergenOptions(options = allergenOptions) {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => options,
+  })
+}
+
 function renderChat() {
   return render(
     <ChatProvider>
@@ -83,6 +102,8 @@ async function ask(text = 'I have a headache') {
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  fetchMock.mockReset()
+  vi.stubGlobal('fetch', fetchMock)
 })
 
 afterEach(() => {
@@ -349,6 +370,134 @@ describe('conversation state', () => {
     await user.click(screen.getByRole('button', { name: 'Conversation menu' }))
 
     expect(screen.getByText(SESSION_COPY)).toBeInTheDocument()
+  })
+})
+
+describe('allergen picker (spec 005 FR-014)', () => {
+  it('appears only when the latest answer is the allergy clarification', async () => {
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(validAnswer))
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+    renderChat()
+
+    const user = await ask('I have a headache')
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I am allergic to a pain medicine')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+
+    expect(
+      await screen.findByRole('dialog', { name: /tell us your allergy/i }),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/ingredients/allergen-options')
+  })
+
+  it('renders only options returned by the server and stays hidden when they cannot be fetched', async () => {
+    const serverOptions = [
+      { key: 'server-key-a', label: 'Server label A' },
+      { key: 'server-key-b', label: 'Server label B' },
+    ]
+    serveAllergenOptions(serverOptions)
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    const firstView = renderChat()
+    await ask('I have an allergy')
+
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(picker).getByRole('checkbox', { name: 'Server label A' })).toBeInTheDocument()
+    expect(within(picker).getByRole('checkbox', { name: 'Server label B' })).toBeInTheDocument()
+    expect(within(picker).getAllByRole('checkbox')).toHaveLength(serverOptions.length)
+    expect(picker).not.toHaveTextContent(/ibuprofen|aspirin/i)
+
+    firstView.unmount()
+    sessionStorage.clear()
+    streamChatMock.mockReset()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    fetchMock.mockReset()
+    fetchMock.mockRejectedValue(new Error('offline'))
+    renderChat()
+    await ask('I have another allergy')
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/ask a pharmacist if it is not listed/i)).toBeInTheDocument()
+  })
+
+  it('stores confirmed keys in this tab and sends exactly those keys on the next request', async () => {
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const user = await ask('I am allergic to pain medicine')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.click(within(picker).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(
+      within(picker).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
+    )
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    const selectedKeys = ['ibuprofen', 'acetylsalicylic-acid']
+    expect(loadChatSession().allergies).toEqual(selectedKeys)
+    expect(Object.values(localStorage).join('\n')).not.toContain('ibuprofen')
+    expect(screen.getByRole('textbox')).toHaveFocus()
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Ask your question again — answers will avoid your selected ingredients.',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Edit allergy list' }))
+    const reopened = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(reopened).getByRole('checkbox', { name: 'Ibuprofen' })).toBeChecked()
+    expect(
+      within(reopened).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
+    ).toBeChecked()
+    await user.click(within(reopened).getByRole('button', { name: "My allergy isn't listed" }))
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'What can I take for this headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    expect(streamChatMock).toHaveBeenLastCalledWith(
+      [
+        { role: 'user', content: 'I am allergic to pain medicine' },
+        { role: 'user', content: 'What can I take for this headache?' },
+      ],
+      undefined,
+      { mermaid: { exclude_ingredients: selectedKeys } },
+    )
+  })
+
+  it("dismisses an unlisted allergy without sending or adding a mermaid field later", async () => {
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const user = await ask('I am allergic to something else')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.click(within(picker).getByRole('button', { name: "My allergy isn't listed" }))
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    expect(loadChatSession().allergies).toEqual([])
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I still have a headache')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    expect(streamChatMock.mock.lastCall).toEqual([
+      [
+        { role: 'user', content: 'I am allergic to something else' },
+        { role: 'user', content: 'I still have a headache' },
+      ],
+    ])
   })
 })
 

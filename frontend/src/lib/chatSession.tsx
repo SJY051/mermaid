@@ -26,7 +26,9 @@ interface ChatSessionContextValue {
   sendError: (SendFailure & { forInput: string }) | null
   emergencyActive: boolean
   latestAnswer: MermAidAnswer | null
+  allergies: string[]
   send: (text: string) => Promise<void>
+  confirmAllergies: (keys: string[]) => void
   newConversation: () => void
 }
 
@@ -70,11 +72,21 @@ function restoreSession(session: ChatSession): { turns: ChatTurn[]; messages: St
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [initialSession] = useState(loadChatSession)
   const [restored] = useState(() => restoreSession(initialSession))
+  const [initialAllergies] = useState(() =>
+    Array.isArray(initialSession.allergies)
+      ? initialSession.allergies.filter((allergy): allergy is string => typeof allergy === 'string')
+      : [],
+  )
   const [turns, setTurns] = useState<ChatTurn[]>(restored.turns)
+  const [allergies, setAllergies] = useState(initialAllergies)
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
   const turnsRef = useRef(restored.turns)
-  const sessionRef = useRef<ChatSession>({ ...initialSession, messages: restored.messages })
+  const sessionRef = useRef<ChatSession>({
+    ...initialSession,
+    messages: restored.messages,
+    allergies: initialAllergies,
+  })
   const conversationRef = useRef(0)
 
   // Reserved so the profile endpoints have an identity to attach to (FR-04).
@@ -129,7 +141,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       try {
         let latest = ''
-        for await (const partial of streamChat(messages)) {
+        const requestExtension = sessionRef.current.allergies.length
+          ? {
+              mermaid: {
+                exclude_ingredients: [...sessionRef.current.allergies],
+              },
+            }
+          : undefined
+        const response = requestExtension
+          ? streamChat(messages, undefined, requestExtension)
+          : streamChat(messages)
+        for await (const partial of response) {
           latest = partial
         }
         // Only parse once the stream has finished. A truncated JSON object must never
@@ -174,11 +196,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [persistSession, streaming],
   )
 
+  const confirmAllergies = useCallback(
+    (keys: string[]) => {
+      const confirmed = [...keys]
+      sessionRef.current = { ...sessionRef.current, allergies: confirmed }
+      setAllergies(confirmed)
+      persistSession()
+    },
+    [persistSession],
+  )
+
   const newConversation = useCallback(() => {
     conversationRef.current += 1
     turnsRef.current = []
     sessionRef.current = { sessionId: '', messages: [], allergies: [] }
     setTurns([])
+    setAllergies([])
     setStreaming(false)
     clearChatSession()
   }, [])
@@ -196,7 +229,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         sendError,
         emergencyActive,
         latestAnswer,
+        allergies,
         send,
+        confirmAllergies,
         newConversation,
       }}
     >

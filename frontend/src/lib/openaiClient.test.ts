@@ -1,6 +1,16 @@
 import OpenAI from 'openai'
-import { describe, expect, it } from 'vitest'
-import { FALLBACK_DISCLAIMER, describeSendFailure, openai, parseAnswer } from './openaiClient'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  FALLBACK_DISCLAIMER,
+  describeSendFailure,
+  openai,
+  parseAnswer,
+  streamChat,
+} from './openaiClient'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 /**
  * The bug this file exists for.
@@ -33,6 +43,34 @@ describe('the openai client points somewhere a browser can actually reach', () =
 
     // The constructor is happy. That is precisely why this shipped.
     expect(() => broken.buildURL('/chat/completions', null)).toThrow(TypeError)
+  })
+})
+
+describe('the mermAid request extension', () => {
+  it('puts excluded ingredients in the top-level mermaid request field', async () => {
+    const messages = [{ role: 'user', content: 'What can I take?' }] as const
+    const extension = {
+      mermaid: { exclude_ingredients: ['ibuprofen', 'acetylsalicylic-acid'] },
+    }
+    const create = vi.spyOn(openai.chat.completions, 'create').mockResolvedValue({
+      async *[Symbol.asyncIterator]() {
+        yield { choices: [{ delta: { content: '{}' } }] }
+      },
+    } as never)
+
+    for await (const _partial of streamChat([...messages], undefined, extension)) {
+      // Exhaust the SDK stream so the request follows the same path as ChatProvider.
+    }
+
+    expect(create).toHaveBeenCalledWith(
+      {
+        model: 'mermaid-default',
+        messages,
+        stream: true,
+        mermaid: { exclude_ingredients: ['ibuprofen', 'acetylsalicylic-acid'] },
+      },
+      { signal: undefined },
+    )
   })
 })
 
