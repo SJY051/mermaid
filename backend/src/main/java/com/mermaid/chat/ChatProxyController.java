@@ -427,6 +427,27 @@ public class ChatProxyController {
     /**
      * Every number the model wrote appears somewhere in the ministry's text.
      *
+     * <p><b>Read this before you trust it, and before you add another rule to it.</b> It scans DIGITS.
+     * A model that writes <em>"take eight tablets every two hours"</em> passes it, because there are no
+     * digits in that sentence to check — review found exactly that. Adding "eight" and "two" to a word
+     * list buys nothing: the next sentence is "a couple of tablets", and the one after that is "twice
+     * the usual amount". <b>Every filter of this shape has a next bypass, and a filter that looks like
+     * a gate is worse than none, because we stop worrying.</b>
+     *
+     * <p>It is kept because it does remove the digit form, and removing it would be strictly worse. It
+     * is NOT a gate, and this code must not be extended as if it could become one. The problem it
+     * gestures at — model prose stating a dose — is not a property of one field: the same model writes
+     * `summary` and `guidance` in the chat bubble directly above this card, with no check at all, and
+     * a dose there is exactly as dangerous. Hardening the card while leaving the bubble open is
+     * theatre.
+     *
+     * <p>The real fix is the semantic output gate — a check on MEANING, not on characters —
+     * specified at {@code docs/specs/006-semantic-output-gate/spec.md} and tracked as OUT-02. Until it
+     * exists, what actually holds the line is: the ministry's own dose is on the card, verbatim, in the
+     * only field that may carry one (invariant 7); the system prompt forbids stating a dose anywhere
+     * else, in digits or in words; and the card says which of its sentences are a summary rather than
+     * the ministry's words. The prompt is an instruction, not an invariant. We know.
+     *
      * <p><b>A filter, not a proof.</b> It catches an invented quantity; it cannot tell what ROLE a
      * number played — 만 12세 이상 contains "12", so a sentence reusing it as a tablet count passes.
      * That is exactly why dosing (invariant 7) no longer relies on this and is server-written
