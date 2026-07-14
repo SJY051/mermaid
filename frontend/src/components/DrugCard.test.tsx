@@ -70,9 +70,13 @@ describe('DrugCard', () => {
     const ingredients = within(card).getByRole('heading', { name: 'Ingredients' }).parentElement!
     const ingredientRows = within(ingredients).getAllByRole('listitem')
     expect(ingredientRows).toHaveLength(2)
-    expect(ingredientRows[0]).toHaveTextContent('Acetaminophen · 아세트아미노펜 · 500 mg')
+    // Names only. A strength here was invented — we never retrieved one (invariant 8), and the
+    // server strips it. The card has no way to print one even if a number leaked back in.
+    expect(ingredientRows[0]).toHaveTextContent('Acetaminophen · 아세트아미노펜')
+    expect(ingredientRows[0]).not.toHaveTextContent('500 mg')
     expect(within(ingredientRows[0]).getByText('아세트아미노펜')).toHaveAttribute('lang', 'ko')
-    expect(ingredientRows[1]).toHaveTextContent('카페인무수물 · 32 mg')
+    expect(ingredientRows[1]).toHaveTextContent('카페인무수물')
+    expect(ingredientRows[1]).not.toHaveTextContent('32')
     expect(within(ingredientRows[1]).getByText('카페인무수물')).toHaveAttribute('lang', 'ko')
     expect(within(card).getByText('For headache, fever, and mild aches.')).toBeInTheDocument()
     expect(within(card).getByTestId('official-dosage')).toHaveTextContent('1회 1~2정씩 1일 3~4회')

@@ -319,6 +319,44 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("an ingredient strength is removed — we never retrieved one to check it against")
+        void inventedIngredientStrengthIsStripped() throws Exception {
+            // We hold ingredient NAMES and nothing else: Drug carries `ingredientsEn`, and there is no
+            // amount and no unit anywhere in the record or in the context the model is handed. So every
+            // strength on a card was invented in full, with no source of any kind — and the validator
+            // compares normalized names, so `Acetaminophen · 5000 mg` passed every check and printed
+            // that number under a footer naming 식약처. Ten times the licensed dose, government-branded.
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of("acetaminophen"),
+                    AllergyCheck.noMatch(),
+                    null,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            String card = """
+                [{"productNameKo":"%s","productNameEn":null,
+                  "ingredients":[{"nameKo":"아세트아미노펜","nameEn":"Acetaminophen",
+                                  "normalizedKey":"acetaminophen","amount":"5000","unit":"mg"}],
+                  "indicationSummary":"fever","directionsSummary":null,"labelCautions":null,
+                  "warnings":[],"prescriptionStatus":"otc",
+                  "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
+                  "sourceRefId":"src:mfds:202005623"}]
+                """.formatted(TYLENOL);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(card, "[]"), contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            MermAidAnswer.Ingredient shown = answer.drugs().get(0).ingredients().get(0);
+            // The name survives — that one IS grounded, and invariant 6 checks it.
+            assertThat(shown.nameEn()).isEqualTo("Acetaminophen");
+            assertThat(shown.amount()).isNull();
+            assertThat(shown.unit()).isNull();
+        }
+
+        @Test
         @DisplayName("a warning the ministry never published does not reach the card either")
         void modelCannotInventAWarning() throws Exception {
             // The inverse, and the one a "copy them faithfully" instruction never guarded: a card

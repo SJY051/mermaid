@@ -423,7 +423,7 @@ public class ChatProxyController {
                     drug.id(),
                     drug.productNameKo(),
                     drug.productNameEn(),
-                    drug.ingredients(),
+                    withoutInventedStrengths(drug.ingredients()),
                     drug.indicationSummary(),
                     drug.directionsSummary(),
                     groundedCautions(drug, source),
@@ -445,6 +445,34 @@ public class ChatProxyController {
      * <em>"take care if you have liver problems"</em> is exactly as unsourced as a wrong age
      * threshold. No official caution text, no caution.
      */
+    /**
+     * An ingredient strength we do not hold is not a strength. Invariant 8, one field over.
+     *
+     * <p>We never retrieved these numbers. {@link com.mermaid.drug.domain.Drug} carries {@code
+     * ingredientsEn} — names, and only names. There is no {@code amount} and no {@code unit} anywhere
+     * in the record, and none in the context the model is handed. So every strength on a card was
+     * invented, in full, with no source of any kind — and {@code AnswerValidator} compares normalized
+     * NAMES, so a card reading <em>Acetaminophen · 5000 mg</em> passed every check and printed that
+     * number under a footer naming 식약처.
+     *
+     * <p>There is nothing to ground them against, so they are removed. This is the same rule invariant
+     * 7 reached from the other side: where an output cannot be checked cheaply and soundly, take away
+     * the authority to produce it. The card renders the ingredient names, and the product name it sits
+     * under carries the strength the ministry actually licensed (타이레놀정<b>500밀리그람</b>).
+     *
+     * <p>If we ever parse 허가정보's {@code MATERIAL_NAME}, these become server facts and can come back.
+     * Until then a number here is a guess wearing a government footer.
+     */
+    private static List<MermAidAnswer.Ingredient> withoutInventedStrengths(
+            List<MermAidAnswer.Ingredient> ingredients) {
+        if (ingredients == null) {
+            return List.of();
+        }
+        return ingredients.stream()
+                .map(i -> new MermAidAnswer.Ingredient(i.nameKo(), i.nameEn(), i.normalizedKey(), null, null))
+                .toList();
+    }
+
     private static String groundedCautions(
             MermAidAnswer.DrugCard drug, DrugContextRetriever.GroundedDrug source) {
         String cautions = drug.labelCautions();

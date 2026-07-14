@@ -23,13 +23,21 @@ const ALLERGY_BORDER_CLASSES: Record<AllergyStatus, string> = {
   no_match_found: '',
 }
 
-function hasText(value: string | number | null): value is string | number {
-  return value !== null && String(value).trim() !== ''
-}
-
+/**
+ * Names only. `amount` and `unit` are deliberately not rendered.
+ *
+ * We never retrieved an ingredient strength: the server's `Drug` record holds ingredient NAMES and
+ * nothing else, and neither does the context the model is given. So every strength a card ever
+ * carried was invented in full, and the validator compares normalized names — `Acetaminophen ·
+ * 5000 mg` passed every check and printed ten times the licensed dose under a footer naming 식약처.
+ *
+ * The server now strips them (invariant 8), so nothing should reach this component with one. The
+ * render path goes too: a value we cannot source must not have a way onto the screen, or the next
+ * time a number leaks in it will print itself under the verified footer exactly as this one did.
+ * The strength the ministry licensed is in the product name above (타이레놀정500밀리그람).
+ */
 function IngredientLine({ ingredient }: { ingredient: Ingredient }) {
   const fallbackName = ingredient.normalizedKey ?? 'Ingredient name unavailable'
-  const quantity = [ingredient.amount, ingredient.unit].filter(hasText).join(' ')
 
   return (
     <li className="break-words text-sm text-primary">
@@ -41,7 +49,6 @@ function IngredientLine({ ingredient }: { ingredient: Ingredient }) {
         </>
       ) : null}
       {!ingredient.nameEn && !ingredient.nameKo ? <span>{fallbackName}</span> : null}
-      {quantity ? <span> · {quantity}</span> : null}
     </li>
   )
 }
