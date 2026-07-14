@@ -444,7 +444,6 @@ describe('allergen picker (spec 005 FR-014)', () => {
     const selectedKeys = ['ibuprofen', 'acetylsalicylic-acid']
     expect(loadChatSession().allergies).toEqual(selectedKeys)
     expect(Object.values(localStorage).join('\n')).not.toContain('ibuprofen')
-    expect(screen.getByRole('textbox')).toHaveFocus()
     expect(screen.getByRole('textbox')).toHaveAttribute(
       'placeholder',
       'Ask your question again — answers will avoid your selected ingredients.',
@@ -456,7 +455,8 @@ describe('allergen picker (spec 005 FR-014)', () => {
     expect(
       within(reopened).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
     ).toBeChecked()
-    await user.click(within(reopened).getByRole('button', { name: "My allergy isn't listed" }))
+    // Confirm (not dismiss) to close the re-opened picker — dismiss now ends drug lookup.
+    await user.click(within(reopened).getByRole('button', { name: 'Use selected allergies' }))
 
     await user.clear(screen.getByRole('textbox'))
     await user.type(screen.getByRole('textbox'), 'What can I take for this headache?')
@@ -518,54 +518,44 @@ describe('allergen picker (spec 005 FR-014)', () => {
     })
   })
 
-  it('blocks Ask while an allergy clarification is unresolved, so no stale list is sent (P0)', async () => {
-    // Re-opening the picker is not enough on its own: a user can ignore the overlay, type a
-    // fresh question, and press Ask. That request would carry the STALE exclude_ingredients (the
-    // newly declared allergen not yet selected), and a keyword-free question like "What can I
-    // take?" lets the backend proceed on the resolved-but-incomplete list. Ask must be blocked
-    // until the picker is answered.
+  it('replaces the composer with the picker, so no request can be sent before selecting (P0)', async () => {
+    // Re-opening the picker is not enough on its own: a user could ignore an overlay, type a
+    // fresh keyword-free question, and press Ask, sending the STALE exclude_ingredients. The
+    // picker takes the composer's PLACE — with no composer there is no Ask, so the stale-send
+    // path does not exist while a selection is pending.
     serveAllergenOptions()
     streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
     renderChat()
-    const user = await ask('I am allergic to a pain medicine')
+    await ask('I am allergic to a pain medicine')
     await screen.findByRole('dialog', { name: /tell us your allergy/i })
     expect(streamChatMock).toHaveBeenCalledTimes(1)
 
-    await user.type(screen.getByRole('textbox'), 'What can I take?')
-    const askButton = screen.getByRole('button', { name: /ask/i })
-    expect(askButton).toBeDisabled()
-    await user.click(askButton)
-
-    // No second request went out, and the picker is still up waiting to be answered.
-    expect(streamChatMock).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('dialog', { name: /tell us your allergy/i })).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^ask$/i })).not.toBeInTheDocument()
   })
 
-  it("dismisses an unlisted allergy without sending or adding a mermaid field later", async () => {
+  it('ends drug lookup for the conversation when the declared allergy is unlisted (P0)', async () => {
+    // "My allergy isn't listed" is a declaration of an allergen we cannot bind. Keeping the old
+    // selected keys and letting the next question through would treat the unlisted allergen as
+    // absent and could show a product containing it as no_match_found. So drug lookup ends: the
+    // composer is replaced by a pharmacist notice, and only a new conversation resets it.
     serveAllergenOptions()
-    streamChatMock
-      .mockReturnValueOnce(completedStream(clarificationAnswer))
-      .mockReturnValueOnce(completedStream(validAnswer))
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
     renderChat()
-    const user = await ask('I am allergic to something else')
+    const user = await ask('I am allergic to something not in the list')
     const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
 
     await user.click(within(picker).getByRole('button', { name: "My allergy isn't listed" }))
-    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+
+    // No composer to send a stale list from; a pharmacist notice and a reset are the only paths.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/isn.t in our list/i)).toBeInTheDocument()
     expect(streamChatMock).toHaveBeenCalledTimes(1)
-    expect(loadChatSession().allergies).toEqual([])
 
-    await user.clear(screen.getByRole('textbox'))
-    await user.type(screen.getByRole('textbox'), 'I still have a headache')
-    await user.click(screen.getByRole('button', { name: /ask/i }))
-    await screen.findByText('Drink water and rest.')
-
-    expect(streamChatMock.mock.lastCall).toEqual([
-      [
-        { role: 'user', content: 'I am allergic to something else' },
-        { role: 'user', content: 'I still have a headache' },
-      ],
-    ])
+    // A new conversation clears the block and restores the composer.
+    await user.click(screen.getByRole('button', { name: /start a new conversation/i }))
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+    expect(screen.queryByText(/isn.t in our list/i)).not.toBeInTheDocument()
   })
 })
 

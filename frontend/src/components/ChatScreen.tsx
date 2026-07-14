@@ -156,6 +156,13 @@ export function ChatScreen() {
   const [handledClarification, setHandledClarification] =
     useState<MermAidAnswer | null>(null)
   const [editingAllergies, setEditingAllergies] = useState(false)
+  // The user pressed "My allergy isn't listed": they have an allergy we hold no ingredient for,
+  // so we cannot verify any medicine against it. Retrieving on the still-selected keys would
+  // treat the unlisted allergen as absent and could show a product containing it as
+  // no_match_found (§2-2). So this ends drug lookup for the conversation — a pharmacist can
+  // advise, and a new conversation resets it. A later slice (DEV-56x) will let the user add an
+  // unlisted allergen as free text for a server-side substring warning; until then, fail closed.
+  const [unverifiableAllergy, setUnverifiableAllergy] = useState(false)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
   const clarificationNeedsSelection =
@@ -189,32 +196,57 @@ export function ChatScreen() {
     setMenuOpen(false)
     setHandledClarification(null)
     setEditingAllergies(false)
+    setUnverifiableAllergy(false)
   }
 
   function confirmSelectedAllergies(keys: string[]) {
     confirmAllergies(keys)
     // Confirming answers the current clarification: close the picker until a LATER one arrives.
+    // The composer takes the picker's place again on the next render — its reappearance is the
+    // cue to ask again, so no explicit focus call (which would race that remount) is needed.
     setHandledClarification(latestAnswer)
     setEditingAllergies(false)
-    composerRef.current?.focus()
   }
 
   function dismissAllergenPicker() {
+    // "My allergy isn't listed" — the one allergen the user needs is not one we can bind, so no
+    // medicine in this conversation can be checked against it. End lookup rather than proceed on
+    // an incomplete list (the 3rd-P0 fix: a stale/partial list must not read as a complete one).
     setHandledClarification(latestAnswer)
     setEditingAllergies(false)
-    composerRef.current?.focus()
+    setUnverifiableAllergy(true)
   }
 
-  const composer = (
+  // Drug lookup ended for this conversation: an allergy we cannot verify was declared.
+  const unverifiableNotice = (
+    <div className="flex flex-col gap-3 px-3 pb-2">
+      <p className="text-sm text-primary">
+        You told us about an allergy that isn&rsquo;t in our list, so we can&rsquo;t check
+        medicines against it in this conversation. Please ask a pharmacist, who can advise on what
+        you can take.
+      </p>
+      <div>
+        <Button label="Start a new conversation" variant="primary" onClick={startNewConversation} />
+      </div>
+    </div>
+  )
+
+  // The picker takes the composer's place, not a panel above it: with no composer there is no
+  // Ask, so a request cannot carry a stale exclude_ingredients before the selection is made
+  // (the 2nd-P0 fix, now structural rather than a disabled-button guard).
+  const pickerPanel = (
+    <div className="px-3 pb-2">
+      <AllergenPicker
+        initialSelectedKeys={allergies}
+        onConfirm={confirmSelectedAllergies}
+        onDismiss={dismissAllergenPicker}
+      />
+    </div>
+  )
+
+  const composerPanel = (
     <div className="flex flex-col gap-2 pb-2">
-      {pickerOpen && (
-        <AllergenPicker
-          initialSelectedKeys={allergies}
-          onConfirm={confirmSelectedAllergies}
-          onDismiss={dismissAllergenPicker}
-        />
-      )}
-      {allergies.length > 0 && !pickerOpen && (
+      {allergies.length > 0 && (
         <div className="flex justify-end px-3">
           <Button
             label="Edit allergy list"
@@ -255,6 +287,12 @@ export function ChatScreen() {
       </div>
     </div>
   )
+
+  const composer = unverifiableAllergy
+    ? unverifiableNotice
+    : pickerOpen
+      ? pickerPanel
+      : composerPanel
 
   return (
     <main className="flex h-full flex-col">
