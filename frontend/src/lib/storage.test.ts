@@ -26,6 +26,7 @@ const session: ChatSession = {
   allergies: ['ibuprofen'],
   unverifiedAllergens: ['yellow dye'],
   unverifiableAllergy: false,
+  pendingQuestion: 'my throat is swelling',
 }
 
 /**
@@ -50,6 +51,9 @@ describe('a consultation transcript never touches localStorage', () => {
     expect(everythingPersisted).not.toContain('rash')
     expect(everythingPersisted).not.toContain('ibuprofen')
     expect(everythingPersisted).not.toContain('yellow dye')
+    // An unanswered question is still a symptom description. It is kept so a reload does not drop
+    // it out of the next request's history — kept in this tab, and nowhere that outlives it.
+    expect(everythingPersisted).not.toContain('swelling')
   })
 
   it('round-trips and clears', () => {

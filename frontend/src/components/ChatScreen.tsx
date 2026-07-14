@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { Card } from '@astryxdesign/core/Card'
@@ -46,15 +46,7 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   )
 }
 
-function FailedAnswer({
-  turn,
-  restoredInBox,
-  onRetry,
-}: {
-  turn: ChatTurn
-  restoredInBox: boolean
-  onRetry: () => void
-}) {
+function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }) {
   const sendError = turn.error
   if (!sendError) return null
 
@@ -65,13 +57,9 @@ function FailedAnswer({
         title="We could not get an answer."
         description={
           (sendError.retryable
-            ? // "It is still in the box above" is only said when it is actually true — if the
-              // person typed a new draft while the answer was pending, the draft owns the box
-              // and the failed question lives behind Try again instead.
-              'Your question was not lost — ' +
-              (restoredInBox
-                ? 'it is still in the box above. '
-                : 'Try again will resend it without touching what you are typing. ')
+            ? // Always true now, and cheap to keep true: the box is never cleared until an answer
+              // arrives, so the question that failed is the question still sitting in it.
+              'Your question was not lost — it is still in the box above. '
             : 'Sending the same question again will not fix this one. ' +
               'Edit your question to ask something different, or come back later. ') +
           `Technical detail: ${sendError.message}`
@@ -171,12 +159,15 @@ export function ChatScreen() {
     allergies,
     unverifiedAllergens,
     unverifiableAllergy,
+    pendingQuestion,
     send,
     confirmAllergies,
     declareUnverifiableAllergy,
     newConversation,
   } = useChatSession()
-  const [input, setInput] = useState('')
+  // Seeded from the session: a question asked but never answered (the request failed, or the tab
+  // was reloaded mid-flight) comes back into the box, because that is the only place it lives.
+  const [input, setInput] = useState(pendingQuestion)
   const [menuOpen, setMenuOpen] = useState(false)
   // The clarification this user has already answered — by confirming a selection OR by
   // dismissing it. A LATER clarification is a different answer object, so it re-opens the
@@ -211,48 +202,38 @@ export function ChatScreen() {
   // correct next move IS an edit (INPUT_TOO_LARGE: shorten it and ask again).
   const askBlocked =
     sendError !== null && !sendError.retryable && input === sendError.forInput
-  // A RETRYABLE failure must be resolved (Try again) before a new question is sent. Otherwise a
-  // drafted follow-up would go out while the failed turn is still pending, and the failed turn's
-  // fate splits three ways: the in-memory history, the sessionStorage record, and the backend's
-  // allergy scan each need it, and reloading after a successful follow-up dropped it entirely
-  // (the declaration "I am allergic to ibuprofen" then vanished and retrieval proceeded
-  // unguarded). Resolving the failure first collapses that whole state space: the failed turn is
-  // replaced by its own successful retry, so it never lingers as context to be kept, lost, or
-  // duplicated. The drafted text stays in the box and is sent once the retry succeeds.
-  const retryPending = sendError !== null && sendError.retryable
   // While the picker is open, any request would carry the STALE exclude_ingredients — the newly
   // declared allergen is not in the list until the user confirms. Sending first would let the
   // backend proceed on a resolved-but-incomplete list and show a product containing it as
   // no_match_found. So the structured list must be updated (confirm) or the picker answered
   // (dismiss) before anything is sent. The picker itself, not the composer, is the next action.
-  const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen || retryPending
+  const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen
 
-  function submit(text: string) {
-    if (!text.trim() || streaming || askBlocked || pickerOpen || retryPending) return
-    // Clear at hand-off: a question left in the box gets silently resent glued to the front
-    // of the next one (verified live 2026-07-14 — "…ibuprofenibuprofen"). Failures come back
-    // via the effect below.
-    setInput('')
-    void send(text)
+  // The box empties when — and only when — the answer arrives.
+  //
+  // Clearing at send instead (the first fix for "…ibuprofenibuprofen", where a question left in
+  // the box was resent glued to the front of the next one) opened a state space: for the ~100s a
+  // cold answer takes, the box was free to hold something OTHER than the question in flight. A
+  // draft. Everything that could then happen to it — retry sends the draft, retry sends the failed
+  // question twice, a different follow-up drops the failed question from the request, a reload
+  // drops it from sessionStorage — was a separate defect in a separate layer, and review found
+  // them one at a time, six in a row.
+  //
+  // There is no draft here. The box holds exactly one thing: the question that has not been
+  // answered yet. It is locked while that question is in flight (below), it survives a failure
+  // untouched, it is persisted so a reload brings it back, and it empties on success. The state
+  // space is not guarded — it does not exist.
+  async function submit(text: string) {
+    if (submitBlocked) return
+    const answered = await send(text)
+    if (answered) setInput('')
   }
 
-  // FailedAnswer promises "it is still in the box above", and both Try again and the
-  // non-retryable block read the composer — so a failed question must reappear there.
-  // Only into an empty box: never over text typed while the answer was pending.
-  // Layout effect, not effect: the banner and the restored text must land in the same
-  // paint, or the promise is visibly false for a frame.
-  useLayoutEffect(() => {
-    if (!sendError) return
-    setInput((current) => (current === '' ? sendError.forInput : current))
-  }, [sendError])
-
-  // Try again resends the FAILED question, never whatever the composer holds now — a draft
-  // typed while the answer was pending must be neither sent nor destroyed. When the box holds
-  // exactly the failed text (the restore case), clear it at hand-off like any send.
+  // Try again resends the question that failed. It is the same text the box holds — nothing else
+  // can be in there — so this is the box's own content, sent again.
   function retryFailed(failedInput: string) {
     if (streaming || pickerOpen) return
-    setInput((current) => (current === failedInput ? '' : current))
-    void send(failedInput)
+    void submit(failedInput)
   }
 
   function startNewConversation() {
@@ -335,6 +316,10 @@ export function ChatScreen() {
           onSubmit={submit}
           placeholder={composerPlaceholder}
           input={
+            /* Locked while the answer is in flight. The box holds the question that was asked, and
+               for the ~100s a cold answer takes it must keep holding exactly that — an editable box
+               is a draft, and a draft is what the six review findings were all made of. It unlocks
+               on the answer (empty) or on the failure (the question, ready to edit or resend). */
             <TextArea
               ref={composerRef}
               label="Describe your symptoms"
@@ -343,6 +328,11 @@ export function ChatScreen() {
               rows={3}
               value={input}
               onChange={setInput}
+              isDisabled={streaming}
+              // Not a bare `disabled`: with a message, astryx keeps the field focusable and marks
+              // it aria-disabled, so a keyboard or screen-reader user is told WHY it will not take
+              // their text. A silently dead box during a 100-second wait reads as a broken app.
+              disabledMessage="Your question is being answered. The box unlocks when the answer arrives."
             />
           }
           sendButton={
@@ -351,7 +341,7 @@ export function ChatScreen() {
               variant="primary"
               isLoading={streaming}
               isDisabled={submitBlocked}
-              onClick={() => submit(input)}
+              onClick={() => void submit(input)}
             />
           }
         />
@@ -423,11 +413,7 @@ export function ChatScreen() {
                   <ChatMessageBubble variant="ghost">
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
                     {turn.error && (
-                      <FailedAnswer
-                        turn={turn}
-                        restoredInBox={input === turn.error.forInput}
-                        onRetry={() => retryFailed(turn.error!.forInput)}
-                      />
+                      <FailedAnswer turn={turn} onRetry={() => retryFailed(turn.error!.forInput)} />
                     )}
                     {turn.answer && <AnsweredTurn turn={turn} />}
                   </ChatMessageBubble>

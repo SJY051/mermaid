@@ -30,7 +30,10 @@ interface ChatSessionContextValue {
   unverifiedAllergens: string[]
   /** Drug lookup is ended for this conversation: an allergy we cannot bind was declared. */
   unverifiableAllergy: boolean
-  send: (text: string) => Promise<void>
+  /** The question asked but not yet answered — restored into the composer after a reload. */
+  pendingQuestion: string
+  /** Resolves true when an answer arrived. The composer clears on true, and only on true. */
+  send: (text: string) => Promise<boolean>
   confirmAllergies: (keys: string[], unverified: string[]) => void
   declareUnverifiableAllergy: () => void
   newConversation: () => void
@@ -89,10 +92,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         )
       : [],
   )
+  const [initialPending] = useState(() =>
+    typeof initialSession.pendingQuestion === 'string' ? initialSession.pendingQuestion : '',
+  )
   const [turns, setTurns] = useState<ChatTurn[]>(restored.turns)
   const [allergies, setAllergies] = useState(initialAllergies)
   const [unverifiedAllergens, setUnverifiedAllergens] = useState(initialUnverifiedAllergens)
   const [unverifiableAllergy, setUnverifiableAllergyState] = useState(initialUnverifiable)
+  const [pendingQuestion, setPendingQuestion] = useState(initialPending)
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
   const turnsRef = useRef(restored.turns)
@@ -102,6 +109,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     allergies: initialAllergies,
     unverifiedAllergens: initialUnverifiedAllergens,
     unverifiableAllergy: initialUnverifiable,
+    pendingQuestion: initialPending,
   })
   const conversationRef = useRef(0)
 
@@ -127,25 +135,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const send = useCallback(
-    async (text: string) => {
-      if (!text.trim() || streaming) return
+    async (text: string): Promise<boolean> => {
+      if (!text.trim() || streaming) return false
 
       const conversation = conversationRef.current
       const turnId = crypto.randomUUID()
       const pendingTurn: ChatTurn = { id: turnId, question: text }
       const previousTurns = turnsRef.current
-      // A trailing failed turn is always REPLACED by this send. The UI blocks a new question while
-      // a retryable failure is pending (ChatScreen retryPending), so the only send that can follow
-      // a failure is its own resolution — a retry, or an edit of a non-retryable question. Either
-      // way the failed turn is superseded, never kept as lingering context. That is what keeps the
-      // in-memory record, the sessionStorage record, and the transmitted history one and the same.
-      const nextTurns = previousTurns.at(-1)?.error
+      const lastTurn = previousTurns.at(-1)
+      // A retry resends the failed question verbatim, so it REPLACES that turn — sending it again
+      // would put the same question in the request twice. Any OTHER send after a failure KEEPS the
+      // failed turn: the person asked it, and its text must stay in the record and in the request.
+      // Dropping it would let a failed "I am allergic to ibuprofen" vanish before the next turn,
+      // and the server's scan over the request's questions would never see it (FR-013).
+      const retryingLast = lastTurn?.error != null && lastTurn.question === text
+      const nextTurns = retryingLast
         ? [...previousTurns.slice(0, -1), pendingTurn]
         : [...previousTurns, pendingTurn]
 
       turnsRef.current = nextTurns
       setTurns(nextTurns)
       setStreaming(true)
+
+      // Asked, not yet answered. If the tab reloads before the answer lands, this is what brings
+      // the question back into the composer — see ChatSession.pendingQuestion.
+      sessionRef.current = { ...sessionRef.current, pendingQuestion: text }
+      setPendingQuestion(text)
+      persistSession()
 
       // The transmitted history IS the conversation record: every kept turn's question, newest
       // last. The server's allergy scan runs over ALL user messages in the request (spec 005
@@ -180,7 +196,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // Only parse once the stream has finished. A truncated JSON object must never
         // reach a medication card — see spec §5-4 and openaiClient.streamChat.
         const answer = parseAnswer(latest)
-        if (conversation !== conversationRef.current) return
+        if (conversation !== conversationRef.current) return false
 
         const completedTurns = turnsRef.current.map((turn) =>
           turn.id === turnId ? { ...turn, answer, raw: latest } : turn,
@@ -196,10 +212,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             { id: turnId, role: 'user', content: text, createdAt },
             { id: `${turnId}:assistant`, role: 'assistant', content: latest, createdAt },
           ],
+          // Answered: the question now lives in the transcript, so it is no longer pending.
+          pendingQuestion: '',
         }
+        setPendingQuestion('')
         persistSession()
+        return true
       } catch (e) {
-        if (conversation !== conversationRef.current) return
+        if (conversation !== conversationRef.current) return false
 
         // A failure is a failure — not an assistant answer. Dressing it up as one (the old
         // behaviour) made errors look like medical responses with an "unavailable" badge.
@@ -209,9 +229,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         )
         turnsRef.current = failedTurns
         setTurns(failedTurns)
-        // Errors are not conversation content, but completing the attempt still normalizes and
-        // saves any valid answered turns already in the tab session.
+        // The question stays pending: unanswered, still in the composer, and still persisted, so a
+        // reload brings it back rather than dropping it out of the next request's history.
         persistSession()
+        return false
       } finally {
         if (conversation === conversationRef.current) setStreaming(false)
       }
@@ -252,11 +273,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       allergies: [],
       unverifiedAllergens: [],
       unverifiableAllergy: false,
+      pendingQuestion: '',
     }
     setTurns([])
     setAllergies([])
     setUnverifiedAllergens([])
     setUnverifiableAllergyState(false)
+    setPendingQuestion('')
     setStreaming(false)
     clearChatSession()
   }, [])
@@ -277,6 +300,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         allergies,
         unverifiedAllergens,
         unverifiableAllergy,
+        pendingQuestion,
         send,
         confirmAllergies,
         declareUnverifiableAllergy,

@@ -76,6 +76,15 @@ export interface ChatSession {
    * lock: without it a reload could proceed on lists that do not cover the latest declaration.
    */
   unverifiableAllergy: boolean
+  /**
+   * A question that was asked and never answered — the request failed, or the tab was reloaded
+   * mid-flight. `messages` holds answered turns only, so without this the question would vanish
+   * on reload, and a failed "I am allergic to ibuprofen" would be gone before the next request.
+   * The server's allergy scan reads the questions in the request (spec 005 FR-013), so a question
+   * it never sees cannot guard anything. Kept here, it comes back in the composer and rides along
+   * with the next send. Cleared the moment an answer arrives.
+   */
+  pendingQuestion: string
 }
 
 const EMPTY_SESSION: ChatSession = {
@@ -84,6 +93,7 @@ const EMPTY_SESSION: ChatSession = {
   allergies: [],
   unverifiedAllergens: [],
   unverifiableAllergy: false,
+  pendingQuestion: '',
 }
 
 export function loadChatSession(): ChatSession {

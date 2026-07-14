@@ -237,73 +237,111 @@ describe('when the request fails', () => {
     expect(screen.getByRole('button', { name: /ask/i })).toBeEnabled()
   })
 
-  it('retries the failed question, not a draft typed while it was pending (P1)', async () => {
-    // The clear-on-send leaves the composer editable during a pending request. If the user
-    // starts a follow-up draft and the request then fails, the failed question must be what
-    // Try again resends — and the draft must be neither sent nor destroyed. The banner may
-    // only claim "it is still in the box above" when that is actually true.
+  it('locks the composer while the answer is in flight, so no draft can exist (P1)', async () => {
+    // The root of six review findings in a row: clearing the box at send let it hold something
+    // OTHER than the question in flight for the ~100s a cold answer takes. Every one of those
+    // findings was a different thing going wrong with that draft. There is no draft now — the box
+    // holds the asked question and cannot be edited until the answer (or the failure) arrives.
+    const first = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream())
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+
+    const box = screen.getByRole('textbox')
+    expect(box).toHaveValue('I am allergic to ibuprofen')
+    // aria-disabled, not `disabled`: the field stays focusable and says why it is locked, so a
+    // keyboard or screen-reader user is not left at a silently dead box for a hundred seconds.
+    expect(box).toHaveAttribute('aria-disabled', 'true')
+    await user.type(box, ' and I also have fever')
+    expect(box).toHaveValue('I am allergic to ibuprofen')
+
+    first.release(validAnswer)
+    await screen.findByText('Drink water and rest.')
+    // The answer landed: only now does the box empty, and only now is it editable again.
+    expect(screen.getByRole('textbox')).toHaveValue('')
+    expect(screen.getByRole('textbox')).not.toHaveAttribute('aria-disabled', 'true')
+  })
+
+  it('keeps the failed question in the box, and Try again sends it exactly once (P1)', async () => {
     const first = pendingStream()
     const second = pendingStream()
     streamChatMock.mockReturnValueOnce(first.stream()).mockReturnValueOnce(second.stream())
     renderChat()
     const user = await ask('What can I take for a fever?')
 
-    // The box cleared at hand-off; the user starts drafting the next question.
-    await user.type(screen.getByRole('textbox'), 'And what about my headache')
     first.fail(new Error('boom'))
     const error = await screen.findByTestId('chat-error')
 
-    // The draft owns the box, so the banner must not claim the failed question is there.
-    expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
-    expect(error).not.toHaveTextContent('still in the box above')
+    // The banner promises the question is still in the box. It is — it never left.
+    expect(screen.getByRole('textbox')).toHaveValue('What can I take for a fever?')
+    expect(error).toHaveTextContent('still in the box above')
 
     await user.click(screen.getByRole('button', { name: /try again/i }))
     second.release(validAnswer)
     expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
 
-    // The retry sent the FAILED question exactly once — the failed turn is REPLACED by the
-    // retry, so its text must not also ride as history (asserting only the last message would
-    // miss the duplicate). The draft survived untouched.
+    // A retry REPLACES the failed turn, so its question rides exactly once. Asserting only the
+    // last message would miss the duplicate, which is what this guards.
     const retryCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
     expect(retryCall.filter((m) => m.role === 'user')).toEqual([
       { role: 'user', content: 'What can I take for a fever?' },
     ])
-    expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
+    expect(screen.getByRole('textbox')).toHaveValue('')
   })
 
-  it('blocks a new question until a pending retryable failure is resolved (P1)', async () => {
-    // A retryable failure must be resolved (Try again) before a new question is sent. If a drafted
-    // follow-up could go out while the failed turn is pending, the failed declaration "I am
-    // allergic to ibuprofen" would either be lost (dropped from sessionStorage on reload, so the
-    // FR-013 scan never sees it) or its context split across memory/storage/wire. Blocking the new
-    // question collapses that whole state space: the failure resolves into its own retry first.
+  it('keeps the failed question in the request when it is edited rather than retried (P1)', async () => {
+    // A retry replaces the failed turn; an EDIT does not. The person still asked the first
+    // question, and if the edit is what drops it, a failed "I am allergic to ibuprofen" edited into
+    // "what can I take for a headache" would reach the server with no allergy in it at all — and
+    // the answer would offer them ibuprofen. Editing keeps both questions in the request.
     const first = pendingStream()
-    const second = pendingStream()
-    streamChatMock.mockReturnValueOnce(first.stream()).mockReturnValueOnce(second.stream())
+    streamChatMock.mockReturnValueOnce(first.stream())
     renderChat()
     const user = await ask('I am allergic to ibuprofen')
-
-    // Box cleared at hand-off; the user drafts a different follow-up while the request is pending.
-    await user.type(screen.getByRole('textbox'), 'and I also have fever')
     first.fail(new Error('boom'))
     await screen.findByTestId('chat-error')
 
-    // Ask is blocked while the retryable failure is pending — only Try again is offered.
-    expect(screen.getByRole('button', { name: /ask/i })).toBeDisabled()
-    expect(streamChatMock).toHaveBeenCalledTimes(1)
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'What can I take for a headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
 
-    // Try again resolves the failure (replacing the failed turn with its own success); the draft
-    // survives and Ask is enabled again, ready to send the follow-up on its own.
-    await user.click(screen.getByRole('button', { name: /try again/i }))
-    second.release(validAnswer)
-    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
-
-    const retryCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
-    expect(retryCall.filter((m) => m.role === 'user')).toEqual([
+    const sent = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    expect(sent.filter((m) => m.role === 'user')).toEqual([
       { role: 'user', content: 'I am allergic to ibuprofen' },
+      { role: 'user', content: 'What can I take for a headache?' },
     ])
-    expect(screen.getByRole('textbox')).toHaveValue('and I also have fever')
-    expect(screen.getByRole('button', { name: /ask/i })).toBeEnabled()
+  })
+
+  it('keeps a failed question across a reload and sends it with the next request (P1)', async () => {
+    // sessionStorage holds answered turns only, so a failed "I am allergic to ibuprofen" used to
+    // vanish on reload — and the server's scan reads the questions in the request (FR-013), so a
+    // question it never sees guards nothing: the next turn would retrieve unguarded and could hand
+    // the person the very ingredient they named. The unanswered question is persisted, restored
+    // into the box, and rides along when they ask again.
+    const first = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream())
+    const { unmount } = renderChat()
+    await ask('I am allergic to ibuprofen')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+    unmount()
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const reloadedUser = userEvent.setup()
+    const box = screen.getByRole('textbox')
+    expect(box).toHaveValue('I am allergic to ibuprofen')
+
+    await reloadedUser.type(box, ' and a headache')
+    await reloadedUser.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    const sent = streamChatMock.mock.calls.at(-1)![0] as { role: string; content: string }[]
+    expect(sent.filter((m) => m.role === 'user')).toEqual([
+      { role: 'user', content: 'I am allergic to ibuprofen and a headache' },
+    ])
   })
 
   it('retries from the error state and succeeds', async () => {
