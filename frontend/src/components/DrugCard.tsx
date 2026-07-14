@@ -186,6 +186,36 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
           </section>
         ) : null}
 
+        {/*
+         * The line between what the server wrote and what the assistant wrote, said out loud.
+         *
+         * Everything else on this card is a server fact: the product, the ingredient names, the
+         * dosing (식약처's own Korean, verbatim), the contraindications (rendered by the server from
+         * the DUR record), the prescription status, the source. Two sections are not — "For" and
+         * "Cautions from the label" are the assistant's English of the ministry's Korean prose,
+         * because a Korean-only label is unreadable to the person this app is for, and translating
+         * it is the job we gave the model (AGENTS §1).
+         *
+         * We cannot check the *words* of a translation. A plausible, fluent, wrong sentence carrying
+         * no number is not machine-detectable, and that is OUT-02 in the security review — open, and
+         * open by design. What we CAN do is stop the verified footer from implying otherwise. A
+         * government source chip above an unlabelled English paragraph says "the ministry said this".
+         * The ministry said the Korean it was summarised from.
+         *
+         * So the chip keeps meaning what it always meant — these facts came from that agency — and
+         * this line says which sentences are a summary. It is the cheapest honest thing available,
+         * and the only one that does not turn a service for English readers into a Korean label
+         * viewer.
+         */}
+        {!isBlocked && (drug.indicationSummary || drug.labelCautions) ? (
+          <p role="note" className="text-xs text-secondary" data-testid="summary-caveat">
+            &ldquo;For&rdquo; and &ldquo;Cautions&rdquo; are the assistant&apos;s English summary of
+            the official Korean document — not a word-for-word translation. The dosing above and the
+            contraindications below come from the ministry itself. If anything matters to your
+            decision, ask the pharmacist.
+          </p>
+        ) : null}
+
         <section aria-labelledby={`${titleId}-warnings`}>
           <h3
             id={`${titleId}-warnings`}

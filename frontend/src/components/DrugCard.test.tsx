@@ -164,6 +164,23 @@ describe('DrugCard', () => {
     expect(screen.getByText(/show this to the pharmacist/i)).toBeInTheDocument()
   })
 
+  it("marks the model-written sections as a summary, not the ministry's words (P0)", () => {
+    // Two sections on this card are the assistant's English of the ministry's Korean prose: "For"
+    // and "Cautions from the label". Everything else is a server fact. We cannot check the WORDS of
+    // a translation — a fluent, plausible, wrong sentence with no number in it is not machine-
+    // detectable (OUT-02, open by design) — so what we can do is stop the verified footer from
+    // implying we did. A government source chip above an unlabelled English paragraph says "the
+    // ministry said this". The ministry said the Korean it was summarised from.
+    render(<DrugCard drug={drug()} source={source} />)
+
+    const caveat = screen.getByTestId('summary-caveat')
+    expect(caveat).toHaveTextContent(/not a word-for-word translation/i)
+    expect(caveat).toHaveTextContent(/ask the pharmacist/i)
+    // And it must not undercut the parts that ARE the ministry's.
+    expect(caveat).toHaveTextContent(/come from the ministry itself/i)
+    expect(caveat.textContent).not.toMatch(/\bsafe\b/i)
+  })
+
   it('says a dose is missing rather than leaving the card silent (P0)', () => {
     // `null` means the ministry published no 용법용량 — never "this medicine has no particular
     // dosing". Rendering nothing would let the second reading through, in the exact place a person
@@ -183,7 +200,8 @@ describe('DrugCard', () => {
 
     expect(screen.getByRole('heading', { name: 'Cautions from the label' })).toBeInTheDocument()
     expect(screen.getByText(/not showing this medicine's cautions/i)).toBeInTheDocument()
-    expect(screen.getByText(/ask\s+the pharmacist/i)).toBeInTheDocument()
+    // Scoped: the summary caveat below also points at the pharmacist, and it should.
+    expect(screen.getAllByText(/ask\s+the pharmacist/i).length).toBeGreaterThan(0)
   })
 
   it('states an empty contraindication list rather than hiding the section (P0)', () => {
