@@ -36,6 +36,10 @@ public class FacilityService {
     private static final String PHARMACY_PROVIDER = "nmc"; // 국립중앙의료원
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
     private static final int METRES_PER_KM = 1000;
+    private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
+    // The pharmacy location endpoint supplies at most 100 rows. Checking all of those only for an
+    // open-now request widens the useful search without adding pagination or an unbounded fan-out.
+    private static final int MAX_OPEN_NOW_PHARMACY_CANDIDATES = 100;
     private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;
     /** HIRA 종별코드 for 요양병원 (long-term-care hospitals) — the stable code, not the label. */
     private static final String NURSING_HOSPITAL_CODE = "28";
@@ -72,13 +76,22 @@ public class FacilityService {
         Instant retrievedAt = now.toInstant();
 
         PharmacyApiClient.PharmacyBatch batch = pharmacyApiClient.findNear(lat, lng);
-        return batch.pharmacies().stream()
+        int candidateLimit =
+                openNow ? MAX_OPEN_NOW_PHARMACY_CANDIDATES : limit;
+        List<PharmacyApiClient.RawPharmacy> candidates =
+                batch.pharmacies().stream()
                 // The location API has no radius parameter and can return 100 rows. Filter before
                 // toFacility() so an out-of-radius pharmacy never spends an HPID detail call.
                 .filter(raw -> distanceMetres(raw, lat, lng) <= radiusMeters)
-                // TODO(BE-2): Fetch the remaining weekly timetables with bounded concurrency. An
-                // unbounded fan-out would trade the 1,000/day quota for a short first map load.
-                .map(raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
+                .sorted(Comparator.comparingDouble(raw -> distanceMetres(raw, lat, lng)))
+                .limit(candidateLimit)
+                .toList();
+
+        return Parallel.map(
+                        candidates,
+                        PHARMACY_WEEKLY_HOURS_CONCURRENCY,
+                        raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
+                .stream()
                 // `open_now=true` returns only status=open. A pharmacy whose timetable we could not
                 // read is excluded rather than guessed at, in either direction (spec §2-13).
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
