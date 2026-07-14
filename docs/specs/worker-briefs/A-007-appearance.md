@@ -28,10 +28,17 @@ wrong conclusion was reached.
 
 So this is a **replacement**, not a design.
 
-## FR-002 — 18 hard-coded hex values become tokens
+## FR-002 — every hard-coded hex value becomes a token
 
-Find them: `grep -rn "#[0-9a-fA-F]\{6\}" frontend/src`. Every one is a colour written for the light
-frame that the dark theme cannot reach.
+**Do not trust a count, including one written in a spec.** The 007 spec says 18, and that was true on
+the day it was written; PRs merged after it brought more (the drug card and the allergy badge carry
+their own). Find them yourself, and find them again at the end:
+
+```bash
+grep -rn "#[0-9a-fA-F]\{6\}" frontend/src
+```
+
+Every one is a colour written for the light frame that the dark theme cannot reach.
 
 The mapping is decided. Use these Tailwind utilities — astryx exposes them and all are dark-aware:
 
@@ -57,7 +64,10 @@ do not weaken it.
 cd frontend && pnpm contrast     # exit 0 — zero WCAG AA failures, light AND dark, every tab
 ```
 
-It already finds real failures on `main` — astryx's own `text-secondary` (#737373) on its own body
+The scan and the `contrast` script arrive with this branch's own PR — if `pnpm contrast` is not there,
+you are on a base that predates it and you are on the wrong base. Stop and say so.
+
+It already finds real failures — astryx's own `text-secondary` (#737373) on its own body
 background (#f1f1f1) is **4.2:1**, under AA. Some of those resolve once the bounded shell paints
 `bg-surface` behind them; the ones that do not are yours to fix, by choosing a token with enough
 contrast, **never** by loosening the scan.
