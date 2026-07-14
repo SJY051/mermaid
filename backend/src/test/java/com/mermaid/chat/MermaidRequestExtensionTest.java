@@ -59,6 +59,23 @@ class MermaidRequestExtensionTest {
     }
 
     @Test
+    @DisplayName("a non-textual entry flags the list incomplete — unreadable is not empty")
+    void nonTextualEntryFlagsIncomplete() {
+        // A client bug that serializes an allergen row as an object ({"name":"ibuprofen"})
+        // reaches asText("") as a blank string. Blank means "no allergen"; this entry may well
+        // BE one. Anything we cannot read makes the held list not-the-user's-list.
+        ObjectNode request = requestWithExclusions("aspirin");
+        ((ArrayNode) request.path("mermaid").path("exclude_ingredients"))
+                .addObject()
+                .put("name", "ibuprofen");
+
+        StructuredExclusions parsed = MermaidRequestExtension.excludedIngredients(request);
+
+        assertThat(parsed.terms()).containsExactly("aspirin");
+        assertThat(parsed.incomplete()).isTrue();
+    }
+
+    @Test
     @DisplayName("blank entries carry no allergen, so dropping them is not incompleteness")
     void blankEntriesAreNotALoss() {
         StructuredExclusions parsed = MermaidRequestExtension.excludedIngredients(

@@ -60,9 +60,16 @@ final class MermaidRequestExtension {
         Set<String> terms = new LinkedHashSet<>();
         boolean incomplete = false;
         for (JsonNode entry : node) {
-            String raw = entry.asText("").trim();
+            if (!entry.isTextual()) {
+                // An object, array, number or null in the list is a client serialization bug, and
+                // it may be carrying an allergen we cannot read (`asText` would flatten it to ""
+                // and the blank branch below would call that "no allergen"). Unreadable ≠ empty.
+                incomplete = true;
+                continue;
+            }
+            String raw = entry.asText().trim();
             if (raw.isEmpty()) {
-                continue; // an empty entry carries no allergen; dropping it loses nothing
+                continue; // a blank string carries no allergen; dropping it loses nothing
             }
             if (raw.length() > MAX_TERM_LENGTH || terms.size() >= MAX_EXCLUDED) {
                 // A real entry we cannot keep. The bounds stay (an unbounded list is one upstream
