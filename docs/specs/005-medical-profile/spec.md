@@ -119,12 +119,16 @@ if it were unproblematic.
 - **FR-013 (history scan)**: The free-text declaration scan MUST cover **every user
   message in the request**, not only the newest turn. Otherwise the bare reply to the
   clarifying question ("ibuprofen") carries no allergy keyword and proceeds unguarded —
-  the person is shown the very ingredient they just declared. A client-forged or
-  trimmed history can only push the outcome toward clarification (fail-closed
-  direction); it can never unlock retrieval. **The first-party client MUST therefore
-  send every user turn of the session in each request** (`chatSession.send`), or the
-  scan has nothing to see — the server-side scan and the client-side transport are one
-  requirement, not two.
+  the person is shown the very ingredient they just declared. **The first-party client
+  MUST therefore send every user turn of the session in each request**
+  (`chatSession.send`), or the scan has nothing to see — the server-side scan and the
+  client-side transport are one requirement, not two. Scope of the guarantee, honestly
+  stated: the scan sees only what the request carries. Forged **additions** fail
+  closed (extra allergy text can only produce the clarification), but a client that
+  **trims** the declaration turn out of its history is indistinguishable from a
+  conversation in which it never happened — that residual risk sits with any client
+  that violates the send-every-turn obligation, and server-owned pending-allergy state
+  is deliberately out of scope (§2-5 keeps transcripts off the server).
 - **FR-014 (structured-reply affordance)**: The frontend MUST treat the clarification
   answer (`answerId "allergy-clarification"`) as the signal to collect allergens
   **structurally**: render an ingredient input and send the collected list as

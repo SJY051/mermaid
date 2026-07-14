@@ -62,8 +62,12 @@ public class DrugContextRetriever {
      *     The allergy scan must see the whole conversation: the bare reply to our own clarifying
      *     question ("ibuprofen") carries no allergy keyword, and scanning only the newest turn would
      *     let that turn retrieve unguarded and show the person the very ingredient they just declared
-     *     (spec 005 FR-013). A client-forged history can only push the outcome toward the
-     *     clarification, never unlock retrieval.
+     *     (spec 005 FR-013). The scan sees only what the request carries: forged ADDITIONS fail
+     *     closed (extra allergy text can only produce the clarification), but a client that TRIMS
+     *     the declaration turn out of its history is indistinguishable from a conversation in
+     *     which it never happened — that boundary belongs to the first-party client's
+     *     send-every-turn obligation, not to this scan. Server-owned pending-allergy state is out
+     *     of scope on purpose: transcripts stay off the server (§2-5).
      * @param exclusions the structured {@code mermaid.exclude_ingredients} field: the raw terms,
      *     plus whether the parser had to drop any (bounds). By contract the client sends the
      *     COMPLETE list; it is the only channel that may authorize retrieval under a declared
