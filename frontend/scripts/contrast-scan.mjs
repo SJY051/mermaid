@@ -102,14 +102,29 @@ let scanned = 0
 
 for (const scheme of ['light', 'dark']) {
   const page = await browser.newPage({ colorScheme: scheme, viewport: { width: 390, height: 844 } })
+
+  // Onboarding (spec 008) shows on a first run, and a fresh Playwright page is always a first run.
+  // Without this the scan lands on screen 1, finds no tab buttons, and — this is the part that makes
+  // it worse than useless — measures the onboarding screen four times while REPORTING that it scanned
+  // Chat, Map, Saved and Settings. A scan that lies in the safe direction is the one thing a scan may
+  // never do. The seen-flag is set before the app's first paint.
+  await page.addInitScript(() => {
+    localStorage.setItem('mermaid.onboarding.v1', JSON.stringify({ schemaVersion: '1.0', data: true }))
+  })
   await page.goto(URL, { waitUntil: 'networkidle' })
 
   for (const tab of TABS) {
     const button = page.getByRole('button', { name: tab, exact: true })
-    if (await button.count()) {
-      await button.first().click()
-      await page.waitForTimeout(600)
+    if (!(await button.count())) {
+      // The tab is not there, so whatever is on screen is not the tab we are claiming to scan. Fail
+      // loudly: a silent skip turns a broken scan into a green one.
+      console.log(`FAIL  ${scheme.padEnd(5)} ${tab.padEnd(9)} tab not found — the scan never reached this screen`)
+      failures += 1
+      continue
     }
+    await button.first().click()
+    await page.waitForTimeout(600)
+
     const found = (await page.evaluate(IN_PAGE)).filter((r) => r.ratio < r.required)
     scanned += 1
     for (const f of found) {

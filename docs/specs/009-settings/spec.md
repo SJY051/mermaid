@@ -64,8 +64,21 @@ A switch, **off by default**, labelled and described in the words of what actual
 
 > **Remember my allergies**
 > Off — your allergy list is used for this conversation only, and is forgotten when you close the tab.
-> On — your allergy list is saved on this device so you do not have to tell us again. It is never sent
-> to our server, and never shared.
+> On — your allergy list is **kept on this device**, so you do not have to tell us again.
+>
+> Either way, the ingredients you name **are sent with each question** — that is how we check a medicine
+> against them. They are used to answer, and not stored on our server.
+
+**This toggle is about MEMORY, not transmission, and the copy must not blur them.** The allergy list
+goes to the server on every request as `mermaid.exclude_ingredients` — that is not a leak, it is the
+whole mechanism: the server-side gate filters retrieval on it, and a check that never sees the
+allergens checks nothing. What the switch decides is whether the list **outlives the tab on this
+device**.
+
+A draft of this spec said "it is never sent to our server." That was false, and false in the worst
+possible place — a consent screen. A person deciding what this app remembers about them is entitled to
+a description of what actually happens, and "never sent" would have been a promise the very next chat
+request broke. Storage is not transmission; say both, say them separately.
 
 The state today, shown under it, exactly as the wireframe does: `ibuprofen · aspirin (this session only)`.
 

@@ -57,7 +57,23 @@ UI preference, not a transcript; §2-5 is about consultation content, and this s
 ### FR-002 — The location permission is asked for by us, not sprung by the browser
 
 The browser's permission dialog is fired **only by a tap on our own button**, on screen 3, under a
-sentence that says what it is for. Not on Map mount.
+sentence that says what it is for. Not on mount — **of any component.**
+
+There are **two** mount-time callers, not one, and review caught the second:
+
+| caller | when it fires today |
+|---|---|
+| `MapScreen` | the Map tab is opened |
+| `NearbyFacilities` | **the chat renders an assistant facility map** — i.e. in the middle of a conversation, with no map tab in sight |
+
+The second is the worse one. A person asks about a headache, the assistant offers to show pharmacies,
+and the browser throws a permission box at them mid-answer. Fixing only `MapScreen` would leave that
+path open and let us believe we had closed it.
+
+**`resolveLocation()` must not be called from a mount effect anywhere.** Both components take the
+location they are given, and both offer their own "Use my location" control when they do not have one.
+`grep -rn "resolveLocation" frontend/src` is the check: no call may sit inside a `useEffect` that runs
+on mount.
 
 This is not a nicety. A denial is **permanent for the origin** — the browser will not re-prompt, and
 no code of ours can undo it. Today we spend that one chance the moment the Map tab mounts, with no
@@ -106,8 +122,9 @@ FR-004). It ships after 007, on top of it, not beside it.
 
 - **SC-001**: a first-run visit shows screen 1; a second visit does not. Asserted by a test, not by a
   reviewer clicking twice.
-- **SC-002**: `navigator.geolocation.getCurrentPosition` is **not called on Map mount** — only from an
-  explicit user tap. Asserted by spying on it; the test goes red if `MapScreen` calls it on mount again.
+- **SC-002**: `navigator.geolocation.getCurrentPosition` is **not called on mount by any component** —
+  only from an explicit user tap. Asserted by spying on it, in **both** `MapScreen` and
+  `NearbyFacilities`; each test goes red if its component prompts on mount again.
 - **SC-003**: the disclaimer strip is present on every onboarding screen (§2-1).
 - **SC-004**: onboarding touches no allergy key in storage. A test asserts the allergy list is
   untouched across the whole flow.

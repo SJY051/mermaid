@@ -57,8 +57,11 @@ ask a returning user every time. It stores a boolean; §2-5 is about consultatio
   addition to* it, never instead of it.
 - **Onboarding stores nothing but the seen-flag.** No name, no age, no symptoms. SA-04 tells people not
   to type identifying details into the chat box; onboarding must not ask for them itself.
-- **`getCurrentPosition` must not be called on Map mount any more.** Move the call to the button.
-  SC-002 asserts this by spying on it — the test goes red if `MapScreen` calls it on mount again.
+- **`getCurrentPosition` must not be called on mount by ANY component.** There are two callers, not
+  one: `MapScreen` (Map tab) and **`NearbyFacilities`** (the assistant's facility map, rendered inside
+  a chat answer — so the permission box lands mid-conversation, with no map in sight). Fixing only
+  `MapScreen` leaves that path open and lets us believe we closed it. `grep -rn "resolveLocation"
+  frontend/src` is your check. SC-002 asserts both.
 - **Screen 3 must not imply that location is required.** The app works without it and says so.
 
 ## What you may not invent
@@ -70,9 +73,10 @@ tooltip, a sub-heading, an encouragement, or an empty-state line that nothing as
 
 ## Boundaries
 
-- New files, plus the minimum edits to `MobileShell` (to show onboarding) and `MapScreen` (to stop
-  prompting on mount). Nothing else.
-- Do not touch chat, allergy, drug, or facility logic.
+- New files, plus the minimum edits to `MobileShell` (to show onboarding), `MapScreen` and
+  `NearbyFacilities` (to stop prompting on mount). Nothing else.
+- Do not touch chat, allergy or drug logic. In the facility components, touch **only** the mount-time
+  location prompt — not the fetching, the filtering, the markers, or the honest `fallback` notice.
 - Do not add a dependency. Icons come from `lucide-react`, which worker A has already added.
 - Styling uses A's tokens. Zero hard-coded hex, and `pnpm contrast` stays at 0 failures (light + dark).
 
