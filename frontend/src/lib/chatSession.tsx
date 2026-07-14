@@ -14,6 +14,7 @@ import type { MermAidAnswer } from './types'
 export interface ChatTurn {
   id: string
   question: string
+  createdAt: string
   answer?: MermAidAnswer
   raw?: string
   error?: SendFailure & { forInput: string }
@@ -41,20 +42,46 @@ interface ChatSessionContextValue {
 
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null)
 
-function restoreSession(session: ChatSession): { turns: ChatTurn[]; messages: StoredMessage[] } {
+/**
+ * The question a restored turn never got an answer to. It is a real thing that happened — the
+ * person asked, and nothing came back — so it stays in the conversation rather than disappearing
+ * with the tab's memory. It also has to stay: the server scans the questions in a request for a
+ * declared allergy (spec 005 FR-013), and a question dropped from the record is dropped from every
+ * later request too. That is how a failed "I am allergic to ibuprofen" ends up guarding nothing.
+ */
+const UNANSWERED_ON_RELOAD = {
+  message: 'This question was never answered — the page was reloaded before it arrived.',
+  retryable: true,
+  // No request id: the failure this describes is the absence of an answer, not a server response
+  // we could look up. Inventing one would send a bug reporter after a log line that never existed.
+  requestId: null,
+} as const
+
+function restoreSession(session: ChatSession): ChatTurn[] {
   const turns: ChatTurn[] = []
-  const messages: StoredMessage[] = []
 
   // storage.ts validates only the version wrapper, so a same-schema blob can still be malformed
   // (messages: null, or null entries). The shape check is ours: debris resets to an empty
   // conversation — it must never leave the whole app blank.
-  if (!Array.isArray(session.messages)) return { turns, messages }
+  if (!Array.isArray(session.messages)) return turns
 
   for (let i = 0; i < session.messages.length; i += 1) {
     const user = session.messages[i]
+    if (user?.role !== 'user' || typeof user.content !== 'string') continue
+
     const assistant = session.messages[i + 1]
-    if (user?.role !== 'user' || assistant?.role !== 'assistant') continue
-    if (typeof user.content !== 'string' || typeof assistant.content !== 'string') continue
+    const answered = assistant?.role === 'assistant' && typeof assistant.content === 'string'
+    if (!answered) {
+      // A user message with no answer behind it: the request failed, or the tab was reloaded while
+      // it was still in flight. Kept, and honestly labelled.
+      turns.push({
+        id: user.id,
+        question: user.content,
+        createdAt: user.createdAt,
+        error: { ...UNANSWERED_ON_RELOAD, forInput: user.content },
+      })
+      continue
+    }
 
     try {
       // Stored assistant messages are validated answer JSON. Refuse to turn a corrupt blob into
@@ -63,17 +90,53 @@ function restoreSession(session: ChatSession): { turns: ChatTurn[]; messages: St
       turns.push({
         id: user.id,
         question: user.content,
+        createdAt: user.createdAt,
         answer: parseAnswer(assistant.content),
         raw: assistant.content,
       })
-      messages.push(user, assistant)
     } catch {
-      // A damaged turn is local storage debris, not a reason to make the whole app unusable.
+      // A damaged answer is storage debris. The question still happened, so it stays — dropping it
+      // would take it out of the next request's history too.
+      turns.push({
+        id: user.id,
+        question: user.content,
+        createdAt: user.createdAt,
+        error: { ...UNANSWERED_ON_RELOAD, forInput: user.content },
+      })
     }
     i += 1
   }
 
-  return { turns, messages }
+  return turns
+}
+
+/**
+ * The stored transcript IS the turn list — every question, and the answer to the ones that got one.
+ *
+ * <p>Deriving it rather than appending to it is the point. An append-on-success record holds only
+ * answered turns, so a question that failed and was then edited into a different one vanished on
+ * reload — the memory was right and the record was wrong, and the record is what the next request
+ * is built from. One list cannot disagree with itself.
+ */
+function messagesOf(turns: ChatTurn[]): StoredMessage[] {
+  const messages: StoredMessage[] = []
+  for (const turn of turns) {
+    messages.push({
+      id: turn.id,
+      role: 'user',
+      content: turn.question,
+      createdAt: turn.createdAt,
+    })
+    if (turn.raw) {
+      messages.push({
+        id: `${turn.id}:assistant`,
+        role: 'assistant',
+        content: turn.raw,
+        createdAt: turn.createdAt,
+      })
+    }
+  }
+  return messages
 }
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
@@ -95,17 +158,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [initialPending] = useState(() =>
     typeof initialSession.pendingQuestion === 'string' ? initialSession.pendingQuestion : '',
   )
-  const [turns, setTurns] = useState<ChatTurn[]>(restored.turns)
+  const [turns, setTurns] = useState<ChatTurn[]>(restored)
   const [allergies, setAllergies] = useState(initialAllergies)
   const [unverifiedAllergens, setUnverifiedAllergens] = useState(initialUnverifiedAllergens)
   const [unverifiableAllergy, setUnverifiableAllergyState] = useState(initialUnverifiable)
   const [pendingQuestion, setPendingQuestion] = useState(initialPending)
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
-  const turnsRef = useRef(restored.turns)
+  const turnsRef = useRef(restored)
   const sessionRef = useRef<ChatSession>({
     ...initialSession,
-    messages: restored.messages,
+    messages: messagesOf(restored),
     allergies: initialAllergies,
     unverifiedAllergens: initialUnverifiedAllergens,
     unverifiableAllergy: initialUnverifiable,
@@ -131,6 +194,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!sessionRef.current.sessionId) {
       sessionRef.current = { ...sessionRef.current, sessionId: crypto.randomUUID() }
     }
+    // The record is the turn list, always — never an append of whatever just happened. A turn that
+    // failed and was kept (the user edited their question rather than retrying it) is a question
+    // the person asked, and it must ride in every later request (FR-013). Appending only answered
+    // turns is what dropped it: memory kept it, storage did not, and storage is what a reload reads.
+    sessionRef.current = { ...sessionRef.current, messages: messagesOf(turnsRef.current) }
     saveChatSession(sessionRef.current)
   }, [])
 
@@ -140,7 +208,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       const conversation = conversationRef.current
       const turnId = crypto.randomUUID()
-      const pendingTurn: ChatTurn = { id: turnId, question: text }
+      const pendingTurn: ChatTurn = {
+        id: turnId,
+        question: text,
+        createdAt: new Date().toISOString(),
+      }
       const previousTurns = turnsRef.current
       const lastTurn = previousTurns.at(-1)
       // A retry resends the failed question verbatim, so it REPLACES that turn — sending it again
@@ -204,14 +276,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         turnsRef.current = completedTurns
         setTurns(completedTurns)
 
-        const createdAt = new Date().toISOString()
         sessionRef.current = {
           ...sessionRef.current,
-          messages: [
-            ...sessionRef.current.messages,
-            { id: turnId, role: 'user', content: text, createdAt },
-            { id: `${turnId}:assistant`, role: 'assistant', content: latest, createdAt },
-          ],
           // Answered: the question now lives in the transcript, so it is no longer pending.
           pendingQuestion: '',
         }

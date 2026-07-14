@@ -229,11 +229,12 @@ export function ChatScreen() {
     if (answered) setInput('')
   }
 
-  // Try again resends the question that failed. It is the same text the box holds — nothing else
-  // can be in there — so this is the box's own content, sent again.
-  function retryFailed(failedInput: string) {
-    if (streaming || pickerOpen) return
-    void submit(failedInput)
+  // Try again sends whatever the box holds — which is the failed question, unless the person has
+  // since edited it, and then the edit is what they mean to ask. Sending a remembered copy instead
+  // would send the old text and then clear the new: their edited symptom or allergy would go
+  // nowhere, and vanish. There is one send path, and it reads the box.
+  function retryFailed() {
+    void submit(input)
   }
 
   function startNewConversation() {
@@ -413,7 +414,7 @@ export function ChatScreen() {
                   <ChatMessageBubble variant="ghost">
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
                     {turn.error && (
-                      <FailedAnswer turn={turn} onRetry={() => retryFailed(turn.error!.forInput)} />
+                      <FailedAnswer turn={turn} onRetry={retryFailed} />
                     )}
                     {turn.answer && <AnsweredTurn turn={turn} />}
                   </ChatMessageBubble>

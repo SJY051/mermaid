@@ -289,6 +289,29 @@ describe('when the request fails', () => {
     expect(screen.getByRole('textbox')).toHaveValue('')
   })
 
+  it('Try again sends what the box holds now, not the question that failed (P1)', async () => {
+    // The box unlocks after a failure, so the person can correct what they asked. If Try again then
+    // resent a remembered copy of the OLD text, their correction would go nowhere — and worse, the
+    // success would clear the box, so a newly typed allergy or symptom would be gone for good.
+    const first = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream())
+    renderChat()
+    const user = await ask('What can I take for a fever?')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I am allergic to ibuprofen, what can I take?')
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+    await screen.findByText('Drink water and rest.')
+
+    const sent = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    expect(sent.filter((m) => m.role === 'user').map((m) => m.content)).toContain(
+      'I am allergic to ibuprofen, what can I take?',
+    )
+  })
+
   it('keeps the failed question in the request when it is edited rather than retried (P1)', async () => {
     // A retry replaces the failed turn; an EDIT does not. The person still asked the first
     // question, and if the edit is what drops it, a failed "I am allergic to ibuprofen" edited into
@@ -332,15 +355,63 @@ describe('when the request fails', () => {
     renderChat()
     const reloadedUser = userEvent.setup()
     const box = screen.getByRole('textbox')
+    // Two places, one question: the transcript keeps it (unanswered, honestly labelled) and the box
+    // holds it ready to send. Neither is a copy the other can lose.
     expect(box).toHaveValue('I am allergic to ibuprofen')
+    expect(screen.getByTestId('chat-error')).toBeInTheDocument()
 
     await reloadedUser.type(box, ' and a headache')
     await reloadedUser.click(screen.getByRole('button', { name: /ask/i }))
     await screen.findByText('Drink water and rest.')
 
+    // The edit did not overwrite the declaration — it followed it. Both ride, and the server's scan
+    // sees the allergy either way (FR-013). A verbatim retry would have replaced it instead.
     const sent = streamChatMock.mock.calls.at(-1)![0] as { role: string; content: string }[]
     expect(sent.filter((m) => m.role === 'user')).toEqual([
+      { role: 'user', content: 'I am allergic to ibuprofen' },
       { role: 'user', content: 'I am allergic to ibuprofen and a headache' },
+    ])
+  })
+
+  it('keeps a failed question in storage after a later turn succeeds (P1)', async () => {
+    // The record used to be an append of answered turns only. So a failed "I am allergic to
+    // ibuprofen", kept in memory when the user edited it into a different question, was never
+    // written down — and the next reload built its history from storage, where the declaration no
+    // longer existed. Every request after that reload went out unguarded. The record is now the
+    // turn list itself, so what memory keeps, storage keeps.
+    const first = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream())
+    const { unmount } = renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'What can I take for a headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    const stored = loadChatSession().messages.filter((m) => m.role === 'user').map((m) => m.content)
+    expect(stored).toEqual([
+      'I am allergic to ibuprofen',
+      'What can I take for a headache?',
+    ])
+
+    // And it is still there for the request after a reload.
+    unmount()
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const reloaded = userEvent.setup()
+    await reloaded.type(screen.getByRole('textbox'), 'What about ibuprofen gel?')
+    await reloaded.click(screen.getByRole('button', { name: /ask/i }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(3))
+
+    const sent = streamChatMock.mock.calls.at(-1)![0] as { role: string; content: string }[]
+    expect(sent.filter((m) => m.role === 'user').map((m) => m.content)).toEqual([
+      'I am allergic to ibuprofen',
+      'What can I take for a headache?',
+      'What about ibuprofen gel?',
     ])
   })
 
