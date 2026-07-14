@@ -27,18 +27,28 @@ function installNaverStub({
 }: { autoInit?: boolean; scriptLoaded?: boolean; markerThrows?: boolean } = {}) {
   const markers: MarkerStub[] = []
   const readyHandlers: Array<() => void> = []
+  const setCenter = vi.fn()
   let mapsCreated = 0
   let mapContainer: HTMLElement | null = null
 
   const naver = {
     maps: {
       Map: class {
+        setCenter = setCenter
+        getCenter = vi.fn(() => ({ lat: () => 35.1796, lng: () => 129.0756 }))
         constructor(container: HTMLElement) {
           mapsCreated += 1
           mapContainer = container
         }
       },
-      LatLng: class {},
+      LatLng: class {
+        latitude: number
+        longitude: number
+        constructor(latitude: number, longitude: number) {
+          this.latitude = latitude
+          this.longitude = longitude
+        }
+      },
       Point: class {},
       Marker: class {
         element?: HTMLButtonElement
@@ -81,6 +91,7 @@ function installNaverStub({
     readyHandlers,
     script,
     mapsCreated: () => mapsCreated,
+    setCenter,
     triggerTilesLoaded: () => readyHandlers.splice(0).forEach((handler) => handler()),
   }
 }
@@ -251,7 +262,7 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
     installNaverStub()
     render(<FacilityMap center={centre} facilities={[facility({ distanceMeters: 140.4 })]} />)
 
-    expect(await screen.findByTestId('facility-list')).toHaveTextContent('140m')
+    expect(await screen.findByTestId('facility-list')).toHaveTextContent('140m from map centre')
   })
 })
 
@@ -288,7 +299,11 @@ describe('facility details (UI-03, DEV-207)', () => {
     )
 
     const list = await screen.findByTestId('facility-list')
-    await user.click(within(list).getByRole('button', { name: /Pharmacy · Open now · 140m/ }))
+    await user.click(
+      within(list).getByRole('button', {
+        name: /Pharmacy · Open now · 140m from map centre/,
+      }),
+    )
 
     expect(screen.getByRole('dialog', { name: '가나약국' })).toBeInTheDocument()
   })
@@ -322,7 +337,7 @@ describe('facility details (UI-03, DEV-207)', () => {
     expect(pin.querySelector('[data-kind-icon="hospital"]')).not.toBeNull()
     expect(pin.querySelector('[data-status-glyph="unknown"]')).toHaveTextContent('?')
     expect(pin).toHaveAccessibleName(
-      '서울병원 Hospital, Hours unknown, 140 metres away. Open details.',
+      '서울병원 Hospital, Hours unknown, 140 metres from the map centre. Open details.',
     )
 
     pin.focus()
@@ -351,6 +366,45 @@ describe('facility details (UI-03, DEV-207)', () => {
 
     expect(screen.getByRole('dialog', { name: '청실약국' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '명약국' })).not.toBeInTheDocument()
+  })
+})
+
+describe('manual location selection', () => {
+  it('moves the existing map when the resolved centre changes', async () => {
+    const { setCenter } = installNaverStub()
+    const { rerender } = render(<FacilityMap center={centre} />)
+    await waitFor(() => expect(setCenter).toHaveBeenCalled())
+
+    rerender(<FacilityMap center={{ lat: 35.1796, lng: 129.0756 }} />)
+
+    await waitFor(() => {
+      expect(setCenter).toHaveBeenLastCalledWith(
+        expect.objectContaining({ latitude: 35.1796, longitude: 129.0756 }),
+      )
+    })
+  })
+
+  it('reads the panned map centre beneath a fixed crosshair', async () => {
+    const user = userEvent.setup()
+    const onUseSpot = vi.fn()
+    installNaverStub()
+    render(
+      <FacilityMap
+        center={centre}
+        manualLocation={{ canClear: false, onUseSpot, onClear: vi.fn() }}
+      />,
+    )
+
+    expect(screen.queryByRole('img', { name: 'Chosen map centre' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Set your location' }))
+    expect(screen.getByRole('img', { name: 'Chosen map centre' })).toBeInTheDocument()
+
+    const useSpot = screen.getByRole('button', { name: 'Use this spot' })
+    await waitFor(() => expect(useSpot).toBeEnabled())
+    await user.click(useSpot)
+
+    expect(onUseSpot).toHaveBeenCalledWith({ lat: 35.1796, lng: 129.0756 })
+    expect(screen.queryByRole('img', { name: 'Chosen map centre' })).not.toBeInTheDocument()
   })
 })
 

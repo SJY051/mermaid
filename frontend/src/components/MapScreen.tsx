@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
-import { fetchFacilities, resolveLocation, type ResolvedLocation } from '../lib/facilities'
+import {
+  fetchFacilities,
+  locationNotice,
+  resolveLocation,
+  SEOUL_CITY_HALL,
+  type ResolvedLocation,
+} from '../lib/facilities'
 import { splitByOpenStatus } from '../lib/facilitySplit'
+import { setManualLocation } from '../lib/storage'
 import type { Facility, FacilityType } from '../lib/types'
 import { FacilityMap } from './FacilityMap'
 
 const RADIUS_M = 1000
 const HOSPITAL_UNAVAILABLE = 'We cannot look up hospitals yet — pharmacy search works today.'
-const FALLBACK_NOTICE =
-  'Centred on Seoul City Hall — we could not read your location, so these are not near you.'
-
 type TypeFilter = 'all' | 'pharmacy' | 'hospital'
 
 const TYPE_FILTERS: Array<{ id: TypeFilter; label: string }> = [
@@ -190,6 +194,16 @@ export function MapScreen({ active }: MapScreenProps) {
     setTypeFilter(nextType)
   }
 
+  function useManualLocation(center: { lat: number; lng: number }) {
+    setManualLocation({ ...center, label: 'Chosen map spot' })
+    setLocation({ ...center, source: 'manual' })
+  }
+
+  function clearManualLocation() {
+    setManualLocation(null)
+    setLocation({ ...SEOUL_CITY_HALL, source: 'fallback' })
+  }
+
   if (!location) {
     return (
       <div className="flex flex-col gap-3 p-6">
@@ -270,7 +284,16 @@ export function MapScreen({ active }: MapScreenProps) {
         facilities={mapFacilities}
         additionalFixtureData={hasFixtureDataOnScreen}
         caption={`Nearby ${resultKind} within ${RADIUS_M}m`}
-        notice={location.fromDevice ? undefined : FALLBACK_NOTICE}
+        notice={locationNotice(location)}
+        manualLocation={
+          location.source === 'device'
+            ? undefined
+            : {
+                canClear: location.source === 'manual',
+                onUseSpot: useManualLocation,
+                onClear: clearManualLocation,
+              }
+        }
       />
 
       {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}

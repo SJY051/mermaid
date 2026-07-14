@@ -169,20 +169,34 @@ export interface Preferences {
   rememberAllergies: boolean
   allergies: string[]
   defaultRadiusM: number
+  manualLocation: ManualLocation | null
+}
+
+export interface ManualLocation {
+  lat: number
+  lng: number
+  label: string
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
   rememberAllergies: false,
   allergies: [],
   defaultRadiusM: 1000,
+  manualLocation: null,
 }
 
 export function loadPreferences(): Preferences {
-  const prefs = read(localStorage, PREFERENCES_KEY, DEFAULT_PREFERENCES)
+  const stored = read(localStorage, PREFERENCES_KEY, DEFAULT_PREFERENCES)
+  // Preferences written before DEV-206 have no manualLocation field.
+  const prefs = { ...stored, manualLocation: stored.manualLocation ?? null }
   // Invariant: allergies are only kept when the user said so.
   return prefs.rememberAllergies ? prefs : { ...prefs, allergies: [] }
 }
 
 export function savePreferences(prefs: Preferences): void {
   write(localStorage, PREFERENCES_KEY, prefs.rememberAllergies ? prefs : { ...prefs, allergies: [] })
+}
+
+export function setManualLocation(manualLocation: ManualLocation | null): void {
+  savePreferences({ ...loadPreferences(), manualLocation })
 }

@@ -50,7 +50,7 @@ describe('DetailDrawer', () => {
     expect(screen.getByRole('heading', { name: '가나약국' })).toBeInTheDocument()
     expect(screen.getByText('Pharmacy')).toBeInTheDocument()
     expect(screen.getByText('서울특별시 중구 세종대로 110')).toBeInTheDocument()
-    expect(screen.getByText('140 m away')).toBeInTheDocument()
+    expect(screen.getByText('140 m from map centre')).toBeInTheDocument()
     expect(screen.getByTestId('facility-source')).toHaveTextContent('국립중앙의료원 · 2026-07-10')
     expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('✓')
   })
