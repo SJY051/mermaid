@@ -69,13 +69,10 @@ function FailedAnswer({
   turn,
   onRetry,
   onStartOver,
-  clearsAllergyList,
 }: {
   turn: ChatTurn
   onRetry: () => void
   onStartOver: () => void
-  /** They have an allergy list, and the escape below would throw it away. Say so before they click. */
-  clearsAllergyList: boolean
 }) {
   const sendError = turn.error
   if (!sendError) return null
@@ -95,15 +92,23 @@ function FailedAnswer({
               // the only place that declaration lives. Which means a request the server refused for
               // what this question CONTAINS will be refused again. Editing may work; if it does not,
               // the way out is a new conversation, and saying so beats letting someone try forever.
+              // The escape we are recommending resets the conversation, and everything the person
+              // told us goes with it — the allergy list the retrieval filter is built from, AND the
+              // declarations that never became a list because their turn failed.
+              //
+              // This used to be conditional on `allergies.length > 0`, and that was wrong in the one
+              // case that matters most: when the FAILED TURN ITSELF is the declaration ("I am
+              // allergic to ibuprofen"), the lists are still empty, so the warning did not show — and
+              // starting over discarded the only place that allergy existed. The next "what can I
+              // take?" would then retrieve unfiltered.
+              //
+              // The client cannot fix that by classifying harder. It does not know which sentence
+              // declares an allergy; that judgement is the server's, and it is the whole point of the
+              // redesign. So we stop classifying and say the thing that is always true.
               'Asking this exact question again will not help. Try asking it differently — and if ' +
-              'that keeps failing, start a new conversation. ' +
-              (clearsAllergyList
-                ? // The escape we are recommending resets the conversation, and the allergy list
-                  // goes with it — that list is what the retrieval filter is built from. Leading
-                  // someone into clearing their own guard without saying so is worse than the dead
-                  // end it escapes: the next answer would be built as if they had never told us.
-                  'That clears the allergy list you gave us, so you will need to tell us again. '
-                : '')) +
+              'that keeps failing, start a new conversation. That clears this whole conversation, ' +
+              'including anything you have told us about allergies, so you will need to tell us ' +
+              'again. ') +
           `Technical detail: ${sendError.message}`
         }
       />
@@ -495,9 +500,6 @@ export function ChatScreen() {
                           turn={turn}
                           onRetry={retryFailed}
                           onStartOver={startNewConversation}
-                          clearsAllergyList={
-                            allergies.length > 0 || unverifiedAllergens.length > 0
-                          }
                         />
                       ) : (
                         <UnansweredQuestion />

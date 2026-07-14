@@ -636,6 +636,36 @@ describe('when the request fails', () => {
     expect(extension.mermaid.exclude_ingredients).toEqual(['ibuprofen'])
   })
 
+  it('warns about the escape even when the failed turn IS the only declaration (P0)', async () => {
+    // The case the conditional missed, and the one that matters most: the FIRST question is the
+    // declaration, and it fails non-retryably. Both allergy lists are still empty — the picker never
+    // opened — so the old copy said nothing about allergies, and "start a new conversation" discarded
+    // the only place that allergy existed. The next "what can I take?" would retrieve unfiltered.
+    //
+    // The client cannot fix that by classifying harder: it does not know which sentence declares an
+    // allergy. That judgement is the server's, and it is the whole point of the redesign. So the
+    // warning stops being conditional and says the thing that is always true.
+    const failing = pendingStream()
+    streamChatMock.mockReturnValueOnce(failing.stream())
+    renderChat()
+    await ask('I am allergic to ibuprofen. What can I take for a headache?')
+    failing.fail(
+      Object.assign(new Error('400'), {
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'That question could not be processed.',
+          retryable: false,
+          request_id: 'req-9',
+        },
+      }),
+    )
+
+    const error = await screen.findByTestId('chat-error')
+    expect(error).toHaveTextContent(/start a new conversation/i)
+    expect(error).toHaveTextContent(/anything you have told us about allergies/i)
+    expect(error).toHaveTextContent(/tell us again/i)
+  })
+
   it('says the escape will clear the allergy list before the user takes it (P1)', async () => {
     // "Start a new conversation" is the way out of a non-retryable failure, and it resets the
     // session — allergies included. That list is what retrieval is filtered on. Recommending it
@@ -665,7 +695,8 @@ describe('when the request fails', () => {
     )
 
     const error = await screen.findByTestId('chat-error')
-    expect(error).toHaveTextContent(/clears the allergy list you gave us/i)
+    expect(error).toHaveTextContent(/clears this whole conversation/i)
+    expect(error).toHaveTextContent(/anything you have told us about allergies/i)
     expect(error).toHaveTextContent(/tell us again/i)
   })
 
