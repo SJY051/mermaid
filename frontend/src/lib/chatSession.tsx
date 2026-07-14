@@ -220,17 +220,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // Dropping it would let a failed "I am allergic to ibuprofen" vanish before the next turn,
       // and the server's scan over the request's questions would never see it (FR-013).
       //
-      // With one exception, and it is the failure that says so itself. `retryable: false` means the
-      // server will not accept this request — INPUT_TOO_LARGE is the live one — and we tell the
-      // person to shorten their question. If the oversized turn stayed in the record, their
-      // shortened question would ride out behind it and hit the same limit, forever: the recovery
-      // we advertised cannot work, and the conversation is dead. So an edit past a non-retryable
-      // failure replaces it. Nothing is lost that was ever received — the server rejected the
-      // request outright, so it never saw that turn, and a conversation that can no longer send
-      // guards nobody.
-      const supersedesLast =
-        lastError != null && (lastTurn?.question === text || !lastError.retryable)
-      const nextTurns = supersedesLast
+      // No exception for a non-retryable failure, and there was one here for an hour. The argument
+      // for dropping it was recovery: a request the server refuses for its size would be refused
+      // again while its text rode along in the history, so "shorten your question" could not work.
+      // But dropping it drops whatever it said — and what it says may be "I am allergic to
+      // ibuprofen", which the server reads from the request's questions (FR-013) and which nothing
+      // else in this tab is holding, because the turn that would have offered the picker is the one
+      // that failed. A recovery path that silently discards a declared allergy is worse than the
+      // dead end it fixes, and INPUT_TOO_LARGE is not even thrown today — the backend declares the
+      // code and never uses it. The escape from a poisoned conversation is a new conversation, and
+      // the person is told so.
+      const retryingLast = lastError != null && lastTurn?.question === text
+      const nextTurns = retryingLast
         ? [...previousTurns.slice(0, -1), pendingTurn]
         : [...previousTurns, pendingTurn]
 

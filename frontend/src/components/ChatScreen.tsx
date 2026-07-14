@@ -65,7 +65,15 @@ function UnansweredQuestion() {
   )
 }
 
-function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }) {
+function FailedAnswer({
+  turn,
+  onRetry,
+  onStartOver,
+}: {
+  turn: ChatTurn
+  onRetry: () => void
+  onStartOver: () => void
+}) {
   const sendError = turn.error
   if (!sendError) return null
 
@@ -79,8 +87,13 @@ function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }
             ? // Always true now, and cheap to keep true: the box is never cleared until an answer
               // arrives, so the question that failed is the question still sitting in it.
               'Your question was not lost — it is still in the box above. '
-            : 'Sending the same question again will not fix this one. ' +
-              'Edit your question to ask something different, or come back later. ') +
+            : // The question stays in this conversation, so it also rides in the next request — we
+              // keep it because it may be the sentence that declared an allergy (FR-013), and it is
+              // the only place that declaration lives. Which means a request the server refused for
+              // what this question CONTAINS will be refused again. Editing may work; if it does not,
+              // the way out is a new conversation, and saying so beats letting someone try forever.
+              'Asking this exact question again will not help. Try asking it differently — and if ' +
+              'that keeps failing, start a new conversation. ') +
           `Technical detail: ${sendError.message}`
         }
       />
@@ -92,8 +105,10 @@ function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }
       )}
       {/* The backend's `retryable` flag is the contract for whether this button is honest
           (types.ts). Showing it on a non-retryable failure sends a sick person into a loop. */}
-      {sendError.retryable && (
+      {sendError.retryable ? (
         <Button label="Try again" variant="secondary" onClick={onRetry} />
+      ) : (
+        <Button label="Start a new conversation" variant="secondary" onClick={onStartOver} />
       )}
     </section>
   )
@@ -440,7 +455,11 @@ export function ChatScreen() {
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
                     {turn.error &&
                       (active ? (
-                        <FailedAnswer turn={turn} onRetry={retryFailed} />
+                        <FailedAnswer
+                          turn={turn}
+                          onRetry={retryFailed}
+                          onStartOver={startNewConversation}
+                        />
                       ) : (
                         <UnansweredQuestion />
                       ))}

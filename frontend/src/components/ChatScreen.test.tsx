@@ -225,7 +225,7 @@ describe('when the request fails', () => {
     // The backend said resending this exact request cannot help — offering any resend button
     // would be a lie that loops a sick person (types.ts: "Whether offering a 'try again'
     // button is honest"). That covers the primary Ask button too, not just Try again.
-    expect(error).toHaveTextContent(/sending the same question again will not fix/i)
+    expect(error).toHaveTextContent(/asking this exact question again will not help/i)
     expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /ask/i })).toBeDisabled()
     // The id that finds the server log, for the bug report.
@@ -312,20 +312,23 @@ describe('when the request fails', () => {
     )
   })
 
-  it('lets a shortened question through after the backend refused an oversized one (P1)', async () => {
-    // INPUT_TOO_LARGE tells the person to shorten their question, and that is the whole recovery
-    // path. Keeping the oversized turn in the record makes it a lie: the shortened question rides
-    // out behind the original and hits the same limit, forever. A conversation that can no longer
-    // send an answer to anyone guards no one, so a non-retryable failure is superseded by the edit.
+  it('never drops a declared allergy to escape a non-retryable failure (P0)', async () => {
+    // For an hour this branch dropped the failed turn when the server called it non-retryable, so
+    // that a "shorten your question" recovery could work. But the sentence being dropped may be the
+    // one that declared an allergy — and it is the only place that declaration lives, because the
+    // turn that would have offered the picker is the turn that failed. The server reads the
+    // declaration from the questions in the request (FR-013); drop it and the next turn retrieves
+    // unguarded and can hand the person the very ingredient they named. The dead end is the lesser
+    // harm, and it has an honest exit: a new conversation.
     const { stream, fail } = pendingStream()
     streamChatMock.mockReturnValueOnce(stream())
     renderChat()
-    const user = await ask('a very long question '.repeat(5))
+    const user = await ask('I am allergic to ibuprofen, and I have a bad headache')
     fail(
-      Object.assign(new Error('413'), {
+      Object.assign(new Error('400'), {
         error: {
-          code: 'INPUT_TOO_LARGE',
-          message: 'That question is too long.',
+          code: 'INVALID_REQUEST',
+          message: 'That question could not be processed.',
           retryable: false,
           request_id: 'req-9',
         },
@@ -335,17 +338,43 @@ describe('when the request fails', () => {
 
     streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
     await user.clear(screen.getByRole('textbox'))
-    await user.type(screen.getByRole('textbox'), 'headache?')
+    await user.type(screen.getByRole('textbox'), 'what can I take?')
     await user.click(screen.getByRole('button', { name: /ask/i }))
     await screen.findByText('Drink water and rest.')
 
-    // The request carries the short question ALONE — the oversized one the server refused is gone
-    // from the wire and from the record, so it cannot break every later turn.
     const sent = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
-    expect(sent.filter((m) => m.role === 'user').map((m) => m.content)).toEqual(['headache?'])
-    expect(loadChatSession().messages.filter((m) => m.role === 'user').map((m) => m.content)).toEqual([
-      'headache?',
+    expect(sent.filter((m) => m.role === 'user').map((m) => m.content)).toEqual([
+      'I am allergic to ibuprofen, and I have a bad headache',
+      'what can I take?',
     ])
+  })
+
+  it('offers a way out of a non-retryable failure instead of a retry that cannot work (P1)', async () => {
+    const { stream, fail } = pendingStream()
+    streamChatMock.mockReturnValueOnce(stream())
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen, and I have a bad headache')
+    fail(
+      Object.assign(new Error('400'), {
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'That question could not be processed.',
+          retryable: false,
+          request_id: 'req-9',
+        },
+      }),
+    )
+    const error = await screen.findByTestId('chat-error')
+
+    // No Try again — the backend said resending cannot help. But the person is not left to guess:
+    // the failed question stays in this conversation, so a request refused for what it contains
+    // will be refused again, and the exit is a new conversation. The banner says so, and offers it.
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    expect(error).toHaveTextContent(/start a new conversation/i)
+
+    await user.click(screen.getByRole('button', { name: /start a new conversation/i }))
+    expect(screen.queryByTestId('chat-error')).not.toBeInTheDocument()
+    expect(loadChatSession().messages).toEqual([])
   })
 
   it('keeps the failed question in the request when it is edited rather than retried (P1)', async () => {
