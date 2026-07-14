@@ -203,6 +203,7 @@ export function ChatScreen() {
     allergies,
     unverifiedAllergens,
     unverifiableAllergy,
+    allergiesConfirmedAt,
     pendingQuestion,
     send,
     confirmAllergies,
@@ -224,9 +225,31 @@ export function ChatScreen() {
   const [editingAllergies, setEditingAllergies] = useState(false)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
+  // A clarification the person has ALREADY answered, restored from storage after a reload.
+  //
+  // `handledClarification` is React state: it dies with the tab. `latestAnswer` does not — it is
+  // rebuilt from the stored transcript. So after a reload the old clarification came back with
+  // nothing marking it answered, and the picker reopened as if the SERVER had just asked. Confirming
+  // it then stamped a fresh cut-off (that is what `clarificationNeedsSelection` authorises below),
+  // and the cut-off swallowed a failed declaration the person had never seen in the picker — the
+  // exact seam `unanswered_questions` exists to close, reopened by pressing F5.
+  //
+  // The fact that closes it was already on disk. `allergiesConfirmedAt` is persisted; if it is later
+  // than the clarification's own turn, that clarification HAS been answered, whatever this tab
+  // remembers. No new state — the answer was in the session all along, the screen just could not see
+  // it. A LATER clarification has a later turn, so it still opens the picker, as it must.
+  const latestClarificationTurn = [...turns]
+    .reverse()
+    .find((turn) => turn.answer?.answerId === 'allergy-clarification')
+  const clarificationAlreadyAnswered =
+    allergiesConfirmedAt !== '' &&
+    latestClarificationTurn != null &&
+    allergiesConfirmedAt > latestClarificationTurn.createdAt
+
   const clarificationNeedsSelection =
     latestAnswer?.answerId === 'allergy-clarification' &&
-    latestAnswer !== handledClarification
+    latestAnswer !== handledClarification &&
+    !clarificationAlreadyAnswered
   const pickerOpen = editingAllergies || clarificationNeedsSelection
   // Two lists, two different promises, and conflating them overstates the safety of one. Only
   // `allergies` become `exclude_ingredients` — resolved keys the backend filters retrieval on.

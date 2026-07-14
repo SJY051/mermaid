@@ -554,6 +554,49 @@ describe('when the request fails', () => {
     expect(extension.mermaid.unanswered_questions).toBeUndefined()
   })
 
+  it('does not treat a restored, already-answered clarification as a fresh one (P0)', async () => {
+    // `handledClarification` is React state and dies with the tab. `latestAnswer` does not — it is
+    // rebuilt from the stored transcript. So after a reload the answered clarification came back with
+    // nothing marking it answered, the picker reopened as if the SERVER had just asked, and
+    // confirming it stamped a fresh cut-off — which swallowed a failed declaration the person had
+    // never seen. The seam `unanswered_questions` exists to close, reopened by pressing F5.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValueOnce(completedStream(clarificationAnswer))
+    const first = renderChat()
+    let user = await ask('I am allergic to ibuprofen')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(picker).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    // A second declaration, and its turn dies before the server ever hears it.
+    const failing = pendingStream()
+    streamChatMock.mockReturnValueOnce(failing.stream())
+    await user.type(screen.getByRole('textbox'), 'I am also allergic to aspirin')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    failing.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    // The reload. sessionStorage survives; React state does not.
+    first.unmount()
+    renderChat()
+    user = userEvent.setup()
+
+    // The picker must NOT reopen: that clarification was answered, and the session says so.
+    expect(
+      screen.queryByRole('dialog', { name: /tell us your allergy/i }),
+    ).not.toBeInTheDocument()
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.type(screen.getByRole('textbox'), 'what can I take for a headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    // And the failed declaration is still reported — the reload did not cut it off.
+    const extension = streamChatMock.mock.calls.at(-1)![2] as { mermaid: Record<string, unknown> }
+    expect(extension.mermaid.unanswered_questions).toEqual(['I am also allergic to aspirin'])
+    expect(extension.mermaid.exclude_ingredients).toEqual(['ibuprofen'])
+  })
+
   it('keeps reporting a failed declaration when the list is edited from the menu, not asked for (P0)', async () => {
     // The cut-off is earned by ANSWERING a clarification, and "Edit allergy list" is not one.
     // Nobody asked; the person opened the menu to change an entry, and their failed "I am also

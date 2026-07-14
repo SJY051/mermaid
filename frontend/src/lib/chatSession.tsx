@@ -42,6 +42,15 @@ interface ChatSessionContextValue {
   unverifiableAllergy: boolean
   /** The question asked but not yet answered — restored into the composer after a reload. */
   pendingQuestion: string
+  /**
+   * When the person last answered a clarification, ISO. Persisted, so it SURVIVES A RELOAD — which
+   * `handledClarification` (React state) does not. That asymmetry was a P0: after a reload the old
+   * clarification came back as `latestAnswer` with nothing marking it answered, the picker reopened
+   * as if the server had just asked, and confirming it stamped a fresh cut-off over a failed
+   * declaration the person never saw. The screen needs this to tell "asked and unanswered" from
+   * "asked, answered, and restored".
+   */
+  allergiesConfirmedAt: string
   /** Resolves true when an answer arrived. The composer clears on true, and only on true. */
   send: (text: string) => Promise<boolean>
   /**
@@ -169,6 +178,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [unverifiedAllergens, setUnverifiedAllergens] = useState(initialUnverifiedAllergens)
   const [unverifiableAllergy, setUnverifiableAllergyState] = useState(initialUnverifiable)
   const [pendingQuestion, setPendingQuestion] = useState(initialPending)
+  const [allergiesConfirmedAt, setAllergiesConfirmedAt] = useState(
+    typeof initialSession.allergiesConfirmedAt === 'string' ? initialSession.allergiesConfirmedAt : '',
+  )
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
   const turnsRef = useRef(restored)
@@ -345,6 +357,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const confirmAllergies = useCallback(
     (keys: string[], unverified: string[], answersClarification: boolean) => {
+      const stampedAt = new Date().toISOString()
       const confirmed = [...keys]
       const unverifiedNames = [...unverified]
       sessionRef.current = {
@@ -365,10 +378,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // So a manual edit leaves the cut-off where it was. The declaration stays reported, the
         // server stays fail-closed, and the clarification comes back — which is exactly what should
         // happen while an allergy the person stated is still unresolved.
-        ...(answersClarification ? { allergiesConfirmedAt: new Date().toISOString() } : {}),
+        ...(answersClarification ? { allergiesConfirmedAt: stampedAt } : {}),
       }
       setAllergies(confirmed)
       setUnverifiedAllergens(unverifiedNames)
+      if (answersClarification) setAllergiesConfirmedAt(stampedAt)
       persistSession()
     },
     [persistSession],
@@ -398,6 +412,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setAllergies([])
     setUnverifiedAllergens([])
     setUnverifiableAllergyState(false)
+    setAllergiesConfirmedAt('')
     setPendingQuestion('')
     setStreaming(false)
     clearChatSession()
@@ -420,6 +435,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         unverifiedAllergens,
         unverifiableAllergy,
         pendingQuestion,
+        allergiesConfirmedAt,
         send,
         confirmAllergies,
         declareUnverifiableAllergy,
