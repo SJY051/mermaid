@@ -80,6 +80,7 @@ public class FacilityService {
             Instant retrievedAt) {
 
         DutyTable weekly;
+        boolean weeklyHoursLookupFailed = false;
         try {
             weekly = pharmacyApiClient.weeklyHours(raw.hpid());
         } catch (PublicApiException e) {
@@ -87,6 +88,7 @@ public class FacilityService {
             // make only its hours unknown, not discard every nearby pharmacy as a 503 response.
             log.warn("pharmacy weekly-hours lookup failed for {}; retaining directory row", raw.hpid());
             weekly = DutyTable.empty(listOrigin);
+            weeklyHoursLookupFailed = true;
         }
 
         // The card's provenance is the whole truth behind it: fixture if the directory OR the schedule
@@ -109,7 +111,9 @@ public class FacilityService {
                 raw.latitude(),
                 raw.longitude(),
                 distanceMetres(raw, originLat, originLng),
-                operationOf(raw, weekly, now, holiday, retrievedAt),
+                weeklyHoursLookupFailed
+                        ? FacilityOperation.unknown(retrievedAt)
+                        : operationOf(raw, weekly, now, holiday, retrievedAt),
                 sourceOf(raw, retrievedAt, origin));
     }
 

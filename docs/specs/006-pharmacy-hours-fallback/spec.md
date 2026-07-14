@@ -33,9 +33,9 @@ failed *timetable* fetch degrades that one row and the list still returns 200.
 ## Goals / non-goals
 
 - **Goals:** Preserve every successful directory row when a single optional timetable lookup fails;
-  keep the affected card's operating status honest (`INFERRED` or `UNKNOWN`, never `CLOSED`); keep the
-  card's directory provenance `LIVE` since the list fact did come from the live API; preserve upstream
-  failure visibility in logs.
+  keep the affected card's operating status honest (`UNKNOWN`, never inferred open or closed); keep
+  the card's directory provenance `LIVE` since the list fact did come from the live API; preserve
+  upstream failure visibility in logs.
 - **Non-goals:**
   - Treat unknown as closed, or render `isOpenNow: null` as "Closed" (§2-3).
   - Change how a *directory-fetch* failure is handled — it stays 503.
@@ -53,10 +53,10 @@ failed *timetable* fetch degrades that one row and the list still returns 200.
   `weeklyHours(hpid)` lookup at the per-pharmacy conversion boundary (`toFacility()`) and continue
   assembling the rest of the directory result. The catch MUST be outside the cached method so a
   transient failure is never cached as an empty timetable.
-- **FR-002:** On such a failure the affected row MUST fall through to the existing `operationOf`
-  fallback with an empty `DutyTable`: `INFERRED` when the directory row has usable `startTime` and
-  `endTime`, otherwise `UNKNOWN` with `isOpenNow: null`. The row's `SourceRef` provenance MUST stay
-  `LIVE` (the list fact came from the live API; only the hours are unknown).
+- **FR-002:** On such a failure the affected row MUST be `UNKNOWN` with `isOpenNow: null`, regardless
+  of whether the directory row has `startTime` and `endTime`. Those partial directory fields MUST NOT
+  be used to infer open or closed after the official timetable lookup failed. The row's `SourceRef`
+  provenance MUST stay `LIVE` (the list fact came from the live API; only the hours are unknown).
 - **FR-003:** Other directory rows MUST remain in the response, and the facilities endpoint MUST
   return 200 — an individual timetable failure MUST NOT surface as 503.
 - **FR-004:** Exceptions other than `PublicApiException` MUST keep propagating, so an internal defect
@@ -70,21 +70,24 @@ failed *timetable* fetch degrades that one row and the list still returns 200.
   `PublicApiException` and `weeklyHours(B)` returns a valid weekly table
 - **When** the user opens the pharmacy map with `open_now=false`
 - **Then** the response is 200 and contains both A and B; B is `OPEN`/`CLOSED` with
-  `OFFICIAL_SCHEDULE`; A is `INFERRED` if its directory row has usable `startTime`/`endTime`, else
-  `UNKNOWN` with `isOpenNow: null`; A is never rendered as `CLOSED`.
+  `OFFICIAL_SCHEDULE`; A is `UNKNOWN` with `isOpenNow: null` even if its directory row has usable
+  `startTime`/`endTime`; A is never rendered as `CLOSED`.
 
 ## Success criteria
 
 - **SC-001:** A regression test with two in-radius pharmacies (A fails in `weeklyHours()`, B
   succeeds) proves the response is 200 and retains **both** rows — the failure discards neither A nor
   B — and that B was actually processed to `OFFICIAL_SCHEDULE`.
-- **SC-002:** The same test proves the failed row A is `isOpenNow: null` / `UNKNOWN` when its
-  directory row has no usable times, is never `CLOSED`, and is not dropped by the `open_now=false`
+- **SC-002:** The same test proves the failed row A is `isOpenNow: null` / `UNKNOWN` both with and
+  without directory start/end values, is never `CLOSED`, and is not dropped by the `open_now=false`
   filter.
-- **SC-003:** The test is a real guard, not decoration: removing the FR-001 catch (or making it
-  rethrow) MUST turn it red. State this mutation in the test so a future reader can confirm it.
-- **SC-004:** `cd backend && ./gradlew test` passes.
-- **SC-005:** With a live fault injected into a single detail call, a real browser still shows the
+- **SC-003:** The test is a real guard, not decoration: removing the failure-to-`UNKNOWN` guard MUST
+  turn it red when a failed row still has directory start/end values. State this mutation in the test
+  so a future reader can confirm it.
+- **SC-004:** A successful empty official timetable with usable directory start/end values remains
+  `INFERRED`; it is distinct from a failed lookup, which is `UNKNOWN`.
+- **SC-005:** `cd backend && ./gradlew test` passes.
+- **SC-006:** With a live fault injected into a single detail call, a real browser still shows the
   other pharmacy's marker and an `Hours unknown` card for the failed one — the map is not emptied
   (repo §4: a browser-rendered change is verified in a browser).
 
@@ -100,11 +103,10 @@ them alone fixes #69:
 
 1. **Per-detail timeout** on each `weeklyHours()` call — measured, not guessed. Without item-level
    isolation this only turns a slow full-503 into a fast full-503.
-2. **Bounded concurrency** for the N+1 detail fan-out, respecting the 1,000/day quota (see the
-   `TODO(BE-2)` in `FacilityService.pharmacies()`). Parallelizing without per-item failure isolation
-   reproduces #69 faster.
-3. **Result cap / distance pre-selection / observability** — a bounded metric keyed by operation and
-   provider status, logging neither service keys nor user coordinates.
+2. **Bounded concurrency and result cap** for the N+1 detail fan-out are being handled in PR #71.
+   Parallelizing without this per-item failure isolation would reproduce #69 faster.
+3. **Observability** — a bounded metric keyed by operation and provider status, logging neither
+   service keys nor user coordinates.
 4. **Front-end secondary defense:** do not clear the last-good markers the instant a refetch starts.
    Useful, but the server discarding an already-assembled list is the primary bug and is fixed here.
 

@@ -45,9 +45,10 @@ class FacilityServiceTest {
                 service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY);
 
         Facility failed = facility(found, ":failed");
-        Facility failedInferred = facility(found, ":failed-inferred");
+        Facility failedWithDirectoryHours = facility(found, ":failed-with-directory-hours");
+        Facility inferred = facility(found, ":no-weekly-schedule");
         Facility official = facility(found, ":official");
-        assertThat(found).hasSize(3);
+        assertThat(found).hasSize(4);
 
         // A failed lookup whose directory row has no usable times is UNKNOWN, never CLOSED (§2-3),
         // yet its live-sourced location survives.
@@ -55,9 +56,15 @@ class FacilityServiceTest {
         assertThat(failed.operation().status()).isEqualTo(FacilityOperation.OperationStatus.UNKNOWN);
         assertThat(failed.source().dataMode()).isEqualTo(SourceRef.DataMode.LIVE);
 
-        // A failed lookup whose directory row does carry start/end falls back to INFERRED (FR-002).
-        assertThat(failedInferred.operation().isOpenNow()).isTrue();
-        assertThat(failedInferred.operation().statusConfidence())
+        // A failed lookup cannot use partial directory hours to call a pharmacy open or closed (§2-3).
+        assertThat(failedWithDirectoryHours.operation().isOpenNow()).isNull();
+        assertThat(failedWithDirectoryHours.operation().status())
+                .isEqualTo(FacilityOperation.OperationStatus.UNKNOWN);
+
+        // An empty timetable returned successfully is different from a failed lookup: the directory
+        // hours remain usable, but are explicitly marked as inferred rather than official.
+        assertThat(inferred.operation().isOpenNow()).isTrue();
+        assertThat(inferred.operation().statusConfidence())
                 .isEqualTo(FacilityOperation.StatusConfidence.INFERRED);
 
         // The pharmacy whose lookup succeeded was still fully processed off its weekly table.
@@ -65,8 +72,9 @@ class FacilityServiceTest {
         assertThat(official.operation().statusConfidence())
                 .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
 
-        // Mutation check: remove the PublicApiException catch in FacilityService#toFacility and this
-        // test fails before an assertion because the failed timetable lookup escapes the service.
+        // Mutation check: remove weeklyHoursLookupFailed's UNKNOWN guard and this test fails because
+        // the row with directory hours is inferred open rather than reported as hours unknown.
+        // Replacing operationOf's normal empty-table inference with UNKNOWN also fails this test.
     }
 
     private static Facility facility(List<Facility> found, String idSuffix) {
@@ -124,8 +132,9 @@ class FacilityServiceTest {
             return new PharmacyBatch(
                     List.of(
                             pharmacy("failed", 0.1, null, null),
-                            pharmacy("failed-inferred", 0.15, "0900", "1900"),
-                            pharmacy("official", 0.2, "0900", "1900")),
+                            pharmacy("failed-with-directory-hours", 0.15, "0900", "1900"),
+                            pharmacy("no-weekly-schedule", 0.2, "0900", "1900"),
+                            pharmacy("official", 0.25, "0900", "1900")),
                     SourceRef.DataMode.LIVE);
         }
 
@@ -133,6 +142,9 @@ class FacilityServiceTest {
         public DutyTable weeklyHours(String hpid) {
             if (hpid.startsWith("failed")) {
                 throw new PublicApiException("weekly hours unavailable");
+            }
+            if ("no-weekly-schedule".equals(hpid)) {
+                return DutyTable.empty(SourceRef.DataMode.LIVE);
             }
             return new DutyTable(Map.of(5, List.of("0900", "1900")), SourceRef.DataMode.LIVE);
         }
