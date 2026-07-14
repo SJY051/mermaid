@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { Card } from '@astryxdesign/core/Card'
@@ -13,7 +13,9 @@ import {
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
+import type { MermAidAnswer } from '../lib/types'
 import { AllergyBadge } from './AllergyBadge'
+import { AllergenPicker } from './AllergenPicker'
 import { NearbyFacilities } from './NearbyFacilities'
 
 const SESSION_COPY =
@@ -132,19 +134,54 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
 }
 
 export function ChatScreen() {
-  const { turns, streaming, elapsedS, sendError, send, newConversation } = useChatSession()
+  const {
+    turns,
+    streaming,
+    elapsedS,
+    sendError,
+    latestAnswer,
+    allergies,
+    unverifiableAllergy,
+    send,
+    confirmAllergies,
+    declareUnverifiableAllergy,
+    newConversation,
+  } = useChatSession()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
+  // The clarification this user has already answered — by confirming a selection OR by
+  // dismissing it. A LATER clarification is a different answer object, so it re-opens the
+  // picker even when a selection already exists. Gating on `allergies.length === 0` instead
+  // would suppress the picker for a second, newly-declared allergy and leave the stale list
+  // in place — the request would then carry only the old exclude_ingredients and the backend,
+  // seeing a non-empty resolved list, would retrieve as if the new allergen were never named.
+  const [handledClarification, setHandledClarification] =
+    useState<MermAidAnswer | null>(null)
+  const [editingAllergies, setEditingAllergies] = useState(false)
+  const composerRef = useRef<HTMLTextAreaElement>(null)
+
+  const clarificationNeedsSelection =
+    latestAnswer?.answerId === 'allergy-clarification' &&
+    latestAnswer !== handledClarification
+  const pickerOpen = editingAllergies || clarificationNeedsSelection
+  const composerPlaceholder = allergies.length
+    ? 'Ask your question again — answers will avoid your selected ingredients.'
+    : "I have a sore throat and a fever, and it's 11pm."
 
   // `retryable: false` means "this exact request will not succeed if resent" — so the block
   // lifts the moment the question is edited. Locking Ask outright would trap the user whose
   // correct next move IS an edit (INPUT_TOO_LARGE: shorten it and ask again).
   const askBlocked =
     sendError !== null && !sendError.retryable && input === sendError.forInput
-  const submitBlocked = !input.trim() || streaming || askBlocked
+  // While the picker is open, any request would carry the STALE exclude_ingredients — the newly
+  // declared allergen is not in the list until the user confirms. Sending first would let the
+  // backend proceed on a resolved-but-incomplete list and show a product containing it as
+  // no_match_found. So the structured list must be updated (confirm) or the picker answered
+  // (dismiss) before anything is sent. The picker itself, not the composer, is the next action.
+  const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen
 
   function submit(text: string) {
-    if (!text.trim() || streaming || askBlocked) return
+    if (!text.trim() || streaming || askBlocked || pickerOpen) return
     void send(text)
   }
 
@@ -152,39 +189,105 @@ export function ChatScreen() {
     newConversation()
     setInput('')
     setMenuOpen(false)
+    setHandledClarification(null)
+    setEditingAllergies(false)
   }
 
-  const composer = (
-    <div className="flex flex-col gap-1 px-3 pb-2">
-      {/* SA-04: nudge people away from typing identifying details into a chat box. */}
-      <ChatComposer
-        density="compact"
-        value={input}
-        onChange={setInput}
-        onSubmit={submit}
-        placeholder="I have a sore throat and a fever, and it's 11pm."
-        input={
-          <TextArea
-            label="Describe your symptoms"
-            description="Please do not enter your passport number or date of birth."
-            placeholder="I have a sore throat and a fever, and it's 11pm."
-            rows={3}
-            value={input}
-            onChange={setInput}
-          />
-        }
-        sendButton={
-          <Button
-            label={streaming ? 'Working…' : 'Ask'}
-            variant="primary"
-            isLoading={streaming}
-            isDisabled={submitBlocked}
-            onClick={() => submit(input)}
-          />
-        }
+  function confirmSelectedAllergies(keys: string[]) {
+    confirmAllergies(keys)
+    // Confirming answers the current clarification: close the picker until a LATER one arrives.
+    // The composer takes the picker's place again on the next render — its reappearance is the
+    // cue to ask again, so no explicit focus call (which would race that remount) is needed.
+    setHandledClarification(latestAnswer)
+    setEditingAllergies(false)
+  }
+
+  function dismissAllergenPicker() {
+    // "My allergy isn't listed" — the one allergen the user needs is not one we can bind, so no
+    // medicine in this conversation can be checked against it. End lookup rather than proceed on
+    // an incomplete list (the 3rd-P0 fix: a stale/partial list must not read as a complete one).
+    // The lock is persisted in the session so a reload cannot lift it (the 5th-P0 fix).
+    setHandledClarification(latestAnswer)
+    setEditingAllergies(false)
+    declareUnverifiableAllergy()
+  }
+
+  // Drug lookup ended for this conversation: an allergy we cannot verify was declared.
+  const unverifiableNotice = (
+    <div className="flex flex-col gap-3 px-3 pb-2">
+      <p className="text-sm text-primary">
+        You told us about an allergy that isn&rsquo;t in our list, so we can&rsquo;t check
+        medicines against it in this conversation. Please ask a pharmacist, who can advise on what
+        you can take.
+      </p>
+      <div>
+        <Button label="Start a new conversation" variant="primary" onClick={startNewConversation} />
+      </div>
+    </div>
+  )
+
+  // The picker takes the composer's place, not a panel above it: with no composer there is no
+  // Ask, so a request cannot carry a stale exclude_ingredients before the selection is made
+  // (the 2nd-P0 fix, now structural rather than a disabled-button guard).
+  const pickerPanel = (
+    <div className="px-3 pb-2">
+      <AllergenPicker
+        initialSelectedKeys={allergies}
+        onConfirm={confirmSelectedAllergies}
+        onDismiss={dismissAllergenPicker}
       />
     </div>
   )
+
+  const composerPanel = (
+    <div className="flex flex-col gap-2 pb-2">
+      {allergies.length > 0 && (
+        <div className="flex justify-end px-3">
+          <Button
+            label="Edit allergy list"
+            variant="secondary"
+            onClick={() => setEditingAllergies(true)}
+          />
+        </div>
+      )}
+      {/* SA-04: nudge people away from typing identifying details into a chat box. */}
+      <div className="px-3">
+        <ChatComposer
+          density="compact"
+          value={input}
+          onChange={setInput}
+          onSubmit={submit}
+          placeholder={composerPlaceholder}
+          input={
+            <TextArea
+              ref={composerRef}
+              label="Describe your symptoms"
+              description="Please do not enter your passport number or date of birth."
+              placeholder={composerPlaceholder}
+              rows={3}
+              value={input}
+              onChange={setInput}
+            />
+          }
+          sendButton={
+            <Button
+              label={streaming ? 'Working…' : 'Ask'}
+              variant="primary"
+              isLoading={streaming}
+              isDisabled={submitBlocked}
+              onClick={() => submit(input)}
+            />
+          }
+        />
+      </div>
+    </div>
+  )
+
+  const composer = unverifiableAllergy
+    ? unverifiableNotice
+    : pickerOpen
+      ? pickerPanel
+      : composerPanel
 
   return (
     <main className="flex h-full flex-col">

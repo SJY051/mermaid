@@ -45,10 +45,17 @@ export const openai = new OpenAI({
 export async function* streamChat(
   messages: OpenAI.ChatCompletionMessageParam[],
   signal?: AbortSignal,
+  extension?: MermaidRequestExtension,
 ): AsyncGenerator<string> {
-  const stream = await openai.chat.completions.create(
+  const body: OpenAI.ChatCompletionCreateParamsStreaming & MermaidRequestExtension = {
     // The backend pins the real model; whatever we send here is overwritten.
-    { model: 'mermaid-default', messages, stream: true },
+    model: 'mermaid-default',
+    messages,
+    stream: true,
+    ...extension,
+  }
+  const stream = await openai.chat.completions.create(
+    body,
     { signal },
   )
 
@@ -56,6 +63,12 @@ export async function* streamChat(
   for await (const chunk of stream) {
     assembled += chunk.choices[0]?.delta?.content ?? ''
     yield assembled
+  }
+}
+
+export interface MermaidRequestExtension {
+  mermaid?: {
+    exclude_ingredients: string[]
   }
 }
 

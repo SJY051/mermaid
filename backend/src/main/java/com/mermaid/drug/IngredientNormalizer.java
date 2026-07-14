@@ -345,6 +345,16 @@ public class IngredientNormalizer {
     }
 
     /**
+     * The canonical keys the allergy check can bind — the client's allergen picker offers exactly
+     * these and nothing else (spec 005 FR-015). Sourced from the dictionary so the picker can
+     * never drift from what actually binds: an exact canonical key resolves through
+     * {@link #isReviewedBinding} by identity, so every option offered is an option that works.
+     */
+    public List<String> canonicalKeys() {
+        return knownCanonicalKeys.stream().sorted().toList();
+    }
+
+    /**
      * @param raw exactly what the user typed, kept so we can show it back to them
      * @param key {@code null} when normalisation failed
      */

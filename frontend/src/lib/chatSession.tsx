@@ -26,7 +26,12 @@ interface ChatSessionContextValue {
   sendError: (SendFailure & { forInput: string }) | null
   emergencyActive: boolean
   latestAnswer: MermAidAnswer | null
+  allergies: string[]
+  /** Drug lookup is ended for this conversation: an allergy we cannot bind was declared. */
+  unverifiableAllergy: boolean
   send: (text: string) => Promise<void>
+  confirmAllergies: (keys: string[]) => void
+  declareUnverifiableAllergy: () => void
   newConversation: () => void
 }
 
@@ -70,11 +75,24 @@ function restoreSession(session: ChatSession): { turns: ChatTurn[]; messages: St
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [initialSession] = useState(loadChatSession)
   const [restored] = useState(() => restoreSession(initialSession))
+  const [initialAllergies] = useState(() =>
+    Array.isArray(initialSession.allergies)
+      ? initialSession.allergies.filter((allergy): allergy is string => typeof allergy === 'string')
+      : [],
+  )
+  const [initialUnverifiable] = useState(() => initialSession.unverifiableAllergy === true)
   const [turns, setTurns] = useState<ChatTurn[]>(restored.turns)
+  const [allergies, setAllergies] = useState(initialAllergies)
+  const [unverifiableAllergy, setUnverifiableAllergyState] = useState(initialUnverifiable)
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
   const turnsRef = useRef(restored.turns)
-  const sessionRef = useRef<ChatSession>({ ...initialSession, messages: restored.messages })
+  const sessionRef = useRef<ChatSession>({
+    ...initialSession,
+    messages: restored.messages,
+    allergies: initialAllergies,
+    unverifiableAllergy: initialUnverifiable,
+  })
   const conversationRef = useRef(0)
 
   // Reserved so the profile endpoints have an identity to attach to (FR-04).
@@ -129,7 +147,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       try {
         let latest = ''
-        for await (const partial of streamChat(messages)) {
+        const requestExtension = sessionRef.current.allergies.length
+          ? {
+              mermaid: {
+                exclude_ingredients: [...sessionRef.current.allergies],
+              },
+            }
+          : undefined
+        const response = requestExtension
+          ? streamChat(messages, undefined, requestExtension)
+          : streamChat(messages)
+        for await (const partial of response) {
           latest = partial
         }
         // Only parse once the stream has finished. A truncated JSON object must never
@@ -174,11 +202,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [persistSession, streaming],
   )
 
+  const confirmAllergies = useCallback(
+    (keys: string[]) => {
+      const confirmed = [...keys]
+      sessionRef.current = { ...sessionRef.current, allergies: confirmed }
+      setAllergies(confirmed)
+      persistSession()
+    },
+    [persistSession],
+  )
+
+  // Ends drug lookup for the conversation and PERSISTS that decision, so a reload cannot silently
+  // lift the lock while the conversation (and its incomplete allergy list) is restored.
+  const declareUnverifiableAllergy = useCallback(() => {
+    sessionRef.current = { ...sessionRef.current, unverifiableAllergy: true }
+    setUnverifiableAllergyState(true)
+    persistSession()
+  }, [persistSession])
+
   const newConversation = useCallback(() => {
     conversationRef.current += 1
     turnsRef.current = []
-    sessionRef.current = { sessionId: '', messages: [], allergies: [] }
+    sessionRef.current = { sessionId: '', messages: [], allergies: [], unverifiableAllergy: false }
     setTurns([])
+    setAllergies([])
+    setUnverifiableAllergyState(false)
     setStreaming(false)
     clearChatSession()
   }, [])
@@ -196,7 +244,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         sendError,
         emergencyActive,
         latestAnswer,
+        allergies,
+        unverifiableAllergy,
         send,
+        confirmAllergies,
+        declareUnverifiableAllergy,
         newConversation,
       }}
     >

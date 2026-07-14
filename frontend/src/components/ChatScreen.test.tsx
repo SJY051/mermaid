@@ -26,6 +26,7 @@ vi.stubGlobal(
  * no fabricated drugs) are part of what the screen shows.
  */
 const streamChatMock = vi.hoisted(() => vi.fn())
+const fetchMock = vi.fn()
 vi.mock('../lib/openaiClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/openaiClient')>()
   return { ...actual, streamChat: streamChatMock }
@@ -65,6 +66,24 @@ const validAnswer = JSON.stringify({
   disclaimer: 'Server disclaimer.',
 })
 
+const clarificationAnswer = JSON.stringify({
+  ...JSON.parse(validAnswer),
+  answerId: 'allergy-clarification',
+  summary: 'Tell us the exact ingredient, or ask a pharmacist if it is not listed.',
+})
+
+const allergenOptions = [
+  { key: 'ibuprofen', label: 'Ibuprofen' },
+  { key: 'acetylsalicylic-acid', label: 'Aspirin (acetylsalicylic acid)' },
+]
+
+function serveAllergenOptions(options = allergenOptions) {
+  fetchMock.mockResolvedValue({
+    ok: true,
+    json: async () => options,
+  })
+}
+
 function renderChat() {
   return render(
     <ChatProvider>
@@ -83,6 +102,8 @@ async function ask(text = 'I have a headache') {
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  fetchMock.mockReset()
+  vi.stubGlobal('fetch', fetchMock)
 })
 
 afterEach(() => {
@@ -349,6 +370,214 @@ describe('conversation state', () => {
     await user.click(screen.getByRole('button', { name: 'Conversation menu' }))
 
     expect(screen.getByText(SESSION_COPY)).toBeInTheDocument()
+  })
+})
+
+describe('allergen picker (spec 005 FR-014)', () => {
+  it('appears only when the latest answer is the allergy clarification', async () => {
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(validAnswer))
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+    renderChat()
+
+    const user = await ask('I have a headache')
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I am allergic to a pain medicine')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+
+    expect(
+      await screen.findByRole('dialog', { name: /tell us your allergy/i }),
+    ).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/ingredients/allergen-options')
+  })
+
+  it('renders only options returned by the server and stays hidden when they cannot be fetched', async () => {
+    const serverOptions = [
+      { key: 'server-key-a', label: 'Server label A' },
+      { key: 'server-key-b', label: 'Server label B' },
+    ]
+    serveAllergenOptions(serverOptions)
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    const firstView = renderChat()
+    await ask('I have an allergy')
+
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(picker).getByRole('checkbox', { name: 'Server label A' })).toBeInTheDocument()
+    expect(within(picker).getByRole('checkbox', { name: 'Server label B' })).toBeInTheDocument()
+    expect(within(picker).getAllByRole('checkbox')).toHaveLength(serverOptions.length)
+    expect(picker).not.toHaveTextContent(/ibuprofen|aspirin/i)
+
+    firstView.unmount()
+    sessionStorage.clear()
+    streamChatMock.mockReset()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    fetchMock.mockReset()
+    fetchMock.mockRejectedValue(new Error('offline'))
+    renderChat()
+    await ask('I have another allergy')
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/ask a pharmacist if it is not listed/i)).toBeInTheDocument()
+  })
+
+  it('stores confirmed keys in this tab and sends exactly those keys on the next request', async () => {
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const user = await ask('I am allergic to pain medicine')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.click(within(picker).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(
+      within(picker).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
+    )
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    const selectedKeys = ['ibuprofen', 'acetylsalicylic-acid']
+    expect(loadChatSession().allergies).toEqual(selectedKeys)
+    expect(Object.values(localStorage).join('\n')).not.toContain('ibuprofen')
+    expect(screen.getByRole('textbox')).toHaveAttribute(
+      'placeholder',
+      'Ask your question again — answers will avoid your selected ingredients.',
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Edit allergy list' }))
+    const reopened = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(reopened).getByRole('checkbox', { name: 'Ibuprofen' })).toBeChecked()
+    expect(
+      within(reopened).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
+    ).toBeChecked()
+    // Confirm (not dismiss) to close the re-opened picker — dismiss now ends drug lookup.
+    await user.click(within(reopened).getByRole('button', { name: 'Use selected allergies' }))
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'What can I take for this headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    expect(streamChatMock).toHaveBeenLastCalledWith(
+      [
+        { role: 'user', content: 'I am allergic to pain medicine' },
+        { role: 'user', content: 'What can I take for this headache?' },
+      ],
+      undefined,
+      { mermaid: { exclude_ingredients: selectedKeys } },
+    )
+  })
+
+  it('re-opens the picker for a second, later allergy declaration and adds to the list (P0)', async () => {
+    // A user who already selected one allergy then declares a second in free text. The backend
+    // returns the clarification again (FR-001), but the old guard suppressed the picker once
+    // `allergies.length > 0`, leaving the stale ["ibuprofen"] list in place — the next request
+    // would carry only that, and the backend, seeing a non-empty resolved list, would retrieve
+    // as if the second allergen were never named. The picker must re-open, pre-filled.
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+
+    const first = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(first).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(within(first).getByRole('button', { name: 'Use selected allergies' }))
+    expect(loadChatSession().allergies).toEqual(['ibuprofen'])
+    // Confirming answered THIS clarification, so the picker closes (it is still the latest answer).
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I am also allergic to aspirin')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+
+    const reopened = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(reopened).getByRole('checkbox', { name: 'Ibuprofen' })).toBeChecked()
+    await user.click(
+      within(reopened).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
+    )
+    await user.click(within(reopened).getByRole('button', { name: 'Use selected allergies' }))
+
+    const bothKeys = ['ibuprofen', 'acetylsalicylic-acid']
+    expect(loadChatSession().allergies).toEqual(bothKeys)
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'What can I take?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    expect(streamChatMock).toHaveBeenLastCalledWith(expect.anything(), undefined, {
+      mermaid: { exclude_ingredients: bothKeys },
+    })
+  })
+
+  it('replaces the composer with the picker, so no request can be sent before selecting (P0)', async () => {
+    // Re-opening the picker is not enough on its own: a user could ignore an overlay, type a
+    // fresh keyword-free question, and press Ask, sending the STALE exclude_ingredients. The
+    // picker takes the composer's PLACE — with no composer there is no Ask, so the stale-send
+    // path does not exist while a selection is pending.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    renderChat()
+    await ask('I am allergic to a pain medicine')
+    await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^ask$/i })).not.toBeInTheDocument()
+  })
+
+  it('ends drug lookup for the conversation when the declared allergy is unlisted (P0)', async () => {
+    // "My allergy isn't listed" is a declaration of an allergen we cannot bind. Keeping the old
+    // selected keys and letting the next question through would treat the unlisted allergen as
+    // absent and could show a product containing it as no_match_found. So drug lookup ends: the
+    // composer is replaced by a pharmacist notice, and only a new conversation resets it.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am allergic to something not in the list')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.click(within(picker).getByRole('button', { name: "My allergy isn't listed" }))
+
+    // No composer to send a stale list from; a pharmacist notice and a reset are the only paths.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/isn.t in our list/i)).toBeInTheDocument()
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+
+    // A new conversation clears the block and restores the composer.
+    await user.click(screen.getByRole('button', { name: /start a new conversation/i }))
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+    expect(screen.queryByText(/isn.t in our list/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps the unlisted-allergy lock across a reload/remount (P0)', async () => {
+    // The lock is a safety decision, not view state: a reload restores the conversation and its
+    // (incomplete) allergy list from sessionStorage, so if the lock lived only in React state it
+    // would reset and retrieval could resume on a list missing the unlisted allergen. It must be
+    // persisted with the conversation.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    const first = renderChat()
+    const user = await ask('I am allergic to something not in the list')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(picker).getByRole('button', { name: "My allergy isn't listed" }))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+
+    // Simulate a reload: unmount and mount a fresh provider that restores from sessionStorage.
+    first.unmount()
+    renderChat()
+
+    // The lock survived — still no composer, still the notice — so no request can resume.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/isn.t in our list/i)).toBeInTheDocument()
   })
 })
 
