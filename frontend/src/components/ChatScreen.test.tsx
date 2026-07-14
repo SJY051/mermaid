@@ -557,6 +557,28 @@ describe('allergen picker (spec 005 FR-014)', () => {
     expect(screen.getByRole('textbox')).toBeInTheDocument()
     expect(screen.queryByText(/isn.t in our list/i)).not.toBeInTheDocument()
   })
+
+  it('keeps the unlisted-allergy lock across a reload/remount (P0)', async () => {
+    // The lock is a safety decision, not view state: a reload restores the conversation and its
+    // (incomplete) allergy list from sessionStorage, so if the lock lived only in React state it
+    // would reset and retrieval could resume on a list missing the unlisted allergen. It must be
+    // persisted with the conversation.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    const first = renderChat()
+    const user = await ask('I am allergic to something not in the list')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(picker).getByRole('button', { name: "My allergy isn't listed" }))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+
+    // Simulate a reload: unmount and mount a fresh provider that restores from sessionStorage.
+    first.unmount()
+    renderChat()
+
+    // The lock survived — still no composer, still the notice — so no request can resume.
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.getByText(/isn.t in our list/i)).toBeInTheDocument()
+  })
 })
 
 const SESSION_COPY =

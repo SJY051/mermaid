@@ -141,8 +141,10 @@ export function ChatScreen() {
     sendError,
     latestAnswer,
     allergies,
+    unverifiableAllergy,
     send,
     confirmAllergies,
+    declareUnverifiableAllergy,
     newConversation,
   } = useChatSession()
   const [input, setInput] = useState('')
@@ -156,13 +158,6 @@ export function ChatScreen() {
   const [handledClarification, setHandledClarification] =
     useState<MermAidAnswer | null>(null)
   const [editingAllergies, setEditingAllergies] = useState(false)
-  // The user pressed "My allergy isn't listed": they have an allergy we hold no ingredient for,
-  // so we cannot verify any medicine against it. Retrieving on the still-selected keys would
-  // treat the unlisted allergen as absent and could show a product containing it as
-  // no_match_found (§2-2). So this ends drug lookup for the conversation — a pharmacist can
-  // advise, and a new conversation resets it. A later slice (DEV-56x) will let the user add an
-  // unlisted allergen as free text for a server-side substring warning; until then, fail closed.
-  const [unverifiableAllergy, setUnverifiableAllergy] = useState(false)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
   const clarificationNeedsSelection =
@@ -196,7 +191,6 @@ export function ChatScreen() {
     setMenuOpen(false)
     setHandledClarification(null)
     setEditingAllergies(false)
-    setUnverifiableAllergy(false)
   }
 
   function confirmSelectedAllergies(keys: string[]) {
@@ -212,9 +206,10 @@ export function ChatScreen() {
     // "My allergy isn't listed" — the one allergen the user needs is not one we can bind, so no
     // medicine in this conversation can be checked against it. End lookup rather than proceed on
     // an incomplete list (the 3rd-P0 fix: a stale/partial list must not read as a complete one).
+    // The lock is persisted in the session so a reload cannot lift it (the 5th-P0 fix).
     setHandledClarification(latestAnswer)
     setEditingAllergies(false)
-    setUnverifiableAllergy(true)
+    declareUnverifiableAllergy()
   }
 
   // Drug lookup ended for this conversation: an allergy we cannot verify was declared.

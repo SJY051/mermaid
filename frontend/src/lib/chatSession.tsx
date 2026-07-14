@@ -27,8 +27,11 @@ interface ChatSessionContextValue {
   emergencyActive: boolean
   latestAnswer: MermAidAnswer | null
   allergies: string[]
+  /** Drug lookup is ended for this conversation: an allergy we cannot bind was declared. */
+  unverifiableAllergy: boolean
   send: (text: string) => Promise<void>
   confirmAllergies: (keys: string[]) => void
+  declareUnverifiableAllergy: () => void
   newConversation: () => void
 }
 
@@ -77,8 +80,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       ? initialSession.allergies.filter((allergy): allergy is string => typeof allergy === 'string')
       : [],
   )
+  const [initialUnverifiable] = useState(() => initialSession.unverifiableAllergy === true)
   const [turns, setTurns] = useState<ChatTurn[]>(restored.turns)
   const [allergies, setAllergies] = useState(initialAllergies)
+  const [unverifiableAllergy, setUnverifiableAllergyState] = useState(initialUnverifiable)
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
   const turnsRef = useRef(restored.turns)
@@ -86,6 +91,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     ...initialSession,
     messages: restored.messages,
     allergies: initialAllergies,
+    unverifiableAllergy: initialUnverifiable,
   })
   const conversationRef = useRef(0)
 
@@ -206,12 +212,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [persistSession],
   )
 
+  // Ends drug lookup for the conversation and PERSISTS that decision, so a reload cannot silently
+  // lift the lock while the conversation (and its incomplete allergy list) is restored.
+  const declareUnverifiableAllergy = useCallback(() => {
+    sessionRef.current = { ...sessionRef.current, unverifiableAllergy: true }
+    setUnverifiableAllergyState(true)
+    persistSession()
+  }, [persistSession])
+
   const newConversation = useCallback(() => {
     conversationRef.current += 1
     turnsRef.current = []
-    sessionRef.current = { sessionId: '', messages: [], allergies: [] }
+    sessionRef.current = { sessionId: '', messages: [], allergies: [], unverifiableAllergy: false }
     setTurns([])
     setAllergies([])
+    setUnverifiableAllergyState(false)
     setStreaming(false)
     clearChatSession()
   }, [])
@@ -230,8 +245,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         emergencyActive,
         latestAnswer,
         allergies,
+        unverifiableAllergy,
         send,
         confirmAllergies,
+        declareUnverifiableAllergy,
         newConversation,
       }}
     >
