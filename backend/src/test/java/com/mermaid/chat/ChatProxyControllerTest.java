@@ -243,22 +243,22 @@ class ChatProxyControllerTest {
             """.formatted(productNameKo, directions == null ? "null" : "\"" + directions + "\"", sourceRefId);
     }
 
-    // ── invariant 7: a dose the ministry did not state is not a dose ────────────────────────────
+    // ── invariant 7: the dose is the ministry's, verbatim, or there is no dose ─────────────────
 
     @Nested
     @DisplayName("the directions gate")
     class DirectionsGate {
 
-        /** 식약처's real 용법용량 for 타이레놀정500밀리그람. */
+        /** 식약처's real 용법용량 for 타이레놀정500밀리그람. Note the 12 — it is an AGE. */
         private static final String OFFICIAL = "만 12세 이상 소아 및 성인: 1회 1~2정씩 1일 3~4회 필요시 복용합니다.";
 
         @Test
-        @DisplayName("a dose the ministry never wrote is removed from the card, not shown as verified")
-        void inventedDoseIsStripped() throws Exception {
-            // The card keeps its real product, its real ingredients, its real source — so every other
-            // invariant passes — and tells the reader to take four times the label's dose, under a
-            // footer naming 식약처. This is the whole defect: being *told* not to invent a dose is not
-            // an invariant, and until now nothing checked.
+        @DisplayName("the model's dose is discarded and the ministry's own text takes its place")
+        void serverWritesTheDose() throws Exception {
+            // The card keeps its real product, ingredients and source — every other invariant passes
+            // — and tells the reader to take four times the label's dose, under a footer naming
+            // 식약처. Being *told* not to invent a dose was never an invariant. The model's sentence
+            // is not checked here; it is not read at all.
             MermAidAnswer answer = answerOf(controller(
                             modelAnswer(
                                     drugCard(TYLENOL, "src:mfds:202005623",
@@ -267,36 +267,53 @@ class ChatProxyControllerTest {
                             contextWithDosage(AllergyCheck.noMatch(), OFFICIAL, TYLENOL))
                     .completions(request("can I take 타이레놀?")));
 
-            // Stripped, not rejected: the rest of the card is grounded, and someone who is unwell
-            // must not be left with nothing because the model got the numbers wrong.
             assertThat(answer.drugs()).hasSize(1);
-            assertThat(answer.drugs().get(0).directionsSummary()).isNull();
+            assertThat(answer.drugs().get(0).directionsSummary()).isEqualTo(OFFICIAL);
+            // Degrade, don't annihilate: the rest of the card is grounded and stays.
             assertThat(answer.drugs().get(0).indicationSummary()).isEqualTo("fever");
-            assertThat(answer.drugs().get(0).productNameKo()).isEqualTo(TYLENOL);
         }
 
         @Test
-        @DisplayName("a faithful translation keeps every number, and survives")
-        void faithfulTranslationSurvives() throws Exception {
-            // The English is the model's to write — that is the job we gave it. Only the quantities
-            // must be the ministry's, and here they are: 1, 2, 3, 4, 12.
+        @DisplayName("a plausible dose that reuses a label number in the wrong role is discarded too")
+        void reusedLabelNumberIsDiscarded() throws Exception {
+            // This is the one that killed the first fix. "12" IS in the label — as 만 12세, an age —
+            // so a number-membership check let "Take 12 tablets once daily" through. A digit does not
+            // carry its role, and recovering the role means parsing Korean dosage prose, which is the
+            // same defect in a lab coat. The model has no dosing authority at all now, so a sentence
+            // that would have passed every check still never reaches the card.
             MermAidAnswer answer = answerOf(controller(
                             modelAnswer(
                                     drugCard(TYLENOL, "src:mfds:202005623",
-                                            "Adults and children over 12: 1-2 tablets, 3 to 4 times a day as needed."),
+                                            "Take 12 tablets once daily."),
                                     "[]"),
                             contextWithDosage(AllergyCheck.noMatch(), OFFICIAL, TYLENOL))
                     .completions(request("can I take 타이레놀?")));
 
             assertThat(answer.drugs().get(0).directionsSummary())
-                    .isEqualTo("Adults and children over 12: 1-2 tablets, 3 to 4 times a day as needed.");
+                    .isEqualTo(OFFICIAL)
+                    .doesNotContain("12 tablets");
         }
 
         @Test
-        @DisplayName("no ministry dosing text means no dose may be stated at all")
-        void withoutOfficialTextNoNumberSurvives() throws Exception {
-            // Nothing to check against is not permission to guess. A product whose 용법용량 the ministry
-            // did not give us has no dose we can stand behind, so a number here has no source at all.
+        @DisplayName("even a faithful translation is replaced — we do not ship a dose we cannot verify")
+        void faithfulTranslationIsAlsoReplaced() throws Exception {
+            // This one is CORRECT. It still goes: we have no way to tell it from the wrong one, and
+            // "usually right" is not a property a dose may have. The pharmacist reads the Korean.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623",
+                                            "Adults and children over 12: 1-2 tablets, 3 to 4 times a day."),
+                                    "[]"),
+                            contextWithDosage(AllergyCheck.noMatch(), OFFICIAL, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).directionsSummary()).isEqualTo(OFFICIAL);
+        }
+
+        @Test
+        @DisplayName("no ministry dosing text means no dose on the card at all")
+        void withoutOfficialTextThereIsNoDose() throws Exception {
+            // Nothing retrieved is not permission to guess. The card says so rather than going quiet.
             MermAidAnswer answer = answerOf(controller(
                             modelAnswer(
                                     drugCard(TYLENOL, "src:mfds:202005623", "Take 2 tablets 3 times a day."),
@@ -305,23 +322,6 @@ class ChatProxyControllerTest {
                     .completions(request("can I take 타이레놀?")));
 
             assertThat(answer.drugs().get(0).directionsSummary()).isNull();
-        }
-
-        @Test
-        @DisplayName("prose that states no quantity is not a dose, and stays")
-        void quantitylessProseSurvives() throws Exception {
-            // "Follow the label" contradicts no label. Stripping it would tell us nothing and cost
-            // the reader the one sentence pointing them at the package.
-            MermAidAnswer answer = answerOf(controller(
-                            modelAnswer(
-                                    drugCard(TYLENOL, "src:mfds:202005623",
-                                            "Follow the dosing on the package, or ask the pharmacist."),
-                                    "[]"),
-                            contextWithDosage(AllergyCheck.noMatch(), null, TYLENOL))
-                    .completions(request("can I take 타이레놀?")));
-
-            assertThat(answer.drugs().get(0).directionsSummary())
-                    .isEqualTo("Follow the dosing on the package, or ask the pharmacist.");
         }
     }
 

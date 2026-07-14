@@ -14,8 +14,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -291,34 +289,28 @@ public class ChatProxyController {
                 answer.disclaimer());
     }
 
-    /** A run of digits, with the separators a dose is written with (1.5, 1~2, 1-2, 1,000). */
-    private static final Pattern NUMBER = Pattern.compile("\\d[\\d.,]*");
-
     /**
-     * A dose the ministry did not state is not a dose. Post-processing invariant 7.
+     * The dose is the ministry's, verbatim, or there is no dose. Post-processing invariant 7.
      *
-     * <p>The model is told to translate {@code officialTextKo.useMethod} and add nothing. Being told
-     * is not an invariant: nothing checked it, and a schema-valid answer could carry
-     * <em>"take 4 tablets every 4 hours"</em> for a label that says 1회 1정, 1일 3회 — under a footer
-     * naming 식약처 as the source. The card would be a government-branded overdose (OUT-03 in the
-     * DEV-603 review, filed there as P0 and unclosed until now).
+     * <p>The model used to write this field, and nothing checked it: a schema-valid answer could say
+     * <em>"take 8 tablets every 2 hours"</em> for a label reading 1회 1~2정, 1일 3~4회 — under a footer
+     * naming 식약처 as the source. A government-branded overdose (OUT-03).
      *
-     * <p>So we check the one thing a machine can decide: <b>every number in the model's directions
-     * must be a number the ministry wrote.</b> Words are the model's to choose — that is the
-     * translation we asked for — but a quantity it invented has no source, and a quantity is what a
-     * person acts on. Digits are language-independent, so this holds across the translation without
-     * our having to parse either side.
+     * <p>The first fix checked that every number the model wrote appeared in the ministry's text.
+     * Review broke it in one line: 만 12세 이상 … 1회 1~2정 contains "12", so <em>"Take 12 tablets once
+     * daily"</em> passed — the digit was there, as an AGE. Numbers have roles, and a substring does
+     * not carry one. Any check that tries to recover the role has to parse Korean dosage prose, and
+     * a parser that is wrong on a dose is the same defect wearing a lab coat.
      *
-     * <p>A card that fails is <b>stripped of its directions, not rejected</b>. Rejecting the whole
-     * answer (as invariant 6 does for an invented product) would leave someone who is unwell with
-     * nothing at all, when everything else on the card is grounded and useful; the frontend says
-     * plainly that dosing is not shown and to read the package or ask the pharmacist. Degrade, do
-     * not annihilate.
+     * <p>So we stopped trying to check the model and removed its authority instead. <b>The server
+     * writes this field.</b> It carries 식약처's own 용법용량, exactly as retrieved, and the model's
+     * version is discarded unread. Nothing to verify, because nothing was authored. The card labels
+     * it as the official Korean text and says we do not translate doses — the pharmacist reads it
+     * with the person, which is where an exact dose was always going to come from.
      *
-     * <p>Conservative by construction: it can only remove text, never add or alter it. A false
-     * positive (the model writes "every 8 hours" for 1일 3회 — a true restatement whose number is not
-     * in the label) costs one section and points the person at the pharmacist, which is where the
-     * exact dose should come from anyway.
+     * <p>The model keeps the rest of the card. Explaining what a medicine is FOR, in English, is the
+     * job we gave it and a wrong word there is not an overdose. This is the line: bind the model to
+     * the record on what a person ACTS on, leave it free on what they only read.
      */
     private static List<MermAidAnswer.DrugCard> groundDirections(
             List<MermAidAnswer.DrugCard> drugs,
@@ -326,58 +318,23 @@ public class ChatProxyController {
 
         List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
         for (MermAidAnswer.DrugCard drug : drugs) {
-            String directions = drug.directionsSummary();
-            if (directions == null || directions.isBlank()) {
-                grounded.add(drug);
-                continue;
-            }
-
             DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
             String official = source == null ? null : source.officialDosageKo();
-            if (numbersAreGrounded(directions, official)) {
-                grounded.add(drug);
-                continue;
-            }
-
-            // Name the product, never the sentence: the rejected text is model output shaped by
-            // whatever the user typed, and a log is not a place to put that (§2-5's principle, one
-            // step out). The product name is ours — it came from the ministry.
-            log.warn(
-                    "directions_ungrounded product={} hasOfficialDosage={}",
-                    drug.productNameKo(),
-                    official != null);
-            grounded.add(withoutDirections(drug));
+            String blank = official != null && official.isBlank() ? null : official;
+            grounded.add(withDirections(drug, blank));
         }
         return List.copyOf(grounded);
     }
 
-    /** Every number the model wrote appears in the ministry's text. No ministry text, no numbers. */
-    private static boolean numbersAreGrounded(String directions, String official) {
-        Matcher numbers = NUMBER.matcher(directions);
-        if (official == null || official.isBlank()) {
-            // Nothing to check against. Prose with no quantity in it still says nothing a label
-            // could contradict, so it survives; the moment it names a number, it has no source.
-            return !numbers.find();
-        }
-        while (numbers.find()) {
-            // Trailing separators are punctuation, not part of the quantity: "1일 3회." ends a
-            // sentence, and "3." must still match the label's "3".
-            String number = numbers.group().replaceAll("[.,]+$", "");
-            if (!official.contains(number)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static MermAidAnswer.DrugCard withoutDirections(MermAidAnswer.DrugCard drug) {
+    private static MermAidAnswer.DrugCard withDirections(
+            MermAidAnswer.DrugCard drug, String officialDosageKo) {
         return new MermAidAnswer.DrugCard(
                 drug.id(),
                 drug.productNameKo(),
                 drug.productNameEn(),
                 drug.ingredients(),
                 drug.indicationSummary(),
-                null,
+                officialDosageKo,
                 drug.warnings(),
                 drug.prescriptionStatus(),
                 drug.allergyCheck(),

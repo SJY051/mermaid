@@ -126,18 +126,31 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
               Directions
             </h3>
             {drug.directionsSummary ? (
-              <p className="mt-1 whitespace-pre-wrap text-sm text-primary">
-                {drug.directionsSummary}
-              </p>
+              // This text is 식약처's own 용법용량, written by the server, verbatim (invariant 7). It
+              // is deliberately NOT translated: a mistranslated dose is an overdose, and the model
+              // once passed a check by reusing the label's "12" — an AGE — as a tablet count. So the
+              // number a person acts on is the ministry's, in the ministry's words, and the sentence
+              // below says exactly that. `lang="ko"` so a screen reader speaks it as Korean.
+              <>
+                <p
+                  lang="ko"
+                  className="mt-1 whitespace-pre-wrap text-sm text-primary"
+                  data-testid="official-dosage"
+                >
+                  {drug.directionsSummary}
+                </p>
+                <p className="mt-1 text-xs text-secondary">
+                  Official dosing from the Ministry of Food and Drug Safety, in Korean. We do not
+                  translate doses — show this to the pharmacist and they will read it with you.
+                </p>
+              </>
             ) : (
-              // The server removes dosing it cannot trace to the ministry's own 용법용량 (post-
-              // processing invariant 7). Rendering nothing here would leave the card silent exactly
-              // where a person looks for a number — and silence reads as "no special dosing", the
-              // same trap as a `no_match_found` allergy read as "safe" (§2-2). So the card says
-              // what happened, and points at the two places the real dose is.
+              // Silence here reads as "no special dosing", in the exact place a person looks for a
+              // number — the same trap as a `no_match_found` allergy read as "safe" (§2-2). So the
+              // card says what happened, and points at the two places the real dose is.
               <p className="mt-1 text-sm text-primary">
-                We are not showing a dose for this medicine. Read the dosing on the package, or ask
-                the pharmacist — they can read the Korean label with you.
+                We have no official dosing for this medicine. Read the dosing on the package, or ask
+                the pharmacist.
               </p>
             )}
           </section>
