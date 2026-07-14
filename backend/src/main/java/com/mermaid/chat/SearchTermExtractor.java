@@ -132,8 +132,12 @@ public class SearchTermExtractor {
             // gone, and the old line — a bare `code=UPSTREAM_FAILURE` — said only that something,
             // somewhere, went wrong. It cost an evening to find out that "something" was a timeout.
             //
-            // The exception's type and its own message, and nothing else: the user's text is not a
-            // log line (§2-5), and a Jackson parse error would happily quote it back into one.
+            // The exception's TYPE and a reason we classified ourselves — never the exception's own
+            // message. That message is not ours: a Jackson parse error quotes the text it choked on,
+            // which is the person's symptoms (§2-5), and any upstream can put CRLF in it and forge a
+            // log line. `reasonOf` maps the throwable to a fixed vocabulary (timeout / http_NNN /
+            // connect_failed / unclassified), so what lands in the log is a word we chose. Do not
+            // "improve" this by adding `e.getMessage()`.
             log.warn(
                     "search_term_extraction_failed code=UPSTREAM_FAILURE exception={} reason={}",
                     e.getClass().getSimpleName(),
