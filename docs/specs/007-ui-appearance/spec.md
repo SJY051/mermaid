@@ -53,11 +53,28 @@ text is unreadable, and every tap target the wireframe placed would be in the wr
 The bound lives on the **shell**, not on each screen, so no screen can opt out of it by accident.
 Between 320 and 768 the layout is fluid; above 768 it stops growing and centres.
 
-### FR-002 — Colour comes from tokens, and dark mode is one of them
+### FR-002 — Colour comes from tokens, and dark mode is already one of them
 
 18 hard-coded hex values live in components today (`#c62828`, `#fdf1f1`, `#e0a800`, …). They were
 written for the light frame and the dark theme cannot reach them: a dark-mode user gets a light
 callout with light text, or a colour the theme never chose.
+
+**Correction, 2026-07-15 — an earlier draft of this spec said astryx ships no dark tokens. It was
+wrong, and the error was mine: I grepped for `prefers-color-scheme`, `.dark` and `[data-theme]`,
+found none, and concluded there was no dark theme.** astryx uses none of those. It uses the CSS
+`light-dark()` function — `--color-text-primary: light-dark(#171717, #fafafa)` — 96 times, driven by
+`color-scheme`, which `index.css` already sets. **So we define no palette.** Every colour this app
+needs already exists, dark included:
+
+| meaning | Tailwind utility (all dark-aware) |
+|---|---|
+| danger — emergency, allergy **blocked** | `text-red-vivid` / `bg-red-subtle` / `border-red-ring` |
+| caution — allergy **warning**/**unknown**, hours unknown | `text-yellow-vivid` / `bg-yellow-subtle` / `border-yellow-ring` |
+| open — facility **open now** | `text-green-vivid` / `bg-green-subtle` / `border-green-ring` |
+| closed / neutral | `text-secondary` / `border-strong` / `bg-muted` |
+
+The work is therefore a replacement, not a design. Naver markers take an HTML string rather than a
+class, so they carry `var(--color-red-vivid)` inline — the same token, resolved in the document.
 
 Every colour that carries meaning becomes a token, and the meanings are the ones §2 already fixed:
 
@@ -138,11 +155,14 @@ often someone for whom motion is a symptom.
 Both of the questions this spec would otherwise have opened were answered by opening the package,
 not by assuming:
 
-- **astryx ships no dark tokens.** `@astryxdesign/theme-neutral/dist/theme.css` defines 197 tokens
-  and contains no `prefers-color-scheme` block, no `.dark` selector, and no `[data-theme]`. This is
-  exactly what blocked the dark frames in the design handoff. **The dark palette is ours to define**
-  — as a token layer over theirs, so a future astryx dark theme can replace it without touching a
-  component.
+- ~~**astryx ships no dark tokens.**~~ **Wrong — corrected 2026-07-15.** The absence of
+  `prefers-color-scheme`, `.dark` and `[data-theme]` was real; the conclusion drawn from it was not.
+  astryx expresses dark through the CSS `light-dark()` function (96 tokens in
+  `@astryxdesign/theme-neutral/dist/theme.css`), which needs none of those selectors. Verified by
+  reading the file and by computed style in a browser. **The dark palette is not ours to define; it
+  is already there.** Kept visible rather than deleted: a wrong "verified fact" that reached a spec
+  is worth leaving on the page, because the next person will be tempted to re-derive it the same way
+  — by grepping for the three selectors a design system is allowed not to use.
 - **astryx ships no usable icon set.** `icons.mjs` is a 96-byte stub and `icons` is not in the
   package's `exports` at all. So the choice is Lucide or keep hand-drawing, and hand-drawing is what
   produced the mixed stroke weights. **Lucide.**

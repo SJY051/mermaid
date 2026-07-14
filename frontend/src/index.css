@@ -23,6 +23,11 @@
 @import 'tailwindcss/utilities.css' layer(utilities);
 
 :root {
+  /* Astryx expresses dark mode through the CSS `light-dark()` function — 96 of its tokens are
+   * `light-dark(<light>, <dark>)` — and `light-dark()` reads THIS property. Remove it and every
+   * token silently freezes on its light value. There is no `.dark` class and no `[data-theme]`
+   * to look for; a 2026-07-14 grep for those concluded astryx had no dark theme at all, and the
+   * spec carried that wrong fact for a day. */
   color-scheme: light dark;
 }
 
@@ -30,4 +35,17 @@ html,
 body,
 #root {
   height: 100%;
+}
+
+/* The app paints its own background, rather than letting the browser canvas show through.
+ *
+ * Without this, `body` has no background at all: in light the canvas is white and it happens to
+ * look right, and in dark the canvas is the browser's near-black and it *also* happens to look
+ * right — but nothing in our code says so, and every contrast measurement of the app is then a
+ * measurement of a UA default we do not control. A canvas is not a token. Painting it makes the
+ * dark theme ours to verify: `pnpm --dir frontend contrast` reads what is actually behind each
+ * word, and it can only do that if something behind the word is actually there. */
+body {
+  background: var(--color-background-body);
+  color: var(--color-text-primary);
 }
