@@ -9,18 +9,19 @@ import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /** HIRA hospital list adapter (DEV-203a). */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class HospitalApiClient {
 
     private static final String OP_BY_LOCATION = "getHospBasisList";
@@ -35,19 +36,43 @@ public class HospitalApiClient {
     private final PublicApiProperties properties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
+    private final Clock clock;
+
+    @Autowired
+    public HospitalApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            Clock clock) {
+        this.publicApiWebClient = publicApiWebClient;
+        this.properties = properties;
+        this.dataMode = dataMode;
+        this.fixtures = fixtures;
+        this.clock = clock;
+    }
+
+    /** Compatibility constructor for focused unit tests that do not need a controllable fetch time. */
+    public HospitalApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, dataMode, fixtures, Clock.systemUTC());
+    }
 
     /**
      * Hospitals near a point. HIRA requires radius in metres; xPos is longitude and yPos is latitude.
      *
-     * <p>Like the pharmacy directory, this shares a list lookup for callers on the same roughly
-     * 100-m grid. The radius is part of the key because it changes HIRA's result set; the batch keeps
-     * per-fetch provenance, so a cached hybrid fallback remains visibly fixture data.
+     * <p>This shares a list lookup only for the exact same origin and radius. HIRA's {@code distance}
+     * values are relative to the requested origin, so rounding coordinates into a grid would give a
+     * nearby caller another origin's distance. The batch keeps per-fetch provenance, so a cached
+     * hybrid fallback remains visibly fixture data.
      */
     @Cacheable(
             value = "hospitalsNear.v1",
             key =
-                    "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000)"
-                            + " + ':' + #radiusMeters")
+                    "#lat + ':' + #lng + ':' + #radiusMeters")
     public HospitalBatch findNear(double lat, double lng, int radiusMeters) {
         if (dataMode.isFixtureOnly()) {
             return fixtureBatch();
@@ -71,7 +96,8 @@ public class HospitalApiClient {
     private HospitalBatch fixtureBatch() {
         // Fixture mode deliberately reads one captured page: query parameters are ignored offline,
         // so paging would repeat these same rows and fabricate duplicates.
-        return new HospitalBatch(parsePage(fixtures.load(FIXTURE)).hospitals(), SourceRef.DataMode.FIXTURE);
+        return new HospitalBatch(
+                parsePage(fixtures.load(FIXTURE)).hospitals(), SourceRef.DataMode.FIXTURE, Instant.now(clock));
     }
 
     /** Builds the HIRA list request with its mandatory radius and `_type=json` parameter. */
@@ -109,7 +135,7 @@ public class HospitalApiClient {
         for (int pageNo = 2; pageNo <= lastPage; pageNo++) {
             hospitals.addAll(parsePage(fetchPage(lat, lng, radiusMeters, pageNo)).hospitals());
         }
-        return new HospitalBatch(hospitals, SourceRef.DataMode.LIVE);
+        return new HospitalBatch(hospitals, SourceRef.DataMode.LIVE, Instant.now(clock));
     }
 
     /** Separated for page-level tests; production calls HIRA with the page-specific URI. */
@@ -177,7 +203,11 @@ public class HospitalApiClient {
             Double distanceMeters) {}
 
     /** Hospital rows plus the source of this fetch, so hybrid fallback is never labelled live. */
-    public record HospitalBatch(List<RawHospital> hospitals, SourceRef.DataMode origin) {}
+    public record HospitalBatch(List<RawHospital> hospitals, SourceRef.DataMode origin, Instant retrievedAt) {
+        public HospitalBatch(List<RawHospital> hospitals, SourceRef.DataMode origin) {
+            this(hospitals, origin, Instant.now());
+        }
+    }
 
     private record HospitalPage(List<RawHospital> hospitals, int totalCount) {}
 }

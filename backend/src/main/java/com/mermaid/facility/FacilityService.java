@@ -184,7 +184,6 @@ public class FacilityService {
             double lat, double lng, int radiusMeters, boolean openNow, int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
-        Instant retrievedAt = now.toInstant();
         HospitalApiClient.HospitalBatch batch = hospitalApiClient.findNear(lat, lng, radiusMeters);
 
         // HIRA's radius is authoritative, but its distance is a decimal string. Resolve each metre
@@ -209,7 +208,14 @@ public class FacilityService {
         return Parallel.map(
                         nearest,
                         HOSPITAL_DETAIL_CONCURRENCY,
-                        h -> toHospital(h.raw(), h.distanceMeters(), batch.origin(), now, holiday, retrievedAt))
+                        h ->
+                                toHospital(
+                                        h.raw(),
+                                        h.distanceMeters(),
+                                        batch.origin(),
+                                        batch.retrievedAt(),
+                                        now,
+                                        holiday))
                 .stream()
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
                 .sorted(Comparator.comparingDouble(Facility::distanceMeters))
@@ -223,9 +229,9 @@ public class FacilityService {
             HospitalApiClient.RawHospital raw,
             double distanceMeters,
             SourceRef.DataMode listOrigin,
+            Instant listRetrievedAt,
             ZonedDateTime now,
-            boolean holiday,
-            Instant retrievedAt) {
+            boolean holiday) {
         HospitalDetailApiClient.HospitalDetailBatch detailBatch =
                 hospitalDetailApiClient.findByYkiho(raw.ykiho());
         SourceRef.DataMode origin =
@@ -244,12 +250,12 @@ public class FacilityService {
                 raw.latitude(),
                 raw.longitude(),
                 distanceMeters,
-                hospitalOperation(detail, now, holiday, retrievedAt),
+                hospitalOperation(detail, now, holiday, detailBatch.retrievedAt()),
                 new SourceRef(
                         "src:" + HOSPITAL_PROVIDER + ":" + raw.ykiho(),
                         "건강보험심사평가원 병원정보서비스",
                         raw.ykiho(),
-                        retrievedAt,
+                        listRetrievedAt,
                         origin,
                         "Health Insurance Review & Assessment Service — hospital directory"),
                 detail.emergencyDay(),

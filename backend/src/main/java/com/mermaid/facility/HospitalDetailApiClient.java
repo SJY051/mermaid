@@ -9,6 +9,8 @@ import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalTime;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,16 +18,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /** HIRA hospital-detail adapter for official treatment hours and closures (DEV-203b). */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class HospitalDetailApiClient {
 
     private static final String OP_BY_YKIHO = "getDtlInfo2.8";
@@ -41,6 +42,29 @@ public class HospitalDetailApiClient {
     private final PublicApiProperties properties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
+    private final Clock clock;
+
+    @Autowired
+    public HospitalDetailApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            Clock clock) {
+        this.publicApiWebClient = publicApiWebClient;
+        this.properties = properties;
+        this.dataMode = dataMode;
+        this.fixtures = fixtures;
+        this.clock = clock;
+    }
+
+    public HospitalDetailApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, dataMode, fixtures, Clock.systemUTC());
+    }
 
     /** Looks up HIRA's treatment-hours detail for a stable hospital identifier. */
     @Cacheable(value = "hospitalDetails", key = "#ykiho")
@@ -61,7 +85,7 @@ public class HospitalDetailApiClient {
                             .retrieve()
                             .bodyToMono(JsonNode.class)
                             .block();
-            return new HospitalDetailBatch(parse(raw, ykiho), SourceRef.DataMode.LIVE);
+            return new HospitalDetailBatch(parse(raw, ykiho), SourceRef.DataMode.LIVE, Instant.now(clock));
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
                 log.warn("hospital detail lookup failed, falling back to fixture: {}", e.getMessage());
@@ -75,9 +99,11 @@ public class HospitalDetailApiClient {
         if (!FIXTURE_YKIHO.equals(ykiho)) {
             // A fixture from another hospital cannot establish this hospital's open status. Unknown
             // is the safe result; otherwise open_now would filter on a stranger's timetable.
-            return new HospitalDetailBatch(HospitalDetail.empty(ykiho), SourceRef.DataMode.FIXTURE);
+            return new HospitalDetailBatch(
+                    HospitalDetail.empty(ykiho), SourceRef.DataMode.FIXTURE, Instant.now(clock));
         }
-        return new HospitalDetailBatch(parse(fixtures.load(FIXTURE), ykiho), SourceRef.DataMode.FIXTURE);
+        return new HospitalDetailBatch(
+                parse(fixtures.load(FIXTURE), ykiho), SourceRef.DataMode.FIXTURE, Instant.now(clock));
     }
 
     /** HIRA's version suffix belongs on the operation name too; detail also requires `_type=json`. */
@@ -184,5 +210,9 @@ public class HospitalDetailApiClient {
     public record LunchBreak(LocalTime start, LocalTime end) {}
 
     /** Detail data plus this request's origin, required for correct hybrid-fallback provenance. */
-    public record HospitalDetailBatch(HospitalDetail detail, SourceRef.DataMode origin) {}
+    public record HospitalDetailBatch(HospitalDetail detail, SourceRef.DataMode origin, Instant retrievedAt) {
+        public HospitalDetailBatch(HospitalDetail detail, SourceRef.DataMode origin) {
+            this(detail, origin, Instant.now());
+        }
+    }
 }

@@ -34,7 +34,7 @@ source: 실행 중인 서버에 직접 호출해 확인 (DATA_MODE=fixture)
 | Method | 경로 | 상태 |
 |---|---|---|
 | POST | `/chat/completions` | ✅ 동작 |
-| GET | `/facilities` | ✅ 약국만 · 🚧 병원은 501 |
+| GET | `/facilities` | ✅ 약국·병원 검색 |
 | GET | `/facilities/{id}` | 🚧 **501 미구현** |
 | GET | `/drugs` | ✅ 동작 |
 | GET | `/drugs/{itemSeq}` | ✅ 동작 |
