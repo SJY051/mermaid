@@ -328,7 +328,7 @@ describe('facility details (UI-03, DEV-207)', () => {
 })
 
 describe('map pins use shape for kind and a non-colour glyph for status', () => {
-  it('renders the complete kind and status vocabulary plus its persistent legend', async () => {
+  it('renders only supported facility types in its persistent legend', async () => {
     const { markers } = installNaverStub()
     const hospital = facility({
       id: 'facility:hira:1',
@@ -342,21 +342,9 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
         notice: '',
       },
     })
-    const emergencyRoom = facility({
-      id: 'facility:hira:er-1',
-      type: 'emergency_room',
-      nameKo: '서울응급실',
-      operation: {
-        isOpenNow: false,
-        status: 'closed',
-        statusConfidence: 'official_schedule',
-        verifiedAt: null,
-        notice: '',
-      },
-    })
-    render(<FacilityMap center={centre} facilities={[facility(), hospital, emergencyRoom]} />)
+    render(<FacilityMap center={centre} facilities={[facility(), hospital]} />)
 
-    await waitFor(() => expect(markers).toHaveLength(3))
+    await waitFor(() => expect(markers).toHaveLength(2))
     const map = screen.getByTestId('naver-map')
     expect(
       map.querySelector('[data-facility-kind="pharmacy"][data-facility-status="open"] [data-status-glyph="open"]'),
@@ -364,17 +352,13 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
     expect(
       map.querySelector('[data-facility-kind="hospital"][data-facility-status="unknown"] [data-status-glyph="unknown"]'),
     ).toHaveTextContent('?')
-    expect(
-      map.querySelector('[data-facility-kind="emergency_room"][data-facility-status="closed"] [data-status-glyph="closed"]'),
-    ).toHaveTextContent('×')
-
     const legend = screen.getByRole('group', { name: 'Map marker legend' })
     expect(legend).toHaveTextContent('Pharmacy')
     expect(legend).toHaveTextContent('Hospital')
-    expect(legend).toHaveTextContent('Emergency room')
     expect(legend.querySelector('[data-legend-kind="pharmacy"]')).not.toBeNull()
     expect(legend.querySelector('[data-legend-kind="hospital"]')).not.toBeNull()
-    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).not.toBeNull()
+    expect(legend).not.toHaveTextContent('Emergency room')
+    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).toBeNull()
     expect(legend).toHaveTextContent('Open now')
     expect(legend).toHaveTextContent('Hours unknown')
     expect(legend).toHaveTextContent('Closed')

@@ -225,16 +225,6 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
           Hospital
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span
-            data-legend-kind="emergency_room"
-            aria-hidden="true"
-            className="grid h-4 w-4 rotate-45 place-items-center rounded-[3px] border border-primary"
-          >
-            <span className="-rotate-45 text-[10px] leading-none">♥</span>
-          </span>
-          Emergency room
-        </span>
-        <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#1a7a34] text-[11px] font-bold text-white">✓</span>
           Open now
         </span>
