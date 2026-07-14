@@ -1,6 +1,7 @@
 package com.mermaid.facility;
 
 import com.mermaid.common.GeoUtils;
+import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.facility.domain.DutyTable;
 import com.mermaid.facility.domain.Facility;
@@ -16,6 +17,7 @@ import java.time.ZonedDateTime;
 import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -26,6 +28,7 @@ import org.springframework.stereotype.Service;
  */
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class FacilityService {
 
     /** The public timetables are all local Korean time. Never use the server's default zone. */
@@ -76,7 +79,15 @@ public class FacilityService {
             boolean holiday,
             Instant retrievedAt) {
 
-        DutyTable weekly = pharmacyApiClient.weeklyHours(raw.hpid());
+        DutyTable weekly;
+        try {
+            weekly = pharmacyApiClient.weeklyHours(raw.hpid());
+        } catch (PublicApiException e) {
+            // The directory row is already verified and map-worthy. A failed optional timetable must
+            // make only its hours unknown, not discard every nearby pharmacy as a 503 response.
+            log.warn("pharmacy weekly-hours lookup failed for {}; retaining directory row", raw.hpid());
+            weekly = DutyTable.empty(listOrigin);
+        }
 
         // The card's provenance is the whole truth behind it: fixture if the directory OR the schedule
         // we actually used came from a fixture. An empty table is never consulted (§2-14).
