@@ -65,20 +65,7 @@ describe('DetailDrawer', () => {
   })
 
   it('uses a surface token for an operation notice', () => {
-    render(
-      <DetailDrawer
-        facility={facility({
-          operation: {
-            isOpenNow: true,
-            status: 'open',
-            statusConfidence: 'official_schedule',
-            verifiedAt: '2026-07-10T12:00:00Z',
-            notice: 'Call before visiting.',
-          },
-        })}
-        onClose={() => {}}
-      />,
-    )
+    renderDrawer({ operation: { isOpenNow: true, status: 'open', statusConfidence: 'official_schedule', verifiedAt: '2026-07-10T12:00:00Z', notice: 'Call before visiting.' } })
 
     expect(screen.getByText('Call before visiting.')).toHaveClass('bg-muted')
   })
@@ -88,7 +75,7 @@ describe('DetailDrawer', () => {
       nameKo: '<img src=x onerror="alert(1)">약국',
       phone: '02-000-0000"><script>alert(1)</script>',
     })
-    const { container } = render(<DetailDrawer facility={hostile} onClose={() => {}} />)
+    const { container } = renderDrawer(hostile)
 
     expect(container.querySelector('img')).toBeNull()
     expect(container.querySelector('script')).toBeNull()
@@ -146,7 +133,7 @@ describe('DetailDrawer', () => {
   it('closes when the dimmed map backdrop is clicked, but not when the card is clicked', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
-    render(<DetailDrawer facility={facility()} onClose={onClose} />)
+    renderDrawer({}, onClose)
 
     await user.click(screen.getByRole('dialog'))
     expect(onClose).not.toHaveBeenCalled()
@@ -173,6 +160,7 @@ describe('DetailDrawer', () => {
   })
 
   it('saves the selected facility through the anonymous profile API', async () => {
+    localStorage.setItem('mermaid.deviceId.v1', JSON.stringify({ schemaVersion: '1.0', data: 'test-device' }))
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
@@ -191,9 +179,10 @@ describe('DetailDrawer', () => {
     await user.click(screen.getByRole('button', { name: 'Save place' }))
 
     expect(await screen.findByRole('button', { name: 'Saved' })).toBeDisabled()
-    expect(fetchMock.mock.calls[0][0]).toContain('/favorites')
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/profiles/test-device/favorites')
     expect(fetchMock.mock.calls[0][1]).toMatchObject({
       method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         facilityId: 'facility:nmc:1',
         facilityType: 'pharmacy',

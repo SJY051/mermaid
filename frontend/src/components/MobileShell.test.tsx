@@ -107,7 +107,7 @@ describe('MobileShell', () => {
     expectActive('Map')
 
     await user.click(screen.getByRole('button', { name: 'Saved' }))
-    expect(screen.getByText('Saved places stay on this device.')).toBeVisible()
+    expect(screen.getByText('Saved places are stored in your anonymous profile. This device keeps a display copy.')).toBeVisible()
     expectActive('Saved')
 
     await user.click(screen.getByRole('button', { name: 'Settings' }))

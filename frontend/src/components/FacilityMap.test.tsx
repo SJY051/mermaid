@@ -308,7 +308,7 @@ describe('facility details (UI-03, DEV-207)', () => {
         notice: '',
       },
     })
-    render(<FacilityMap center={centre} facilities={[unknownHospital]} />)
+    render(<FavoritesProvider><FacilityMap center={centre} facilities={[unknownHospital]} /></FavoritesProvider>)
 
     const map = screen.getByTestId('naver-map')
     const pin = await waitFor(() => {
@@ -336,13 +336,13 @@ describe('facility details (UI-03, DEV-207)', () => {
     const user = userEvent.setup()
     installNaverStub()
     render(
-      <FacilityMap
+      <FavoritesProvider><FacilityMap
         center={centre}
         facilities={[
           facility({ nameKo: '청실약국' }),
           facility({ id: 'facility:nmc:2', nameKo: '명약국' }),
         ]}
-      />,
+      /></FavoritesProvider>,
     )
 
     const map = screen.getByTestId('naver-map')

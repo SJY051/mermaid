@@ -22,13 +22,17 @@ interface Versioned<T> {
   data: T
 }
 
-function read<T>(store: Storage, key: string, fallback: T): T {
+function read<T>(store: Storage, key: string, fallback: T, isValid?: (value: unknown) => value is T): T {
   const raw = store.getItem(key)
   if (!raw) return fallback
   try {
     const parsed = JSON.parse(raw) as Versioned<T>
     if (parsed.schemaVersion !== SCHEMA_VERSION) {
       // An older or newer shape. Do not guess at a migration we have not written.
+      store.removeItem(key)
+      return fallback
+    }
+    if (isValid && !isValid(parsed.data)) {
       store.removeItem(key)
       return fallback
     }
@@ -90,15 +94,55 @@ export interface SavedFacility {
   id: string
   facilityId: string
   /** Display-only. Never treat as current opening hours — refetch on open. */
-  snapshot: { nameKo: string; type: string; addressKo: string | null }
+  snapshot: {
+    nameKo: string
+    type: import('./types').FacilityType
+    addressKo: string | null
+    operation: import('./types').FacilityOperation
+    source: import('./types').SourceRef
+  }
   alias: string
   note: string
   createdAt: string
   updatedAt: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+function isSavedFacility(value: unknown): value is SavedFacility {
+  if (!isRecord(value) || !isRecord(value.snapshot)) return false
+  const { snapshot } = value
+  const source = snapshot.source
+  const operation = snapshot.operation
+  return (
+    typeof value.id === 'string' && typeof value.facilityId === 'string' &&
+    typeof value.alias === 'string' && typeof value.note === 'string' &&
+    typeof value.createdAt === 'string' && typeof value.updatedAt === 'string' &&
+    typeof snapshot.nameKo === 'string' &&
+    (snapshot.type === 'pharmacy' || snapshot.type === 'hospital' || snapshot.type === 'emergency_room') &&
+    isNullableString(snapshot.addressKo) && isRecord(operation) &&
+    (operation.isOpenNow === true || operation.isOpenNow === false || operation.isOpenNow === null) &&
+    (operation.status === 'open' || operation.status === 'closed' || operation.status === 'unknown') &&
+    (operation.statusConfidence === 'official_realtime' || operation.statusConfidence === 'official_schedule' || operation.statusConfidence === 'inferred' || operation.statusConfidence === 'unknown') &&
+    isNullableString(operation.verifiedAt) && typeof operation.notice === 'string' &&
+    isRecord(source) && typeof source.id === 'string' && typeof source.provider === 'string' &&
+    isNullableString(source.recordId) && typeof source.retrievedAt === 'string' &&
+    (source.dataMode === 'live' || source.dataMode === 'fixture') && typeof source.title === 'string'
+  )
+}
+
+function isSavedFacilities(value: unknown): value is SavedFacility[] {
+  return Array.isArray(value) && value.every(isSavedFacility)
+}
+
 export function loadSavedFacilities(): SavedFacility[] {
-  return read<SavedFacility[]>(localStorage, SAVED_FACILITIES_KEY, [])
+  return read<SavedFacility[]>(localStorage, SAVED_FACILITIES_KEY, [], isSavedFacilities)
 }
 
 export function saveSavedFacilities(items: SavedFacility[]): void {

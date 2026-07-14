@@ -12,6 +12,12 @@ function typeLabel(type: string): string {
   return 'Emergency room'
 }
 
+function operationLabel(isOpenNow: boolean | null): string {
+  if (isOpenNow === true) return 'Open now'
+  if (isOpenNow === false) return 'Closed'
+  return 'Hours unknown'
+}
+
 export function SavedScreen({ active }: SavedScreenProps) {
   const { favorites, refreshFavorites, updateFavorite, removeFavorite } = useFavorites()
   const [editing, setEditing] = useState<SavedFacility | null>(null)
@@ -69,7 +75,7 @@ export function SavedScreen({ active }: SavedScreenProps) {
     <div className="flex flex-col gap-4 p-6">
       <div>
         <h1 className="text-2xl font-semibold text-primary">Saved</h1>
-        <p className="mt-1 text-sm text-secondary">Saved places stay on this device.</p>
+        <p className="mt-1 text-sm text-secondary">Saved places are stored in your anonymous profile. This device keeps a display copy.</p>
       </div>
 
       {loading && <p className="text-sm text-secondary">Loading saved places…</p>}
@@ -113,7 +119,14 @@ export function SavedScreen({ active }: SavedScreenProps) {
                 <p className="font-semibold text-primary" lang="ko">{favorite.alias || favorite.snapshot.nameKo}</p>
                 {favorite.alias && <p className="mt-1 text-sm text-secondary" lang="ko">{favorite.snapshot.nameKo}</p>}
                 <p className="mt-1 text-sm text-secondary">{typeLabel(favorite.snapshot.type)}</p>
+                <p className="mt-1 text-sm font-medium text-primary">{operationLabel(favorite.snapshot.operation.isOpenNow)}</p>
                 <p className="mt-1 text-sm text-secondary">{favorite.snapshot.addressKo ?? 'Address unavailable'}</p>
+                <p className="mt-2 text-xs text-primary">
+                  {favorite.snapshot.source.title} · {favorite.snapshot.source.retrievedAt.slice(0, 10)}
+                </p>
+                {favorite.snapshot.source.dataMode === 'fixture' && (
+                  <p className="mt-1 text-xs font-medium text-primary">Sample data</p>
+                )}
                 {favorite.note && <p className="mt-3 text-sm text-primary">{favorite.note}</p>}
                 <div className="mt-4 flex gap-2">
                   <button type="button" onClick={() => beginEdit(favorite)} className="min-h-11 rounded border border-primary px-3 text-primary">Edit</button>

@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useRef, useState } from 'react'
 import {
   getDeviceId,
   loadSavedFacilities,
@@ -53,21 +53,17 @@ function snapshotFrom(facility: Facility): SavedFacility['snapshot'] {
     nameKo: facility.nameKo,
     type: facility.type,
     addressKo: facility.addressEn ?? facility.addressKo,
+    operation: facility.operation,
+    source: facility.source,
   }
 }
 
-function savedFrom(response: FavoriteResponse, snapshot?: SavedFacility['snapshot']): SavedFacility {
+function savedFrom(response: FavoriteResponse, snapshot: SavedFacility['snapshot']): SavedFacility {
   const now = new Date().toISOString()
   return {
     id: String(response.id),
     facilityId: response.facilityId,
-    snapshot: snapshot ?? {
-      // The profile API intentionally stores no government facility details. Keep a local
-      // snapshot when saving, and be honest when an older server-only favorite has none.
-      nameKo: response.facilityId,
-      type: response.facilityType,
-      addressKo: null,
-    },
+    snapshot,
     alias: response.alias ?? '',
     note: response.memo ?? '',
     createdAt: now,
@@ -76,29 +72,39 @@ function savedFrom(response: FavoriteResponse, snapshot?: SavedFacility['snapsho
 }
 
 export function FavoritesProvider({ children }: { children: React.ReactNode }) {
-  const [favorites, setFavorites] = useState(loadSavedFacilities)
+  const favoritesRef = useRef<SavedFacility[]>([])
+  const refreshVersionRef = useRef(0)
+  const [favorites, setFavorites] = useState(() => {
+    const initial = loadSavedFacilities()
+    favoritesRef.current = initial
+    return initial
+  })
   const [savingFacilityId, setSavingFacilityId] = useState<string | null>(null)
 
-  const commit = useCallback((next: SavedFacility[]) => {
+  const commit = useCallback((update: (current: SavedFacility[]) => SavedFacility[]) => {
+    const next = update(favoritesRef.current)
+    favoritesRef.current = next
     setFavorites(next)
     saveSavedFacilities(next)
+    return next
   }, [])
 
   const refreshFavorites = useCallback(async () => {
+    const refreshVersion = refreshVersionRef.current
     const profile = await request<ProfileResponse>('')
-    setFavorites((current) => {
+    if (refreshVersion !== refreshVersionRef.current) return
+    commit((current) => {
       const currentByFacilityId = new Map(current.map((favorite) => [favorite.facilityId, favorite]))
-      const next = profile.favorites.map((favorite) =>
-        savedFrom(favorite, currentByFacilityId.get(favorite.facilityId)?.snapshot),
-      )
-      saveSavedFacilities(next)
-      return next
+      return profile.favorites.flatMap((favorite) => {
+        const snapshot = currentByFacilityId.get(favorite.facilityId)?.snapshot
+        return snapshot ? [savedFrom(favorite, snapshot)] : []
+      })
     })
-  }, [])
+  }, [commit])
 
   const saveFacility = useCallback(
     async (facility: Facility) => {
-      if (favorites.some((favorite) => favorite.facilityId === facility.id)) return
+      if (favoritesRef.current.some((favorite) => favorite.facilityId === facility.id)) return
 
       setSavingFacilityId(facility.id)
       try {
@@ -111,12 +117,16 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
             memo: null,
           }),
         })
-        commit([...favorites, savedFrom(created, snapshotFrom(facility))])
+        refreshVersionRef.current += 1
+        commit((current) => {
+          if (current.some((favorite) => favorite.facilityId === created.facilityId)) return current
+          return [...current, savedFrom(created, snapshotFrom(facility))]
+        })
       } finally {
         setSavingFacilityId(null)
       }
     },
-    [commit, favorites],
+    [commit],
   )
 
   const updateFavorite = useCallback(
@@ -125,22 +135,23 @@ export function FavoritesProvider({ children }: { children: React.ReactNode }) {
         method: 'PATCH',
         body: JSON.stringify({ alias: alias || null, memo: note || null }),
       })
-      const next = favorites.map((item) =>
+      refreshVersionRef.current += 1
+      commit((current) => current.map((item) =>
         item.id === favorite.id
           ? { ...savedFrom(updated, item.snapshot), createdAt: item.createdAt, updatedAt: new Date().toISOString() }
           : item,
-      )
-      commit(next)
+      ))
     },
-    [commit, favorites],
+    [commit],
   )
 
   const removeFavorite = useCallback(
     async (favorite: SavedFacility) => {
       await request<void>(`/favorites/${encodeURIComponent(favorite.id)}`, { method: 'DELETE' })
-      commit(favorites.filter((item) => item.id !== favorite.id))
+      refreshVersionRef.current += 1
+      commit((current) => current.filter((item) => item.id !== favorite.id))
     },
-    [commit, favorites],
+    [commit],
   )
 
   return (

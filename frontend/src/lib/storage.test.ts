@@ -19,6 +19,23 @@ beforeEach(() => {
 
 const CHAT_KEY = 'mermaid.chatSession.v1'
 const PREFS_KEY = 'mermaid.preferences.v1'
+const SAVED_FACILITIES_STORAGE = 'mermaid.savedFacilities.v1'
+
+const savedFacility = {
+  id: 'f1',
+  facilityId: 'facility:nmc:1',
+  snapshot: {
+    nameKo: '가나약국',
+    type: 'pharmacy' as const,
+    addressKo: null,
+    operation: { isOpenNow: null, status: 'unknown' as const, statusConfidence: 'unknown' as const, verifiedAt: null, notice: '' },
+    source: { id: 'nmc:1', provider: 'nmc', recordId: '1', retrievedAt: '2026-07-14T12:00:00Z', dataMode: 'live' as const, title: 'National Medical Center' },
+  },
+  alias: '',
+  note: '',
+  createdAt: '2026-07-10T12:00:00Z',
+  updatedAt: '2026-07-10T12:00:00Z',
+}
 
 const session: ChatSession = {
   sessionId: 's1',
@@ -81,6 +98,13 @@ describe('corrupt or stale storage resets instead of throwing', () => {
     expect(loadSavedFacilities()).toEqual([])
     expect(loadChatSession().sessionId).toBe('')
   })
+
+  it.each([null, [null]])('drops same-version corrupt saved facilities with data %p', (data) => {
+    localStorage.setItem(SAVED_FACILITIES_STORAGE, JSON.stringify({ schemaVersion: '1.0', data }))
+
+    expect(loadSavedFacilities()).toEqual([])
+    expect(localStorage.getItem(SAVED_FACILITIES_STORAGE)).toBeNull()
+  })
 })
 
 /** Allergy memory is opt-in, and OFF by default (spec §2-5). Both directions are enforced. */
@@ -128,17 +152,7 @@ describe('deviceId is anonymous and stable', () => {
 
   it('survives a saved-facilities write', () => {
     const id = getDeviceId()
-    saveSavedFacilities([
-      {
-        id: 'f1',
-        facilityId: 'facility:nmc:1',
-        snapshot: { nameKo: '가나약국', type: 'pharmacy', addressKo: null },
-        alias: '집 앞',
-        note: '',
-        createdAt: '2026-07-10T12:00:00Z',
-        updatedAt: '2026-07-10T12:00:00Z',
-      },
-    ])
+    saveSavedFacilities([savedFacility])
     expect(getDeviceId()).toBe(id)
     expect(loadSavedFacilities()).toHaveLength(1)
   })
