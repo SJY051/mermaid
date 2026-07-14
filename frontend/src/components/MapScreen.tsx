@@ -209,6 +209,10 @@ export function MapScreen({ active }: MapScreenProps) {
   const mapFacilities = openNowOnly
     ? split.open
     : [...split.open, ...split.unknown, ...split.closed]
+  // The open-now view renders unknown hours outside FacilityMap. Pass that section's provenance
+  // so that filtering pins can never make its fixture data look live (§2-9).
+  const fixtureDataOutsideMap =
+    openNowOnly && split.unknown.some((facility) => facility.source.dataMode === 'fixture')
   const resultKind =
     typeFilter === 'all'
       ? hospitalUnavailable
@@ -265,6 +269,7 @@ export function MapScreen({ active }: MapScreenProps) {
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
         facilities={mapFacilities}
+        additionalFixtureData={fixtureDataOutsideMap}
         caption={`Nearby ${resultKind} within ${RADIUS_M}m`}
         notice={location.fromDevice ? undefined : FALLBACK_NOTICE}
       />

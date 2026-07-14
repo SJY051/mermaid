@@ -17,13 +17,23 @@ vi.mock('../lib/facilities', async (importOriginal) => {
   return { ...actual, resolveLocation: resolveLocationMock, fetchFacilities: fetchFacilitiesMock }
 })
 vi.mock('./FacilityMap', () => ({
-  FacilityMap: (props: { facilities?: Facility[]; notice?: string; caption?: string }) => (
+  FacilityMap: (props: {
+    facilities?: Facility[]
+    additionalFixtureData?: boolean
+    notice?: string
+    caption?: string
+  }) => (
     <div
       data-testid="map-stub"
       data-facility-ids={(props.facilities ?? []).map((facility) => facility.id).join(',')}
     >
       {props.caption && <span data-testid="map-caption">{props.caption}</span>}
       {props.notice && <span data-testid="map-notice">{props.notice}</span>}
+      {props.additionalFixtureData && (
+        <span data-testid="map-fixture-notice">
+          Sample data — availability may not reflect current conditions.
+        </span>
+      )}
       {(props.facilities ?? []).map((facility) => (
         <span key={facility.id} data-testid={`map-facility-${facility.id}`}>
           {facility.nameKo}:{' '}
@@ -125,6 +135,8 @@ describe('MapScreen', () => {
     const open = facility('open', '영업약국', true)
     const unknown = facility('unknown', '미상약국', null, '02-333-4444')
     const closed = facility('closed', '닫힘약국', false)
+    open.source.dataMode = 'live'
+    closed.source.dataMode = 'live'
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital'
@@ -148,6 +160,9 @@ describe('MapScreen', () => {
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open'))
     expect(screen.queryByTestId('map-facility-closed')).not.toBeInTheDocument()
     expect(screen.queryByText('닫힘약국')).not.toBeInTheDocument()
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
+      'Sample data — availability may not reflect current conditions.',
+    )
 
     const heading = screen.getByRole('heading', {
       name: 'Hours unknown — call to confirm (1)',

@@ -254,7 +254,7 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
 })
 
 describe('fixture provenance is visible wherever the shared map is used (spec §2-9)', () => {
-  it('labels fixture facilities while leaving live-only results unlabelled', () => {
+  it('labels fixture facilities, including related results rendered outside the map', () => {
     installNaverStub()
     const live = facility()
     const sample = facility({ id: 'facility:nmc:sample' })
@@ -264,6 +264,11 @@ describe('fixture provenance is visible wherever the shared map is used (spec §
     expect(screen.queryByTestId('map-fixture-notice')).not.toBeInTheDocument()
 
     rerender(<FacilityMap center={centre} facilities={[live, sample]} />)
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
+      'Sample data — availability may not reflect current conditions.',
+    )
+
+    rerender(<FacilityMap center={centre} facilities={[live]} additionalFixtureData={true} />)
     expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
       'Sample data — availability may not reflect current conditions.',
     )
