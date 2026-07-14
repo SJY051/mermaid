@@ -115,6 +115,21 @@ describe('MobileShell', () => {
     expectActive('Settings')
   })
 
+  it('bounds the shell to a handheld width, tab bar and disclaimer included', () => {
+    // jsdom has no layout engine, so this asserts the bound EXISTS rather than measuring it — the
+    // widths themselves are checked in a browser (spec 007 SC-001: 320, 390, 768, 1600). What it
+    // catches is the bound being dropped, which is how a phone UI quietly becomes a stretched web
+    // page again. It lives on the shell so no screen — nor the tab bar, nor the disclaimer strip —
+    // can opt out of it by accident.
+    render(<MobileShell />)
+    const shell = screen.getByTestId('app-shell')
+
+    expect(shell.className).toMatch(/max-w-/)
+    expect(shell.parentElement?.className).toMatch(/justify-center/)
+    expect(shell).toContainElement(screen.getByRole('button', { name: 'Chat' }))
+    expect(shell.textContent).toContain('General information, not medical advice')
+  })
+
   it('keeps the disclaimer visible on every tab', async () => {
     const user = userEvent.setup()
     render(<MobileShell />)
