@@ -99,6 +99,7 @@ class ChatProxyControllerTest {
                 new StructuredOutputFallback(mapper),
                 new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
+                new IngredientNormalizer(),
                 mapper);
     }
 
@@ -119,6 +120,8 @@ class ChatProxyControllerTest {
                         TYLENOL_SOURCE.id(),
                         Set.of(),
                         serverCheck,
+                        "Tylenol",
+                        List.of(),
                         officialDosageKo,
                         MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                         List.of(),
@@ -298,6 +301,8 @@ class ChatProxyControllerTest {
                     TYLENOL_SOURCE.id(),
                     Set.of(),
                     AllergyCheck.noMatch(),
+                    "Tylenol",
+                    List.of(),
                     null,
                     // The ministry's licence says prescription-only, and it publishes a
                     // contraindication. The model's card below says neither.
@@ -330,6 +335,8 @@ class ChatProxyControllerTest {
                     TYLENOL_SOURCE.id(),
                     Set.of("acetaminophen"),
                     AllergyCheck.noMatch(),
+                    "Tylenol",
+                    List.of("Acetaminophen"),
                     null,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
@@ -361,6 +368,92 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("the display names on the card are the ministry's, not the model's")
+        void displayNamesComeFromTheRecord() throws Exception {
+            // `productNameEn` was validated by NOTHING. A card could carry the retrieved Korean
+            // 타이레놀, its real source and its real ingredients — and print "Advil" as the English
+            // name, under a footer citing 식약처. And an ingredient's English name survived only a
+            // NORMALIZED comparison, so a salt form ("Ibuprofen Lysine" where the ministry said
+            // "Ibuprofen") passed invariant 6 and was shown as the ministry's word for it.
+            //
+            // Both are stamped from the record — AFTER validation, which is the whole design: invariant
+            // 6 derives its keys by normalizing `nameEn`, so overwriting that field BEFORE the check
+            // would make the check compare the server's record against itself, and it could never fail.
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of("acetaminophen"),
+                    AllergyCheck.noMatch(),
+                    "Tylenol 500mg",
+                    List.of("Acetaminophen"),
+                    null,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            String card = """
+                [{"productNameKo":"%s","productNameEn":"Advil",
+                  "ingredients":[{"nameKo":null,"nameEn":"Acetaminophen Granules",
+                                  "normalizedKey":"acetaminophen","amount":null,"unit":null}],
+                  "indicationSummary":"fever","directionsSummary":null,"labelCautions":null,
+                  "warnings":[],"prescriptionStatus":"otc",
+                  "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
+                  "sourceRefId":"src:mfds:202005623"}]
+                """.formatted(TYLENOL);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(card, "[]"), contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            MermAidAnswer.DrugCard shown = answer.drugs().get(0);
+            assertThat(shown.productNameEn()).isEqualTo("Tylenol 500mg");
+            assertThat(shown.ingredients().get(0).nameEn()).isEqualTo("Acetaminophen");
+        }
+
+        @Test
+        @DisplayName("stamping never rescues a card that names a drug we did not retrieve")
+        void stampingIsKeyPreservingAndCannotLaunderAHallucination() throws Exception {
+            // Two things keep the display-name stamp from laundering a hallucination, and either alone
+            // is enough: it runs AFTER the validator, and the substitution is KEY-PRESERVING (a name is
+            // replaced only by the ministry's name for the same normalized key, so a fabricated
+            // ingredient keeps the model's own text and invariant 6 still sees it).
+            //
+            // So this test goes red only when BOTH are broken — stamp before validation and substitute
+            // positionally — and that is exactly what it is for. Each property masks the other under a
+            // single mutation, which is what defence in depth means and also what makes it easy to
+            // delete one by accident and see nothing turn red.
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of("acetaminophen"),
+                    AllergyCheck.noMatch(),
+                    "Tylenol 500mg",
+                    List.of("Acetaminophen"),
+                    null,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            // Ibuprofen is not in this product. The card is otherwise perfect.
+            String card = """
+                [{"productNameKo":"%s","productNameEn":null,
+                  "ingredients":[{"nameKo":null,"nameEn":"Ibuprofen",
+                                  "normalizedKey":"ibuprofen","amount":null,"unit":null}],
+                  "indicationSummary":"fever","directionsSummary":null,"labelCautions":null,
+                  "warnings":[],"prescriptionStatus":"otc",
+                  "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
+                  "sourceRefId":"src:mfds:202005623"}]
+                """.formatted(TYLENOL);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(card, "[]"), contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            // Invariant 6 rejected it, and the person gets the server's refusal — not a card whose
+            // wrong ingredient was silently corrected into the right one.
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.summary()).contains("could not verify");
+        }
+
+        @Test
         @DisplayName("a null ingredient does not crash grounding into a 500")
         void nullIngredientElementIsDropped() throws Exception {
             // The schema-less retry path accepts `ingredients: [null]` as valid JSON, and grounding
@@ -371,6 +464,8 @@ class ChatProxyControllerTest {
                     TYLENOL_SOURCE.id(),
                     Set.of(),
                     AllergyCheck.noMatch(),
+                    "Tylenol",
+                    List.of(),
                     null,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
@@ -403,6 +498,8 @@ class ChatProxyControllerTest {
                     TYLENOL_SOURCE.id(),
                     Set.of(),
                     AllergyCheck.noMatch(),
+                    "Tylenol",
+                    List.of(),
                     null,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
@@ -687,6 +784,7 @@ class ChatProxyControllerTest {
                     new StructuredOutputFallback(mapper),
                     new AnswerValidator(new IngredientNormalizer()),
                     new EmergencyTriage(),
+                    new IngredientNormalizer(),
                     mapper);
 
             var response = controller.completions(request("crushing chest pain and I cannot breathe"));

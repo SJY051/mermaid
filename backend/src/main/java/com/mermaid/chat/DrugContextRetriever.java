@@ -279,6 +279,8 @@ public class DrugContextRetriever {
                             drug.source().id(),
                             Set.copyOf(ingredientKeys),
                             drug.allergyCheck(),
+                            drug.nameEn(),
+                            List.copyOf(drug.ingredientsEn()),
                             drug.narrative() == null ? null : drug.narrative().useMethod(),
                             MermAidAnswer.DrugCard.PrescriptionStatus.from(
                                     drug.prescriptionStatus().wire()),
@@ -552,6 +554,14 @@ public class DrugContextRetriever {
              * number it wrote is one of these numbers. Null when the ministry gave us no dosing
              * text: then there is nothing to check the model against, and nothing it may say.
              */
+            /**
+             * The ministry's own display names — {@code Drug.nameEn} and {@code Drug.ingredientsEn},
+             * exactly as retrieved. The model copies them; post-processing stamps them back, AFTER
+             * validation, so a card can never SHOW a name the ministry did not return while invariant
+             * 6 still gets to judge the name the model actually claimed.
+             */
+            String productNameEn,
+            List<String> ingredientNamesEn,
             String officialDosageKo,
             /**
              * The MFDS licence record's 전문/일반 classification. A server fact with a wire value

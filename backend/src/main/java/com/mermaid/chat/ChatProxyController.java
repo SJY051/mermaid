@@ -11,6 +11,7 @@ import com.mermaid.common.SourceRef;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -64,6 +65,7 @@ public class ChatProxyController {
     private final StructuredOutputFallback fallback;
     private final AnswerValidator answerValidator;
     private final EmergencyTriage emergencyTriage;
+    private final com.mermaid.drug.IngredientNormalizer ingredientNormalizer;
     private final ObjectMapper objectMapper;
 
     /**
@@ -216,7 +218,95 @@ public class ChatProxyController {
                     "I could not verify that answer against official data, so I will not show it. "
                             + "Please describe your symptoms again, or visit a pharmacy.");
         }
-        return coerced;
+        // Two independent things keep this from laundering a hallucination, and EITHER alone is enough:
+        //
+        //   1. it runs after the validator, so a card invariant 6 rejected never reaches it, and
+        //   2. the substitution is key-preserving — a name is only ever replaced by the ministry's name
+        //      for the SAME normalized key, so a fabricated ingredient keeps the model's own text and
+        //      invariant 6 still sees it.
+        //
+        // Measured, not assumed: break either one and the suite stays green, because the other covers
+        // it. Break BOTH — stamp before validation AND substitute positionally — and a card naming a
+        // drug we never retrieved gets relabelled into a valid one, and the test that pins this goes
+        // red. An earlier comment here claimed the ordering was "the whole design"; that was a claim
+        // the code did not support, and the mutation that proved it took thirty seconds. Keep both.
+        return withMinistryDisplayNames(coerced, context);
+    }
+
+    /**
+     * The name on the card is the ministry's name. Invariant 8, for the two fields left.
+     *
+     * <p>{@code productNameEn} was never validated by anything. A card could name the retrieved Korean
+     * 타이레놀 with the right source and the right ingredients — and print <b>"Advil"</b> as its English
+     * name, under a footer citing 식약처. And an ingredient's {@code nameEn} survived only a NORMALIZED
+     * comparison, so an alias or a salt form ("Ibuprofen Lysine" where the ministry said "Ibuprofen")
+     * passed invariant 6 and was shown as the ministry's word for it.
+     *
+     * <p>We hold both — {@code Drug.nameEn} and {@code Drug.ingredientsEn} — so neither is the model's
+     * to write.
+     *
+     * <p><b>The substitution is key-preserving, and that is the invariant.</b> An ingredient name is
+     * replaced only by the ministry's name for the SAME normalized key; a name the record does not hold
+     * is left exactly as the model wrote it, so invariant 6 still sees it and still rejects the card.
+     * This must never become a positional substitution — mapping the ministry's first ingredient onto
+     * the model's first row would let a card naming the wrong drug be quietly relabelled into a valid
+     * one, and the hallucination gate would be rescuing hallucinations. A test pins this.
+     */
+    private MermAidAnswer withMinistryDisplayNames(MermAidAnswer answer, DrugContext context) {
+        List<MermAidAnswer.DrugCard> stamped = new ArrayList<>(answer.drugs().size());
+        for (MermAidAnswer.DrugCard drug : answer.drugs()) {
+            DrugContextRetriever.GroundedDrug source =
+                    context.groundedDrugs().get(drug.productNameKo());
+            if (source == null) {
+                stamped.add(drug);
+                continue;
+            }
+            stamped.add(new MermAidAnswer.DrugCard(
+                    drug.id(),
+                    drug.productNameKo(),
+                    source.productNameEn(),
+                    ministryIngredientNames(drug.ingredients(), source),
+                    drug.indicationSummary(),
+                    drug.directionsSummary(),
+                    drug.labelCautions(),
+                    drug.warnings(),
+                    drug.prescriptionStatus(),
+                    drug.allergyCheck(),
+                    drug.sourceRefId()));
+        }
+        return new MermAidAnswer(
+                answer.schemaVersion(),
+                answer.answerId(),
+                answer.language(),
+                answer.dataStatus(),
+                answer.urgency(),
+                answer.summary(),
+                answer.clarifyingQuestions(),
+                answer.guidance(),
+                List.copyOf(stamped),
+                answer.uiActions(),
+                answer.sourceRefs(),
+                answer.warnings(),
+                answer.disclaimer());
+    }
+
+    private List<MermAidAnswer.Ingredient> ministryIngredientNames(
+            List<MermAidAnswer.Ingredient> ingredients, DrugContextRetriever.GroundedDrug source) {
+        Map<String, String> byKey = new HashMap<>();
+        for (String name : source.ingredientNamesEn()) {
+            byKey.putIfAbsent(ingredientNormalizer.normalizeIdentity(name).key(), name);
+        }
+        List<MermAidAnswer.Ingredient> named = new ArrayList<>(ingredients.size());
+        for (MermAidAnswer.Ingredient i : ingredients) {
+            String key =
+                    i.nameEn() == null
+                            ? null
+                            : ingredientNormalizer.normalizeIdentity(i.nameEn()).key();
+            String ministry = key == null ? null : byKey.get(key);
+            named.add(new MermAidAnswer.Ingredient(
+                    null, ministry != null ? ministry : i.nameEn(), i.normalizedKey(), null, null));
+        }
+        return List.copyOf(named);
     }
 
     private static MermAidAnswer withUnverifiedAllergenCaveat(

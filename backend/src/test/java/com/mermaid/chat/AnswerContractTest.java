@@ -304,6 +304,8 @@ class AnswerContractTest {
                 Set.of(ingredientKeys),
                 AllergyCheck.noMatch(),
                 null,
+                List.of(),
+                null,
                 MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                 List.of(),
                 null);
