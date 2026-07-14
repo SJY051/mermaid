@@ -554,6 +554,39 @@ describe('when the request fails', () => {
     expect(extension.mermaid.unanswered_questions).toBeUndefined()
   })
 
+  it('says the escape will clear the allergy list before the user takes it (P1)', async () => {
+    // "Start a new conversation" is the way out of a non-retryable failure, and it resets the
+    // session — allergies included. That list is what retrieval is filtered on. Recommending it
+    // without saying so walks someone into clearing their own guard, and the next answer would be
+    // built as if they had never told us.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValueOnce(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(picker).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    const failing = pendingStream()
+    streamChatMock.mockReturnValueOnce(failing.stream())
+    await user.type(screen.getByRole('textbox'), 'what can I take?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    failing.fail(
+      Object.assign(new Error('400'), {
+        error: {
+          code: 'INVALID_REQUEST',
+          message: 'That question could not be processed.',
+          retryable: false,
+          request_id: 'req-3',
+        },
+      }),
+    )
+
+    const error = await screen.findByTestId('chat-error')
+    expect(error).toHaveTextContent(/clears the allergy list you gave us/i)
+    expect(error).toHaveTextContent(/tell us again/i)
+  })
+
   it('keeps a failed question in storage after a later turn succeeds (P1)', async () => {
     // The record used to be an append of answered turns only. So a failed "I am allergic to
     // ibuprofen", kept in memory when the user edited it into a different question, was never

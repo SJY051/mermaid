@@ -69,10 +69,13 @@ function FailedAnswer({
   turn,
   onRetry,
   onStartOver,
+  clearsAllergyList,
 }: {
   turn: ChatTurn
   onRetry: () => void
   onStartOver: () => void
+  /** They have an allergy list, and the escape below would throw it away. Say so before they click. */
+  clearsAllergyList: boolean
 }) {
   const sendError = turn.error
   if (!sendError) return null
@@ -93,7 +96,14 @@ function FailedAnswer({
               // what this question CONTAINS will be refused again. Editing may work; if it does not,
               // the way out is a new conversation, and saying so beats letting someone try forever.
               'Asking this exact question again will not help. Try asking it differently — and if ' +
-              'that keeps failing, start a new conversation. ') +
+              'that keeps failing, start a new conversation. ' +
+              (clearsAllergyList
+                ? // The escape we are recommending resets the conversation, and the allergy list
+                  // goes with it — that list is what the retrieval filter is built from. Leading
+                  // someone into clearing their own guard without saying so is worse than the dead
+                  // end it escapes: the next answer would be built as if they had never told us.
+                  'That clears the allergy list you gave us, so you will need to tell us again. '
+                : '')) +
           `Technical detail: ${sendError.message}`
         }
       />
@@ -459,6 +469,9 @@ export function ChatScreen() {
                           turn={turn}
                           onRetry={retryFailed}
                           onStartOver={startNewConversation}
+                          clearsAllergyList={
+                            allergies.length > 0 || unverifiedAllergens.length > 0
+                          }
                         />
                       ) : (
                         <UnansweredQuestion />
