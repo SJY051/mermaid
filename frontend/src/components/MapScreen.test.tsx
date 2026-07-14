@@ -136,7 +136,7 @@ describe('MapScreen', () => {
     const unknown = facility('unknown', '미상약국', null, '02-333-4444')
     const closed = facility('closed', '닫힘약국', false)
     open.source.dataMode = 'live'
-    closed.source.dataMode = 'live'
+    unknown.source.dataMode = 'live'
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital'
