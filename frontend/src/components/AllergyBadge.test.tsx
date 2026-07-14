@@ -39,6 +39,40 @@ describe('AllergyBadge', () => {
     expect(screen.getByText(/Possible ingredient match/)).toBeInTheDocument()
   })
 
+  it('shows the server’s finding, not just that there is one (P1)', () => {
+    // An answer can carry several cards. A badge reading "Possible ingredient match" on each of
+    // them tells the reader only what they already knew — that something, somewhere, is wrong. The
+    // server writes which ingredient matched what, and that sentence is the finding. Dropping it
+    // leaves a name-match warning indistinguishable from a reviewed one, on the wrong medicine.
+    const nameMatch = check({
+      status: 'warning',
+      matchedIngredients: ['Acetaminophen Granules'],
+      message:
+        'Name match only: Acetaminophen Granules matched the unverified allergen name paracetamol. ' +
+        'A pharmacist must confirm this match.',
+    })
+    const { container } = render(<AllergyBadge check={nameMatch} />)
+
+    expect(screen.getByText(/Name match only/)).toBeInTheDocument()
+    expect(screen.getByText(/A pharmacist must confirm this match/)).toBeInTheDocument()
+    expect(screen.getByText(/Possible match: Acetaminophen Granules/)).toBeInTheDocument()
+    expect(container.textContent).not.toMatch(/\bsafe\b/i)
+    expect(container.innerHTML).not.toMatch(/green|success/i)
+  })
+
+  it('shows the server’s reason when the ingredients could not be read (P1)', () => {
+    const unreadable = check({
+      status: 'unknown',
+      message:
+        "We could not read this product's ingredients, so we could not check it against the " +
+        'allergens you named. Ask a pharmacist before taking it.',
+    })
+    render(<AllergyBadge check={unreadable} />)
+
+    expect(screen.getByText(/could not read this product's ingredients/i)).toBeInTheDocument()
+    expect(screen.queryByText(/No match/i)).not.toBeInTheDocument()
+  })
+
   it('treats "could not check" as a warning, never as silence', () => {
     const { container } = render(<AllergyBadge check={check({ status: 'unknown' })} />)
 
