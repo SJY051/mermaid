@@ -361,6 +361,39 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("a null ingredient does not crash grounding into a 500")
+        void nullIngredientElementIsDropped() throws Exception {
+            // The schema-less retry path accepts `ingredients: [null]` as valid JSON, and grounding
+            // runs BEFORE AnswerValidator gets to fail closed. A dereference here turns a refusable
+            // answer into "something went wrong on our side" — the server's own refusal replaced by a
+            // 500, on the one path that exists because the provider ignored our schema.
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of(),
+                    AllergyCheck.noMatch(),
+                    null,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            String card = """
+                [{"productNameKo":"%s","productNameEn":null,
+                  "ingredients":[null],
+                  "indicationSummary":"fever","directionsSummary":null,"labelCautions":null,
+                  "warnings":[],"prescriptionStatus":"otc",
+                  "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
+                  "sourceRefId":"src:mfds:202005623"}]
+                """.formatted(TYLENOL);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(card, "[]"), contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            // Dropped, and the validator stays in charge of what happens next.
+            assertThat(answer.drugs().get(0).ingredients()).isEmpty();
+        }
+
+        @Test
         @DisplayName("a warning the ministry never published does not reach the card either")
         void modelCannotInventAWarning() throws Exception {
             // The inverse, and the one a "copy them faithfully" instruction never guarded: a card

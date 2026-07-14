@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.regex.Matcher;
@@ -475,7 +476,14 @@ public class ChatProxyController {
         if (ingredients == null) {
             return List.of();
         }
+        // A null ELEMENT, not a null list. The schema-less retry path accepts `ingredients: [null]`
+        // as valid JSON, and this mapper runs BEFORE AnswerValidator gets to fail closed — so a
+        // dereference here turns a refusable answer into a 500, and the person gets "something went
+        // wrong on our side" instead of the server-authored refusal (OUT-07's shape, one field over).
+        // Drop them: a null ingredient carries no name, so invariant 6 will reject the card anyway if
+        // the rest of it lies, and dropping is the behaviour that keeps the validator in charge.
         return ingredients.stream()
+                .filter(Objects::nonNull)
                 .map(i -> new MermAidAnswer.Ingredient(null, i.nameEn(), i.normalizedKey(), null, null))
                 .toList();
     }
