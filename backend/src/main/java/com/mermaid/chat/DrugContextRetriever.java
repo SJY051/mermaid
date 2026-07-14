@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
-import com.mermaid.drug.AllergenBinder;
-import com.mermaid.drug.AllergenBinder.BoundAllergens;
 import com.mermaid.drug.DrugService;
 import com.mermaid.drug.DrugService.RetrievalQuery;
 import com.mermaid.drug.DrugService.RetrievedContext;
@@ -44,7 +42,6 @@ public class DrugContextRetriever {
     private final SearchTermExtractor extractor;
     private final DrugService drugService;
     private final IngredientNormalizer normalizer;
-    private final AllergenBinder allergenBinder;
     private final ObjectMapper objectMapper;
 
     @Autowired
@@ -52,53 +49,42 @@ public class DrugContextRetriever {
             SearchTermExtractor extractor,
             DrugService drugService,
             IngredientNormalizer normalizer,
-            AllergenBinder allergenBinder,
             ObjectMapper objectMapper) {
         this.extractor = extractor;
         this.drugService = drugService;
         this.normalizer = normalizer;
-        this.allergenBinder = allergenBinder;
         this.objectMapper = objectMapper;
-    }
-
-    /** Keeps focused tests concise while production receives the binder through Spring. */
-    DrugContextRetriever(
-            SearchTermExtractor extractor,
-            DrugService drugService,
-            IngredientNormalizer normalizer,
-            ObjectMapper objectMapper) {
-        this(
-                extractor,
-                drugService,
-                normalizer,
-                normalizer == null ? null : new AllergenBinder(normalizer),
-                objectMapper);
     }
 
     /**
      * @param userText the newest user turn. Already screened by {@link EmergencyTriage}.
-     * @param excludedIngredients raw ingredient strings the user says they must avoid
+     * @param allUserText every user turn in the request, joined — the same text the triage screens.
+     *     The allergy scan must see the whole conversation: the bare reply to our own clarifying
+     *     question ("ibuprofen") carries no allergy keyword, and scanning only the newest turn would
+     *     let that turn retrieve unguarded and show the person the very ingredient they just declared
+     *     (spec 005 FR-013). A client-forged history can only push the outcome toward the
+     *     clarification, never unlock retrieval.
+     * @param excludedIngredients raw ingredient strings the user must avoid, from the structured
+     *     {@code mermaid.exclude_ingredients} field. By contract the client sends the COMPLETE list;
+     *     it is the only channel that may authorize retrieval under a declared allergy.
      */
-    public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
-        long startedAt = System.nanoTime();
-        RetrievalQuery extracted = extractor.extract(userText);
+    public DrugContext retrieve(String userText, String allUserText, Set<String> excludedIngredients) {
+        // The allergy gate runs BEFORE the extractor, like EmergencyTriage runs before the model:
+        // a turn that fails closed must not depend on — or pay for — a model call.
+        //
+        // Free-text allergen extraction has no authority here, on purpose. The 2026-07-13 design
+        // (a pass-1 `allergens` field, origin-bound, signed-row-bound) lost a stated allergen four
+        // distinct ways — mixed resolution, cap clipping, a laundered clipping signal, shape
+        // rejection below the cap — each found in review only after the previous was fixed. The
+        // common cause is structural: the server can never verify that an extraction from free text
+        // is complete. So a free-text declaration always becomes the server-authored clarifying
+        // question, and only the client-complete structured list may proceed (spec 005, 2026-07-14).
+        boolean currentTurnDeclares = AllergyDeclaration.presentIn(userText);
+        boolean anyTurnDeclares = currentTurnDeclares || AllergyDeclaration.presentIn(allUserText);
+        boolean allergyDeclared = anyTurnDeclares || !excludedIngredients.isEmpty();
 
-        // The gate. An allergy reaches us two ways — the request field, or the person's own words —
-        // and either one takes the choice of medicine away from the model. See AllergyDeclaration.
-        boolean allergyDeclared =
-                !excludedIngredients.isEmpty() || AllergyDeclaration.presentIn(userText);
-        boolean suppressed = allergyDeclared && !extracted.ingredientsEn().isEmpty();
-        if (suppressed) {
-            log.info("Allergy declared this turn — dropping {} model-proposed ingredient(s): {}",
-                    extracted.ingredientsEn().size(), extracted.ingredientsEn());
-        }
-        RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
-
-        BoundAllergens bound = allergyDeclared
-                ? allergenBinder.bind(extracted.allergens(), userText)
-                : BoundAllergens.NONE;
-        Set<String> avoidedKeys = new HashSet<>(bound.avoidedKeys());
-        List<String> unresolved = new ArrayList<>(bound.unresolved());
+        Set<String> avoidedKeys = new HashSet<>();
+        List<String> unresolved = new ArrayList<>();
         for (String term : excludedIngredients) {
             IngredientNormalizer.NormalizedTerm normalized = normalizer.normalize(term);
             if (normalizer.isReviewedBinding(normalized)) {
@@ -108,18 +94,31 @@ public class DrugContextRetriever {
             }
         }
 
-        // A declared allergy must be accounted for IN FULL. Fail closed when:
-        //  - nothing resolved (avoidedKeys empty), or
-        //  - any declared allergen from free text or exclude_ingredients is unresolved (FR-004), or
-        //  - the extracted allergen list reached its cap, so the model may have clipped one the
-        //    server can never see (FR-012). Screening only "nothing resolved" silently drops a mixed
-        //    or clipped declaration and can manufacture no_match_found from "we did not check".
-        boolean allergensCapReached = extracted.allergensMaybeClipped();
-        if (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty() || allergensCapReached)) {
-            log.info("Allergy declared — {} unresolved, capReached={} — returning server clarification",
-                    unresolved.size(), allergensCapReached);
+        // Fail closed to the clarification when:
+        //  - this turn declares an allergy in free text (FR-001): the new prose may name an allergen
+        //    the structured list does not carry, and we cannot tell, or
+        //  - an allergy is in play (this turn, an earlier turn, or the field) and the structured
+        //    list is absent or has any entry no signed row resolves (FR-004/FR-013).
+        if (currentTurnDeclares
+                || (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty()))) {
+            log.info(
+                    "Allergy declared (currentTurn={}, resolved={}, unresolved={})"
+                            + " — returning server clarification",
+                    currentTurnDeclares, avoidedKeys.size(), unresolved.size());
             return DrugContext.allergyClarification();
         }
+
+        long startedAt = System.nanoTime();
+        RetrievalQuery extracted = extractor.extract(userText);
+
+        // Under a declared allergy the model does not choose medicines (SA-08): its proposed
+        // ingredients are dropped and only products the person named themselves are looked up.
+        boolean suppressed = allergyDeclared && !extracted.ingredientsEn().isEmpty();
+        if (suppressed) {
+            log.info("Allergy declared this turn — dropping {} model-proposed ingredient(s): {}",
+                    extracted.ingredientsEn().size(), extracted.ingredientsEn());
+        }
+        RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
 
         if (query.isEmpty()) {
             log.debug("No drug search terms in this turn; the model gets an empty context");

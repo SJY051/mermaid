@@ -102,16 +102,19 @@ class ProxyInjectionTest {
     }
 
     @Test
-    @DisplayName("pass-1 allergens are bound to the user's own text before leaving the extractor")
-    void bindsExtractedAllergensToUserText() {
+    @DisplayName("the extraction schema exposes no allergen surface to the model (spec 005, 2026-07-14)")
+    void extractionSchemaHasNoAllergenSurface() {
+        // The DEV-603 threat-model entry for the pass-1 allergens field closes as "surface
+        // removed": free-text allergy declarations fail closed to a server clarification before
+        // this extractor runs, so there is nothing here for an injected prompt to steer. This test
+        // is the SC-003 mutation guard — reintroducing the field turns it red.
         ChatProxyService upstream = new StubUpstream("", null) {
             @Override
             public Mono<String> completeJson(
                     String systemPrompt, String userText, String schemaName, JsonNode schema) {
-                assertThat(schema.path("properties").path("allergens").path("maxItems").asInt())
-                        .isEqualTo(SearchTermExtractor.MAX_ALLERGENS);
-                assertThat(schema.path("required").toString()).contains("\"allergens\"");
-                assertThat(systemPrompt).contains("`allergens`", "proposes candidates only");
+                assertThat(schema.path("properties").has("allergens")).isFalse();
+                assertThat(schema.path("required").toString()).doesNotContain("allergens");
+                assertThat(systemPrompt).doesNotContain("`allergens`");
                 return Mono.just(
                         "{\"ingredients\":[],\"productNames\":[],"
                                 + "\"allergens\":[\"ibuprofen\",\"aspirin\"]}");
@@ -121,7 +124,9 @@ class ProxyInjectionTest {
         RetrievalQuery query = new SearchTermExtractor(upstream, mapper)
                 .extract("I am allergic to ibuprofen");
 
-        assertThat(query.allergens()).containsExactly("ibuprofen");
+        assertThat(query.toString())
+                .as("a volunteered allergens array must change nothing")
+                .doesNotContain("ibuprofen", "aspirin");
     }
 
     @Test
@@ -142,7 +147,8 @@ class ProxyInjectionTest {
         var upstream = new StubUpstream(validDrugFreeAnswer(), modelRequest);
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
-            public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
+            public DrugContext retrieve(
+                    String userText, String allUserText, Set<String> excludedIngredients) {
                 throw new AssertionError("retrieval must not run for an emergency");
             }
         };
@@ -163,7 +169,8 @@ class ProxyInjectionTest {
     private ChatProxyController controller(ChatProxyService upstream, DrugContext context) {
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
-            public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
+            public DrugContext retrieve(
+                    String userText, String allUserText, Set<String> excludedIngredients) {
                 return context;
             }
         };

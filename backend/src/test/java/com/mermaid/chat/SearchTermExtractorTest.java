@@ -281,37 +281,24 @@ class SearchTermExtractorTest {
     }
 
     @Nested
-    @DisplayName("the allergen clipping signal comes from the raw array (#62 P0, FR-012)")
-    class RawAllergenClipSignal {
-
-        private RetrievalQuery parse(String json) {
-            return SearchTermExtractor.parse(json, new ObjectMapper());
-        }
+    @DisplayName("no allergen surface exists (spec 005 SC-003, redesign 2026-07-14)")
+    class NoAllergenSurface {
 
         @Test
-        @DisplayName("a raw list at the cap keeps the signal even when dedup shrinks it")
-        void duplicateDoesNotLaunderTheCapSignal() {
-            // Ten raw entries, one a duplicate: accept() dedups to nine, but the RAW length is what
-            // says "maxItems may have clipped a stated allergen". Deriving the signal after
-            // sanitization loses it and a product with the omitted allergen can reach
-            // no_match_found.
-            String tenWithDuplicate = "{\"ingredients\":[],\"productNames\":[],\"allergens\":["
-                    + "\"aspirin\",\"aspirin\",\"ibuprofen\",\"acetaminophen\",\"naproxen\","
-                    + "\"cetirizine\",\"loratadine\",\"amoxicillin\",\"penicillin\",\"diclofenac\"]}";
+        @DisplayName("an allergens array in the model reply is ignored, not parsed")
+        void allergensInReplyAreIgnored() {
+            // The extraction schema has no allergen field; review found four distinct ways a stated
+            // allergen was lost between the user's text and the gate, so free-text allergens now
+            // fail closed to a clarifying question upstream of this extractor. A model (or an
+            // injected prompt) volunteering an allergens array must change nothing here.
+            RetrievalQuery query = SearchTermExtractor.parse(
+                    "{\"ingredients\":[\"Acetaminophen\"],\"productNames\":[],"
+                            + "\"allergens\":[\"aspirin\"]}",
+                    new ObjectMapper());
 
-            RetrievalQuery query = parse(tenWithDuplicate);
-
-            assertThat(query.allergens()).hasSizeLessThan(10);
-            assertThat(query.allergensMaybeClipped()).isTrue();
-        }
-
-        @Test
-        @DisplayName("a short list carries no clipping signal")
-        void shortListIsNotClipped() {
-            RetrievalQuery query = parse(
-                    "{\"ingredients\":[],\"productNames\":[],\"allergens\":[\"aspirin\"]}");
-
-            assertThat(query.allergensMaybeClipped()).isFalse();
+            assertThat(query.ingredientsEn()).containsExactly("Acetaminophen");
+            assertThat(query).hasNoNullFieldsOrProperties();
+            assertThat(query.toString()).doesNotContain("aspirin");
         }
     }
 }

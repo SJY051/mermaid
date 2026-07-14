@@ -104,7 +104,7 @@ class DrugContextRetrieverTest {
         @Test
         @DisplayName("the model is told, in words, that it may name no medicine")
         void saysSoExplicitly() {
-            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hello", Set.of());
+            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hello", "hello", Set.of());
 
             assertThat(context.systemMessage())
                     .contains("nothing was retrieved")
@@ -116,7 +116,7 @@ class DrugContextRetrieverTest {
         @Test
         @DisplayName("an empty context still ends in a valid, empty JSON array")
         void stillValidJson() throws Exception {
-            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hi", Set.of());
+            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hi", "hi", Set.of());
 
             assertThat(contextJson(context)).isEmpty();
         }
@@ -139,7 +139,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context =
                     new DrugContextRetriever(extractor, neverCalled, new IngredientNormalizer(), mapper)
-                            .retrieve("where is the nearest pharmacy?", Set.of());
+                            .retrieve("where is the nearest pharmacy?", "where is the nearest pharmacy?", Set.of());
 
             assertThat(context.allowedProductNames()).isEmpty();
         }
@@ -153,7 +153,7 @@ class DrugContextRetrieverTest {
             RetrievedContext retrieved =
                     new RetrievedContext(List.of(TYLENOL), Set.of(TYLENOL.nameKo()), List.of(TYLENOL_SOURCE));
             return retriever(new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
-                    .retrieve("I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", Set.of());
         }
 
         @Test
@@ -188,7 +188,7 @@ class DrugContextRetrieverTest {
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Acetaminophen", "Ibuprofen"), List.of()),
                             retrieved)
-                    .retrieve("I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", Set.of());
 
             assertThat(context.groundedDrugs().get(TYLENOL.nameKo()).sourceRefId())
                     .isEqualTo(TYLENOL_SOURCE.id());
@@ -214,7 +214,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
-                    .retrieve("I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", Set.of());
 
             assertThat(context.groundedDrugs()).doesNotContainKey(drug.nameKo());
             assertThat(context.allowedProductNames()).isEmpty();
@@ -236,7 +236,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
-                    .retrieve("I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", Set.of());
 
             // A real retrieved product must not be dropped just because it has no English
             // ingredients, or INV6 refuses a card we actually fetched (#60). Its grounded set is
@@ -307,7 +307,7 @@ class DrugContextRetrieverTest {
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Ibuprofen"), List.of()),
                             new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(TYLENOL_SOURCE)))
-                    .retrieve("I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", Set.of());
             String message = context.systemMessage();
             return mapper.readTree(message.substring(message.indexOf('['))).get(0);
         }
@@ -358,7 +358,7 @@ class DrugContextRetrieverTest {
             String message = retriever(
                             new RetrievalQuery(List.of("Ibuprofen"), List.of()),
                             new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(TYLENOL_SOURCE)))
-                    .retrieve("headache", Set.of())
+                    .retrieve("headache", "headache", Set.of())
                     .systemMessage();
 
             assertThat(message)
@@ -376,134 +376,98 @@ class DrugContextRetrieverTest {
      *
      * <p>We hold no reviewed drug-class table and will not invent one (spec §2-12). So when an allergy
      * is declared, the model does not get to choose a medicine at all.
+     *
+     * <p>Since 2026-07-14 (spec 005 redesign): a free-text declaration in the current turn is never
+     * answered from retrieval — the server cannot verify any free-text allergen extraction is
+     * complete, so it always asks the server-authored clarifying question. Only the client-complete
+     * {@code exclude_ingredients} field, fully resolved through signed rows, lets retrieval proceed.
      */
     @Nested
     @DisplayName("a declared allergy takes the choice of medicine away from the model")
     class AllergyGate {
 
         private static final RetrievalQuery PROPOSED =
-                new RetrievalQuery(
-                        List.of("Acetaminophen", "Naproxen"),
-                        List.of(),
-                        List.of("ibuprofen"));
+                new RetrievalQuery(List.of("Acetaminophen", "Naproxen"), List.of());
 
-        @Test
-        @DisplayName("the naproxen regression: a proposed ingredient never reaches retrieval")
-        void proposedIngredientsNeverReachRetrieval() {
-            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+        /** The conversation so far, for the FR-013 history scan. */
+        private static final String DECLARED_EARLIER =
+                "I am allergic to ibuprofen. — can I take 부루펜?";
 
-            gated(PROPOSED, drugService)
-                    .retrieve("I have a headache but I am allergic to ibuprofen", Set.of());
-
-            assertThat(drugService.seen)
-                    .as("retrieval must not be asked for anything the model proposed")
-                    .isNull();
+        private SearchTermExtractor neverCalled() {
+            return new SearchTermExtractor(null, mapper) {
+                @Override
+                public RetrievalQuery extract(String userText) {
+                    throw new AssertionError(
+                            "a turn that fails closed must not pay for a model call");
+                }
+            };
         }
 
         @Test
-        @DisplayName("the request field gates on its own — the sentence need not mention the allergy")
-        void excludeIngredientsFieldAlsoGates() {
+        @DisplayName("FR-001: a free-text declaration clarifies before any model is called")
+        void freeTextDeclarationClarifiesBeforeAnyModelCall() throws Exception {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            String turn = "I have a headache but I am allergic to ibuprofen";
 
-            gated(PROPOSED, drugService).retrieve("I have a headache", Set.of("Ibuprofen"));
-
-            assertThat(drugService.seen).isNull();
-        }
-
-        @Test
-        @DisplayName("SC-001: an unresolved declared allergy returns the server clarification")
-        void unresolvedAllergyFailsClosedBeforeRetrieval() throws Exception {
-            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
-            RetrievalQuery unresolved = new RetrievalQuery(
-                    List.of("Naproxen"), List.of(), List.of("notarealingredientxyz"));
-
-            DrugContext context = gated(unresolved, drugService)
-                    .retrieve("I am allergic to notarealingredientxyz", Set.of());
+            DrugContext context =
+                    new DrugContextRetriever(neverCalled(), drugService, new IngredientNormalizer(), mapper)
+                            .retrieve(turn, turn, Set.of());
 
             MermAidAnswer answer = context.directAnswer().orElseThrow();
             assertThat(drugService.seen).as("fail-closed must happen before retrieval").isNull();
             assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
             assertThat(answer.drugs()).isEmpty();
             assertThat(answer.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
-            assertThat(mapper.writeValueAsString(answer))
-                    .doesNotContain("no_match_found", "Naproxen");
-
-            CapturingDrugService unsignedExtensionService =
-                    new CapturingDrugService(RetrievedContext.EMPTY);
-            DrugContext unsignedExtension = gated(RetrievalQuery.EMPTY, unsignedExtensionService)
-                    .retrieve("I have a headache", Set.of("paracetamol"));
-
-            assertThat(unsignedExtension.directAnswer()).isPresent();
-            assertThat(unsignedExtensionService.seen).isNull();
-        }
-
-        @Test
-        @DisplayName("a mixed declaration — one resolved, one unresolved — still fails closed (#59 follow-up P0)")
-        void mixedResolvedAndUnresolvedAllergyFailsClosed() throws Exception {
-            // aspirin is a signed synonyms.tsv row (resolves); paracetamol is unsigned (unresolved).
-            // The old gate only fired when the whole avoided set was empty, so a mix passed and the
-            // unresolved allergen was silently dropped — a paracetamol drug could then show
-            // no_match_found. ANY unresolved declared allergen must fail closed.
-            CapturingDrugService freeText = new CapturingDrugService(RetrievedContext.EMPTY);
-            RetrievalQuery mixed = new RetrievalQuery(
-                    List.of("Naproxen"), List.of(), List.of("aspirin", "paracetamol"));
-
-            DrugContext context = gated(mixed, freeText)
-                    .retrieve("I am allergic to aspirin and paracetamol", Set.of());
-
-            MermAidAnswer answer = context.directAnswer().orElseThrow();
-            assertThat(freeText.seen).as("fail-closed must happen before retrieval").isNull();
-            assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
-            assertThat(answer.drugs()).isEmpty();
             assertThat(mapper.writeValueAsString(answer)).doesNotContain("no_match_found", "Naproxen");
-
-            // Same mix via the exclude_ingredients field.
-            CapturingDrugService viaField = new CapturingDrugService(RetrievedContext.EMPTY);
-            DrugContext fieldContext = gated(RetrievalQuery.EMPTY, viaField)
-                    .retrieve("I have a headache", Set.of("aspirin", "paracetamol"));
-
-            assertThat(fieldContext.directAnswer()).isPresent();
-            assertThat(viaField.seen).isNull();
         }
 
         @Test
-        @DisplayName("an allergen list at the extraction cap fails closed — the model may have clipped one (#62 P0, FR-012)")
-        void allergenListAtCapFailsClosed() {
-            // The extractor caps allergens; a list at the cap may be clipped, and a clipped allergen
-            // is exactly the silently-dropped case the unresolved check cannot see. The server can't
-            // know what the model omitted, so reaching the cap is a hard clarify — even if every
-            // extracted name resolves.
+        @DisplayName("FR-001: new free text clarifies even when the structured list fully resolves")
+        void freeTextDeclarationClarifiesEvenWithResolvedStructuredList() {
+            // The structured list carries ibuprofen — but this turn's prose declares an aspirin
+            // allergy the list does not know about, and the server cannot tell whether it is
+            // covered. Letting the structured list trump the new declaration would check 부루펜
+            // against ibuprofen only, and an aspirin product could come back no_match_found.
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
-            RetrievalQuery query = new RetrievalQuery(
-                    List.of("Naproxen"), List.of(), List.of("aspirin"), true);
+            String turn = "I am also allergic to aspirin — can I take 부루펜?";
 
-            DrugContext context = gated(query, drugService).retrieve("I am allergic to aspirin", Set.of());
+            DrugContext context =
+                    new DrugContextRetriever(neverCalled(), drugService, new IngredientNormalizer(), mapper)
+                            .retrieve(turn, turn, Set.of("Ibuprofen"));
 
-            assertThat(context.directAnswer()).as("cap reached must fail closed").isPresent();
-            assertThat(drugService.seen).as("fail-closed must happen before retrieval").isNull();
+            assertThat(context.directAnswer()).isPresent();
+            assertThat(drugService.seen).isNull();
         }
 
         @Test
-        @DisplayName("with no allergy the model's ingredients pass through untouched")
-        void noAllergyNoGate() {
+        @DisplayName("FR-013: the bare reply to our own clarifying question stays guarded")
+        void bareReplyToClarificationStaysGuarded() {
+            // Turn 1 declared the allergy in free text; we asked which ingredient. The reply is just
+            // "ibuprofen" — no allergy keyword, no structured list. Scanning only the newest turn
+            // would treat this as a fresh, allergy-free question and retrieve unguarded: the person
+            // would be shown ibuprofen products moments after declaring an ibuprofen allergy.
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            String allTurns = "I am allergic to ibuprofen, what can I take? ibuprofen";
 
-            gated(PROPOSED, drugService).retrieve("I have a headache", Set.of());
+            DrugContext context =
+                    new DrugContextRetriever(neverCalled(), drugService, new IngredientNormalizer(), mapper)
+                            .retrieve("ibuprofen", allTurns, Set.of());
 
-            assertThat(drugService.seen.ingredientsEn()).containsExactly("Acetaminophen", "Naproxen");
+            assertThat(context.directAnswer()).as("history scan must keep the allergy context").isPresent();
+            assertThat(drugService.seen).isNull();
         }
 
         @Test
-        @DisplayName("a product the person named themselves is still looked up")
-        void userNamedProductSurvivesTheGate() {
+        @DisplayName("FR-005: the structured round-trip proceeds with the avoided set")
+        void structuredRoundTripProceedsWithAvoidedSet() {
+            // The loop-closing turn: the allergy was declared earlier (history), the client has
+            // collected it structurally (FR-014 affordance), and this turn adds no new declaration.
+            // Only now may retrieval run — with the resolved keys avoided and the model's own
+            // ingredient proposals still suppressed (SA-08).
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
-            gated(new RetrievalQuery(
-                                    List.of("Naproxen"),
-                                    List.of("부루펜"),
-                                    List.of("ibuprofen")),
-                            drugService)
-                    .retrieve("I'm allergic to ibuprofen — can I take 부루펜?", Set.of());
+            gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")), drugService)
+                    .retrieve("can I take 부루펜?", DECLARED_EARLIER, Set.of("Ibuprofen"));
 
             assertThat(drugService.seen).isNotNull();
             assertThat(drugService.seen.ingredientsEn()).isEmpty();
@@ -512,10 +476,63 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("the request field gates on its own — the sentence need not mention the allergy")
+        void excludeIngredientsFieldAlsoGates() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(PROPOSED, drugService)
+                    .retrieve("I have a headache", "I have a headache", Set.of("Ibuprofen"));
+
+            assertThat(drugService.seen)
+                    .as("suppression leaves no query, so retrieval is never asked")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("SC-001: an unresolved structured entry returns the server clarification")
+        void unresolvedStructuredEntryFailsClosed() throws Exception {
+            // paracetamol's synonyms.tsv row is unsigned: it may aid lookup but must never gain
+            // block authority (AGENTS.md 2-6). An entry we cannot bind with authority means the
+            // avoided set would be incomplete — so the turn asks, it does not retrieve.
+            CapturingDrugService unsigned = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            DrugContext context = gated(RetrievalQuery.EMPTY, unsigned)
+                    .retrieve("I have a headache", "I have a headache", Set.of("paracetamol"));
+
+            MermAidAnswer answer = context.directAnswer().orElseThrow();
+            assertThat(unsigned.seen).as("fail-closed must happen before retrieval").isNull();
+            assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(mapper.writeValueAsString(answer)).doesNotContain("no_match_found");
+
+            // A mix — one signed (aspirin), one unsigned (paracetamol) — fails closed the same way:
+            // ANY unresolved entry means an incomplete avoided set (#59 follow-up P0).
+            CapturingDrugService mixed = new CapturingDrugService(RetrievedContext.EMPTY);
+            DrugContext mixedContext = gated(RetrievalQuery.EMPTY, mixed)
+                    .retrieve("I have a headache", "I have a headache", Set.of("aspirin", "paracetamol"));
+
+            assertThat(mixedContext.directAnswer()).isPresent();
+            assertThat(mixed.seen).isNull();
+        }
+
+        @Test
+        @DisplayName("with no allergy the model's ingredients pass through untouched")
+        void noAllergyNoGate() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(PROPOSED, drugService).retrieve("I have a headache", "I have a headache", Set.of());
+
+            assertThat(drugService.seen.ingredientsEn()).containsExactly("Acetaminophen", "Naproxen");
+        }
+
+        @Test
         @DisplayName("\"we refused to look\" is not rendered as \"we found nothing\"")
         void preambleExplainsTheRefusal() {
+            // History carries the declaration, the structured list resolves it, and the model's
+            // proposals are suppressed — leaving nothing to retrieve. The empty context must say
+            // "we refused to choose", not "we found nothing".
             String message = gated(PROPOSED, new CapturingDrugService(RetrievedContext.EMPTY))
-                    .retrieve("I am allergic to ibuprofen, my head hurts", Set.of())
+                    .retrieve("my head hurts", DECLARED_EARLIER, Set.of("Ibuprofen"))
                     .systemMessage();
 
             assertThat(message)
@@ -528,7 +545,7 @@ class DrugContextRetrieverTest {
         @DisplayName("without an allergy an empty context keeps its old wording")
         void plainEmptyIsUnchanged() {
             String message = gated(RetrievalQuery.EMPTY, new CapturingDrugService(RetrievedContext.EMPTY))
-                    .retrieve("hello", Set.of())
+                    .retrieve("hello", "hello", Set.of())
                     .systemMessage();
 
             assertThat(message)
@@ -552,12 +569,9 @@ class DrugContextRetrieverTest {
             RetrievedContext retrieved =
                     new RetrievedContext(List.of(blocked), Set.of(blocked.nameKo()), List.of(TYLENOL_SOURCE));
 
-            String message = gated(new RetrievalQuery(
-                                            List.of("Naproxen"),
-                                            List.of("부루펜"),
-                                            List.of("ibuprofen")),
+            String message = gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")),
                                     new CapturingDrugService(retrieved))
-                    .retrieve("I'm allergic to ibuprofen — can I take 부루펜?", Set.of())
+                    .retrieve("can I take 부루펜?", DECLARED_EARLIER, Set.of("Ibuprofen"))
                     .systemMessage();
 
             assertThat(message)

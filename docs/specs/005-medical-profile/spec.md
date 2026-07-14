@@ -28,12 +28,13 @@ hybrid-storage design already reserves an opt-in server-side allergy profile
 (`user_profile` / `allergy_ingredient`, gated by `remember_allergies`, off by default),
 but nothing populates or reads it safely yet.
 
-This spec defines, in one place: (a) safely turning a free-text allergen into a
-canonical ingredient the allergy check can use, (b) never letting a declared-but-
-unresolved allergy become a silent `no_match_found`, (c) normalizing user input before
-binding, (d) an optional opt-in allergy profile, and (e) a bounded, injection-safe way
-for the model to hand extracted allergen text to the server. The **#55 semantic output
-gate** will later build on the same "model explains, server owns facts" boundary.
+This spec defines, in one place: (a) which channel may carry an allergen into the
+allergy check, and with what authority, (b) never letting a declared-but-unresolved
+allergy become a silent `no_match_found`, (c) normalizing user input before binding,
+and (d) an optional opt-in allergy profile. (A fifth goal — a bounded model-to-server
+allergen surface — was designed 2026-07-13 and **removed 2026-07-14**; see the
+requirements preamble for why.) The **#55 semantic output gate** will later build on
+the same "model explains, server owns facts" boundary.
 
 Who it is for: an English-speaking, not-signed-in user describing symptoms in Korea,
 who may state an allergy in prose and must never be shown a medicine they react to as
@@ -42,24 +43,27 @@ if it were unproblematic.
 ## Goals / non-goals
 
 - **Goals**
-  - A free-text allergen name binds to a canonical ingredient **only** through the
-    reviewed, human-signed synonym table (`synonyms.tsv`), and **only** when the name
-    actually occurs in the user's own text (origin binding, the EX-01 principle).
-  - A declared allergy whose allergen cannot be resolved to a signed ingredient never
-    silently produces `no_match_found`: it asks a **clarifying question** or fails closed.
-  - User input is **normalized** (case-folding, and a reviewed alias/typo path) before
-    binding, so "Ibuprofin"/"IBUPROFEN" resolve like "ibuprofen".
+  - An allergen may authorize or constrain retrieval **only** through a channel whose
+    completeness the client owns (`mermaid.exclude_ingredients`), each entry resolved
+    through an exact canonical key or a human-signed `synonyms.tsv` row.
+  - A free-text allergy declaration always fails closed to a **server-authored
+    clarifying question** — never a silent `no_match_found`, never a retrieval-backed
+    answer built on an unverifiable extraction.
+  - User input on the structured path is **normalized** (case-folding, and a reviewed
+    alias/typo path for lookup), so "IBUPROFEN" resolves like "ibuprofen" while an
+    unsigned variant fails closed to the question.
   - An **opt-in** persisted allergy profile (off by default), local-first, that is
     masked when included in an AI call and can be deleted (satisfies the CRUD D demo).
-  - Any new model-to-server surface for allergen text stays inside the DEV-603 threat
-    model: it accepts only server-validated ingredient tokens, never raw model prose.
+  - No model-to-server surface for allergen text exists at all (redesigned 2026-07-14):
+    the model neither proposes nor influences the avoided set.
 
 - **Non-goals**
   - A cross-reactivity table (e.g. NSAID class). AR-01 is an accepted clinical-review
     boundary; we do not invent cross-reactivity. An unmatched sibling drug stays
     `no_match_found` with correct copy, not a green badge.
   - Letting the model author allergy facts, the avoided set, or the binding table
-    (AGENTS.md 2-6). The model may *point at* a candidate; the server decides.
+    (AGENTS.md 2-6). Since 2026-07-14 the model does not even *point at* a candidate:
+    it has no allergen surface at all.
   - The #55 semantic output gate (diagnosis/cure/"safe" prose). Separate spec, builds
     on this one.
   - Medical history beyond allergies (conditions, medications, pregnancy state as
@@ -67,49 +71,63 @@ if it were unproblematic.
 
 ## Requirements
 
-### Allergen extraction and binding
-- **FR-001**: When an allergy is declared in free text, the system MUST extract
-  candidate allergen name(s) via a pass-1 `allergens` field (the model proposes, bound
-  exactly like product names) and bind each to a canonical ingredient via `synonyms.tsv`.
-  A candidate that does not occur literally (case-insensitively) in the **user's own
-  text** MUST be discarded (origin binding, EX-01). Decided 2026-07-13.
-- **FR-002**: Binding MUST use only **human-signed** rows of `synonyms.tsv`. An
-  unreviewed or unsigned mapping MUST NOT let an allergy `block` a medicine; at most it
-  contributes a `warning`, per AGENTS.md 2-6 and 2-12.
-- **FR-003**: The model MUST NOT author the avoided-ingredient set. If a new
-  model-facing surface (see FR-009) proposes an allergen, the server MUST re-validate it
-  against FR-001 and FR-002 before it affects any allergy state.
-- **FR-011**: The `allergens` extraction cap MUST NOT silently truncate a user's stated
-  allergens. Unlike `ingredients` / `productNames` — which are interpolated into the
-  government API query, so their cap bounds query size (DoS) — `allergens` never leaves as a
-  query; it feeds `AllergenBinder`, whose **origin check** (only names literally present in
-  the user's own text) is the natural bound, and the user's message length bounds that. So
-  the cap MUST be large enough (or effectively origin-bounded) that naming N allergens loses
-  none. **Decided 2026-07-13:** raise / relax `MAX_ALLERGENS` so a realistic multi-allergen
-  declaration is never clipped. A model that *omits* a stated allergen (rather than the cap
-  clipping it) is a **residual risk**: mitigated by the pass-1 prompt requiring every
-  ingredient the user says they are allergic to, with **FR-004 as the fail-closed backstop**
-  (any unresolved declared allergen → clarify).
-- **FR-012 (cap-reached fail-closed)**: Because the server cannot see what the model
-  dropped, if the extracted `allergens` list **reaches the cap** the turn MUST fail closed
-  to clarification — the list may have been clipped, and a clipped allergen is exactly the
-  silently-dropped case FR-004 cannot see. This makes the guarantee independent of the cap
-  value: raising the cap widens what is answered directly, and reaching it is a hard
-  clarify. Together FR-011 + FR-012 + FR-004 close the #62 bot P0 (cap-clipped allergen).
+### Allergen channels and their authority (redesigned 2026-07-14)
+
+> **Why the redesign.** The 2026-07-13 design (FR-001/003/009/011/012 below, now
+> superseded) let a pass-1 `allergens` extraction, origin-bound and signed-row-bound,
+> authorize retrieval under a declared allergy. Review found four independent ways a
+> stated allergen could be **lost between the user's text and the gate** — mixed
+> resolution screened only "nothing resolved"; the cap clipped the fourth allergen; the
+> sanitized list laundered the clipping signal; shape rejection below the cap dropped a
+> candidate with no signal at all — and each loss surfaced only after a targeted fix of
+> the previous one. The common cause is structural: **the server can never verify that
+> an extraction from free text is complete.** So free-text extraction loses gate
+> authority entirely, and only a channel whose completeness the client owns may
+> authorize retrieval.
+
+- **FR-001**: A free-text allergy declaration in the **current turn**
+  (`AllergyDeclaration.presentIn`) MUST always produce the server-authored clarifying
+  question (FR-010), never a retrieval-backed answer — regardless of what any
+  extraction proposes and regardless of the structured list's content (new free text
+  may name an allergen the structured list lacks). No allergen extraction from free
+  text exists on the gate path. Supersedes FR-001/FR-011/FR-012 of 2026-07-13.
+  Decided 2026-07-14.
+- **FR-002**: On the structured path, an `exclude_ingredients` entry MUST resolve
+  through an exact canonical key or a **human-signed** row of `synonyms.tsv`
+  (`isReviewedBinding`). An unreviewed or unsigned mapping MUST NOT let an allergy
+  `block` a medicine; at most it contributes a `warning`, per AGENTS.md 2-6 and 2-12.
+- **FR-003**: The model MUST NOT author, propose, or influence the avoided-ingredient
+  set. There is no model-facing allergen surface at all; the only allergen input is the
+  client-structured `mermaid.exclude_ingredients` field, whose documented semantics are
+  "the complete list of ingredients this session must avoid" — completeness is the
+  client's, collected from the user by the FR-014 affordance.
 
 ### Fail-closed on unresolved allergy
-- **FR-004**: When an allergy is declared and **any** declared allergen fails to resolve
-  to a signed ingredient — **even when others do resolve** — the system MUST NOT return
-  `no_match_found` for that turn. It MUST instead return a **clarifying question** asking
-  the user to name or confirm the ingredient, and MUST continue to suppress the model's own
-  drug suggestions (SA-08). Screening only the "nothing resolved" case silently drops a
-  mixed declaration (one bound, one unresolved) and can manufacture `no_match_found` from
-  "we did not check" — the #59 follow-up P0. This covers both free-text allergens and the
-  `exclude_ingredients` field.
-- **FR-005**: The normal block/warning/no_match_found/unknown states apply **only when
-  every declared allergen resolves** to a signed ingredient. In a mixed declaration where
-  any allergen is unresolved, FR-004 governs (clarify) — not this rule. (Narrowed from
-  "at least one resolves", which contradicted FR-004 for mixed declarations — #62 bot P1.)
+- **FR-004**: When an allergy is declared (current turn, any prior user turn per
+  FR-013, or a non-empty `exclude_ingredients`) and the structured avoided list is
+  absent or has **any** entry that does not resolve per FR-002, the system MUST NOT
+  return a retrieval-backed answer for that turn. It MUST return the clarifying
+  question (FR-010), and MUST continue to suppress the model's own drug suggestions
+  (SA-08).
+- **FR-005**: Retrieval proceeds under a declared allergy ONLY when a non-empty
+  structured `exclude_ingredients` list is present, **every** entry resolves per
+  FR-002, and the current turn adds no new free-text declaration (FR-001 wins over
+  this rule). The existing block/warning/no_match_found/unknown states then apply,
+  computed against the resolved avoided set.
+- **FR-013 (history scan)**: The free-text declaration scan MUST cover **every user
+  message in the request**, not only the newest turn. Otherwise the bare reply to the
+  clarifying question ("ibuprofen") carries no allergy keyword and proceeds unguarded —
+  the person is shown the very ingredient they just declared. A client-forged or
+  trimmed history can only push the outcome toward clarification (fail-closed
+  direction); it can never unlock retrieval.
+- **FR-014 (structured-reply affordance)**: The frontend MUST treat the clarification
+  answer (`answerId "allergy-clarification"`) as the signal to collect allergens
+  **structurally**: render an ingredient input and send the collected list as
+  `mermaid.exclude_ingredients` on every subsequent request in the session. This is the
+  provision that closes the FR-001 restriction's loop; without it a free-text allergy
+  is a clarification the user cannot answer. Ship it immediately after the restriction
+  (FE-1 lane, follow-up slice); until it ships, the degraded state is the safe one
+  (clarify, name no medicine) — never the unguarded one.
 
 ### Normalization
 - **FR-006**: User-supplied allergen text MUST be normalized before binding:
@@ -128,10 +146,11 @@ if it were unproblematic.
   server-side allergy comparison uses the unmasked canonical ingredients.
 
 ### Model-to-server surface (the "AI tool surface")
-- **FR-009**: The model-facing surface is the pass-1 `allergens` field (FR-001), not a
-  free tool call (the assistant does not call tools, spec 2-1). It MUST be added to the
-  **DEV-603 threat model**, MUST accept only values that pass FR-001/FR-002 server-side,
-  and MUST fail closed on anything else. Decided 2026-07-13.
+- **FR-009**: ~~The model-facing surface is the pass-1 `allergens` field.~~
+  **Superseded 2026-07-14**: the pass-1 `allergens` field is removed. There is no
+  model-facing allergen surface (FR-003); the DEV-603 threat-model entry for it closes
+  as "surface removed". The extractor still emits `ingredients` / `productNames` only,
+  and those retain their existing caps and shape gates.
 - **FR-010**: The FR-004 clarifying question is safety-critical and MUST be
   **server-authored** (like the emergency code path), not model-authored — a
   prompt-injected model must not be able to suppress or reword it. It reuses the
@@ -140,26 +159,31 @@ if it were unproblematic.
 
 ## User scenarios
 
-### Free-text allergen resolves (P1)
+### Free-text allergy, then the structured round-trip (P1)
 - **Given** the user is not signed in and `remember_allergies` is off
 - **When** they type "I'm allergic to ibuprofen, what can I take for a headache?"
-- **Then** the server extracts "ibuprofen", confirms it occurs in the text, binds it via
-  a signed `synonyms.tsv` row, and any ibuprofen-containing retrieved product is
+- **Then** the server returns the clarifying question (FR-001); the frontend renders
+  the allergen affordance (FR-014); the user enters "ibuprofen"; the next request
+  carries `exclude_ingredients: ["ibuprofen"]`; it resolves via a signed row, retrieval
+  proceeds with it avoided, and any ibuprofen-containing retrieved product is
   `blocked` — never `no_match_found`, never a green badge, never the word "safe".
 
-### Declared allergy, unresolved allergen (P1)
-- **Given** an allergy is declared but the allergen is misspelled beyond the reviewed
-  alias path, or names something not in the signed table
-- **When** the turn is processed
-- **Then** the system returns a clarifying question ("Which ingredient are you allergic
-  to?") rather than `no_match_found`, and the model's own drug picks stay suppressed.
+### Bare reply to the clarifying question (P1)
+- **Given** the previous turn declared an allergy in free text and got the question
+- **When** the user replies just "ibuprofen" with no structured list (e.g. an older or
+  third-party client without the FR-014 affordance)
+- **Then** the history scan (FR-013) keeps the allergy context: the turn returns the
+  clarifying question again, never an unguarded retrieval that could show them an
+  ibuprofen product.
 
-### Typo / case variant (P2)
-- **Given** the user types "allergic to Ibuprofin"
-- **When** normalization runs
-- **Then** the reviewed alias path resolves it to the canonical ingredient and it binds
-  as in the first scenario; an unreviewable variant falls through to the clarifying
-  question, never to a silent pass.
+### Unresolvable structured entry (P2)
+- **Given** the structured list contains a misspelling beyond the reviewed alias path,
+  or something not in the signed table (e.g. "Ibuprofin" — the in-code spelling alias
+  feeds lookup but grants no blocking authority, AGENTS.md 2-6)
+- **When** the turn is processed
+- **Then** the system returns the clarifying question rather than proceeding with a
+  partial avoided set — an unsigned variant never silently passes, and never silently
+  blocks either.
 
 ### Opt-in profile round-trip (P2)
 - **Given** the user explicitly turns on `remember_allergies`
@@ -169,32 +193,46 @@ if it were unproblematic.
 
 ## Success criteria
 
-- **SC-001**: No input that declares an allergy can produce `no_match_found` with an
-  empty avoided set. Enforced by a test that is red before FR-004 and green after.
-- **SC-002**: An allergen bound to a medicine comes only from a signed `synonyms.tsv`
-  row; an unsigned row yields at most `warning`. Mutation: unsign the row → block must
-  disappear.
-- **SC-003**: A model-proposed allergen that does not occur in the user text has no
-  effect on allergy state. Mutation: drop the origin check → a regression turns red.
+- **SC-001**: No turn with an allergy declared — in the current text, in any prior user
+  turn, or via the structured field — proceeds to retrieval unless a non-empty
+  structured list fully resolves and the current turn adds no new free-text
+  declaration. Mutation: scan only the last user message → the bare-reply test turns
+  red.
+- **SC-002**: An allergen blocks a medicine only through an exact canonical key or a
+  signed `synonyms.tsv` row on the structured path; an unsigned row yields at most
+  `warning`. Mutation: unsign the row → block must disappear.
+- **SC-003**: No model output influences the allergy state in any way. The extractor's
+  schema has no allergen field; mutation: reintroduce one and wire it to the avoided
+  set → a regression turns red.
 - **SC-004**: With `remember_allergies` off, no allergy value is written or read; with
   it on, an AI call carries masked values only. Enforced by storage/masking tests
   (extends `AllergyBadge.test.tsx` / `storage.test.ts`).
 - **SC-005**: `./gradlew test` and `pnpm test` pass; every new safety check has a
   named mutation that turns it red.
 
-## Decisions (resolved 2026-07-13)
+## Decisions
 
-- **Allergen extraction** → pass-1 `allergens` field: the model proposes, the server
-  re-validates via origin binding (FR-001) and signed rows (FR-002). Honors the team's
-  "AI-facing surface" decision while keeping the server the sole authority (FR-003/009).
-- **FR-009 surface** → the pass-1 `allergens` field above; no free tool call, no new
-  `uiAction`. Added to the DEV-603 threat model.
+**2026-07-14 (supersedes the extraction design below):**
+- **Free-text allergen extraction has no gate authority** → any free-text declaration
+  clarifies; only the client-complete `exclude_ingredients` may authorize retrieval
+  (FR-001/003/005). Grounds: four sequential review P0s, each a distinct loss path in
+  the extraction pipeline; the class of bug is unfixable because extraction
+  completeness is unverifiable server-side.
+- **History scan** → `AllergyDeclaration` runs over every user message in the request
+  (FR-013), closing the bare-reply hole.
+- **Structured-reply affordance** → frontend collects allergens on the clarification
+  answer and sends `exclude_ingredients` thereafter (FR-014, follow-up slice).
+
+**2026-07-13 (original, superseded where struck):**
+- ~~**Allergen extraction** → pass-1 `allergens` field, origin-bound, signed rows.~~
+- ~~**FR-009 surface** → the pass-1 `allergens` field; added to the DEV-603 threat
+  model.~~ (Entry closes as "surface removed".)
 - **Normalization** → reviewed alias/spelling list only; no fuzzy/edit-distance
-  matching (FR-006).
+  matching (FR-006). Unchanged; now applies to the structured path.
 - **Profile storage** → server DB (`user_profile` / `allergy_ingredient`), opt-in and
-  off by default; gives the graded CRUD demo (FR-007).
+  off by default; gives the graded CRUD demo (FR-007). Unchanged.
 - **Clarifying-question transport** → server-authored, reusing `clarifyingQuestions[]`
-  shape; never model-authored for the unresolved-allergy prompt (FR-010).
+  shape; never model-authored (FR-010). Unchanged.
 
 ## Open questions
 

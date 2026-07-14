@@ -86,7 +86,8 @@ class ChatProxyControllerTest {
     private ChatProxyController controller(String modelReply, DrugContext context) {
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
-            public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
+            public DrugContext retrieve(
+                    String userText, String allUserText, Set<String> excludedIngredients) {
                 return context;
             }
         };
@@ -328,7 +329,8 @@ class ChatProxyControllerTest {
                     upstream,
                     new DrugContextRetriever(null, null, null, mapper) {
                         @Override
-                        public DrugContext retrieve(String userText, Set<String> excluded) {
+                        public DrugContext retrieve(
+                                String userText, String allUserText, Set<String> excluded) {
                             throw new AssertionError("retrieval must not run for an emergency");
                         }
                     },

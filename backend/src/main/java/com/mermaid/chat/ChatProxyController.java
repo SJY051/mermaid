@@ -134,7 +134,10 @@ public class ChatProxyController {
     private MermAidAnswer answer(JsonNode request) {
         String userText = ChatProxyService.lastUserMessage(request);
         DrugContext context =
-                drugContextRetriever.retrieve(userText, MermaidRequestExtension.excludedIngredients(request));
+                drugContextRetriever.retrieve(
+                        userText,
+                        ChatProxyService.userMessagesForSafety(request),
+                        MermaidRequestExtension.excludedIngredients(request));
         if (context.directAnswer().isPresent()) {
             return context.directAnswer().orElseThrow();
         }
