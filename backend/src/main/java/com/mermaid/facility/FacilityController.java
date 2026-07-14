@@ -28,9 +28,9 @@ public class FacilityController {
      *
      * <p>{@code open_now=true} returns only facilities we know to be open. A facility whose
      * timetable we could not read is excluded rather than guessed at — see spec §2-13. For
-     * pharmacies, {@code open_now=true} inspects a bounded wider candidate set before returning the
-     * requested nearest open results. Hospitals intentionally inspect only the nearest {@code limit}
-     * candidates before detail fan-out, keeping a dense HIRA map load within the public API quota.
+     * both facility types, {@code open_now=true} inspects a distance-ranked, bounded set of at most
+     * 100 candidates before returning the requested nearest open results. The cap keeps upstream
+     * timetable fan-out within the public API quota.
      */
     @GetMapping
     public List<Facility> nearby(
