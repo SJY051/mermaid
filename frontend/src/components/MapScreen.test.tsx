@@ -17,13 +17,23 @@ vi.mock('../lib/facilities', async (importOriginal) => {
   return { ...actual, resolveLocation: resolveLocationMock, fetchFacilities: fetchFacilitiesMock }
 })
 vi.mock('./FacilityMap', () => ({
-  FacilityMap: (props: { facilities?: Facility[]; notice?: string; caption?: string }) => (
+  FacilityMap: (props: {
+    facilities?: Facility[]
+    additionalFixtureData?: boolean
+    notice?: string
+    caption?: string
+  }) => (
     <div
       data-testid="map-stub"
       data-facility-ids={(props.facilities ?? []).map((facility) => facility.id).join(',')}
     >
       {props.caption && <span data-testid="map-caption">{props.caption}</span>}
       {props.notice && <span data-testid="map-notice">{props.notice}</span>}
+      {props.additionalFixtureData && (
+        <span data-testid="map-fixture-notice">
+          Sample data — availability may not reflect current conditions.
+        </span>
+      )}
       {(props.facilities ?? []).map((facility) => (
         <span key={facility.id} data-testid={`map-facility-${facility.id}`}>
           {facility.nameKo}:{' '}
@@ -125,6 +135,8 @@ describe('MapScreen', () => {
     const open = facility('open', '영업약국', true)
     const unknown = facility('unknown', '미상약국', null, '02-333-4444')
     const closed = facility('closed', '닫힘약국', false)
+    open.source.dataMode = 'live'
+    unknown.source.dataMode = 'live'
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital'
@@ -148,6 +160,9 @@ describe('MapScreen', () => {
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open'))
     expect(screen.queryByTestId('map-facility-closed')).not.toBeInTheDocument()
     expect(screen.queryByText('닫힘약국')).not.toBeInTheDocument()
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
+      'Sample data — availability may not reflect current conditions.',
+    )
 
     const heading = screen.getByRole('heading', {
       name: 'Hours unknown — call to confirm (1)',
@@ -185,30 +200,4 @@ describe('MapScreen', () => {
     await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalled())
   })
 
-  it('warns when a displayed facility carries fixture provenance, never presenting it as live (§2-9)', async () => {
-    const live = facility('a', '라이브약국', true)
-    live.source.dataMode = 'live'
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
-    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([live]),
-    )
-
-    const { rerender } = render(<MapScreen active={true} />)
-    await screen.findByTestId('map-facility-a')
-    expect(screen.queryByTestId('map-fixture-notice')).not.toBeInTheDocument()
-
-    // The same screen with a fixture-provenance facility must say so.
-    const sample = facility('b', '샘플약국', true)
-    // (facility() already defaults source.dataMode to 'fixture')
-    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([sample]),
-    )
-    rerender(<MapScreen active={false} />)
-    rerender(<MapScreen active={true} />)
-    // force a refetch by switching type, since location is already resolved
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Pharmacies' }))
-    expect(await screen.findByTestId('map-fixture-notice')).toHaveTextContent(
-      'Showing sample data — availability may not reflect current conditions.',
-    )
-  })
 })

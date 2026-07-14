@@ -7,6 +7,8 @@ export interface FacilityMapProps {
   center: { lat: number; lng: number }
   zoom?: number
   facilities?: Facility[]
+  /** Related facilities rendered outside the map also carry fixture provenance. */
+  additionalFixtureData?: boolean
   /** Rendered above the map. The assistant's own words about why it opened. */
   caption?: string
   /** Shown when the centre is a fallback rather than the user's position. */
@@ -40,13 +42,22 @@ function escapeHtml(value: string): string {
  * looks like a map still loading. When the key is rejected the SDK says so through a global
  * callback, `useNaverMap` turns that into an `error`, and this component prints it.
  */
-export function FacilityMap({ center, zoom = 15, facilities = [], caption, notice }: FacilityMapProps) {
+export function FacilityMap({
+  center,
+  zoom = 15,
+  facilities = [],
+  additionalFixtureData = false,
+  caption,
+  notice,
+}: FacilityMapProps) {
   const { containerRef, map, ready, error } = useNaverMap({ center, zoom })
   const markersRef = useRef<naver.maps.Marker[]>([])
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null)
   const [markerError, setMarkerError] = useState<Error | null>(null)
 
   const visibleError = error ?? markerError
+  const hasFixtureData =
+    additionalFixtureData || facilities.some((facility) => facility.source.dataMode === 'fixture')
 
   useEffect(() => {
     if (!map || !ready) return
@@ -126,6 +137,11 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
     <section className="space-y-2" aria-label="Nearby facilities map">
       {caption && <p className="text-sm text-secondary">{caption}</p>}
       {notice && <p className="text-xs text-secondary">{notice}</p>}
+      {hasFixtureData && (
+        <p data-testid="map-fixture-notice" className="text-sm text-primary">
+          Sample data — availability may not reflect current conditions.
+        </p>
+      )}
 
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />
