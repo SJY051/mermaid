@@ -219,8 +219,13 @@ class SearchTermExtractorTest {
     class FailsClosed {
 
         @Test
-        @DisplayName("provider failures are logged only as a stable code and count")
+        @DisplayName("provider failures name their cause and still leak nothing")
         void extractionFailuresDoNotLeakExceptionMessages() {
+            // The line now carries a classified cause, because a bare code cost an evening: pass 1a
+            // failing means the server retrieves nothing and the person is told we could not verify
+            // an answer, and the log said only that something went wrong. What must NOT change is
+            // what it refuses to carry — the exception's own message. This one is a log-injection
+            // payload (CRLF, a forged line) and it is also, in the real failures, the user's text.
             ChatProxyService failingService = new ChatProxyService(null, null, null, null, mapper) {
                 @Override
                 public Mono<String> completeJson(
@@ -245,9 +250,47 @@ class SearchTermExtractorTest {
                     .toList();
             assertThat(warnings).singleElement().satisfies(event -> {
                 assertThat(event.getFormattedMessage())
-                        .isEqualTo("search_term_extraction_failed code=UPSTREAM_FAILURE count=1");
+                        .isEqualTo(
+                                "search_term_extraction_failed code=UPSTREAM_FAILURE "
+                                        + "exception=IllegalStateException reason=unclassified");
+                // The whole rendered line, not only the arguments: neither the payload nor the user's
+                // words, and no newline that could forge a second log entry.
+                assertThat(event.getFormattedMessage())
+                        .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n", "synthetic symptom");
                 assertThat(Arrays.deepToString(event.getArgumentArray()))
                         .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
+            });
+        }
+
+        @Test
+        @DisplayName("a timeout says it was a timeout, and names the budget that ran out")
+        void aTimeoutIsClassifiedAsOne() {
+            // The failure that was actually happening: the provider answered pass 2 in 103 seconds
+            // against a 30-second extraction budget, so every retrieval died before it started.
+            ChatProxyService slowService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.error(new java.util.concurrent.TimeoutException("LEAK_SENTINEL"));
+                }
+            };
+            SearchTermExtractor extractor = new SearchTermExtractor(slowService, mapper);
+            Logger logger = (Logger) LoggerFactory.getLogger(SearchTermExtractor.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+            try {
+                assertThat(extractor.extract("synthetic symptom").isEmpty()).isTrue();
+            } finally {
+                logger.detachAppender(appender);
+                appender.stop();
+            }
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getFormattedMessage())
+                        .contains("reason=timeout")
+                        .contains("llm.extraction-timeout")
+                        .doesNotContain("LEAK_SENTINEL");
             });
         }
 
