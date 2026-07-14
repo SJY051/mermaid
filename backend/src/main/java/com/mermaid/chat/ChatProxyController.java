@@ -13,6 +13,7 @@ import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -40,8 +41,20 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatProxyController {
 
     private static final long STREAM_TIMEOUT_MS = 120_000L;
-    static final String UNVERIFIED_ALLERGEN_CAVEAT =
-            "The named allergens were checked by name only; a pharmacist must confirm.";
+    /**
+     * Names the allergens it is talking about, and only those.
+     *
+     * <p>"The named allergens were checked by name only" reads, in a session that also carries
+     * picker selections, as though it covers those too — so a card the server stamped {@code
+     * blocked} for a reviewed ingredient sits next to a sentence saying that match was merely a
+     * name and needs confirming. The caveat belongs to the words the user typed, so it says them.
+     */
+    static String unverifiedAllergenCaveat(Set<String> typedAllergens) {
+        return "The allergens you typed ("
+                + String.join(", ", new TreeSet<>(typedAllergens))
+                + ") were checked against ingredient names only; a pharmacist must confirm them. "
+                + "This does not change any other warning on this page.";
+    }
 
     private final ChatProxyService chatProxyService;
     private final DrugContextRetriever drugContextRetriever;
@@ -212,8 +225,9 @@ public class ChatProxyController {
         if (answer.warnings() != null) {
             warnings.addAll(answer.warnings());
         }
-        if (!warnings.contains(UNVERIFIED_ALLERGEN_CAVEAT)) {
-            warnings.add(UNVERIFIED_ALLERGEN_CAVEAT);
+        String caveat = unverifiedAllergenCaveat(unverifiedAllergens);
+        if (!warnings.contains(caveat)) {
+            warnings.add(caveat);
         }
         return new MermAidAnswer(
                 answer.schemaVersion(),

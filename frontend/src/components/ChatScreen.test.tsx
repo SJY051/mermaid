@@ -495,6 +495,54 @@ describe('allergen picker (spec 005 FR-014)', () => {
     expect(placeholder).not.toMatch(/safe/i)
   })
 
+  it('declares an allergen typed but never Added, when the user confirms (P0)', async () => {
+    // The Add button is one affordance; the confirm button is the one that says "use my allergies".
+    // A person who types their allergen and reaches for the second, never noticing the first, has
+    // declared it — the screen agrees with them. Dropping it would mark the clarification answered
+    // and let the next request go out on a list the backend then treats as complete, showing a
+    // product that contains the allergen as `no_match_found` (§2-2). Confirming reads the box.
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const user = await ask('I am allergic to something')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.click(within(picker).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.type(within(picker).getByRole('combobox', { name: 'Allergy name' }), 'Yellow dye')
+    // No Add click. Straight to confirm.
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    expect(loadChatSession().allergies).toEqual(['ibuprofen'])
+    expect(loadChatSession().unverifiedAllergens).toEqual(['Yellow dye'])
+
+    await user.type(screen.getByRole('textbox'), 'What can I take for this headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    expect(streamChatMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      undefined,
+      { mermaid: { exclude_ingredients: ['ibuprofen'], unverified_allergens: ['Yellow dye'] } },
+    )
+  })
+
+  it('declares a typed allergen that resolves to a listed option, when the user confirms (P0)', async () => {
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am allergic to something')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.type(within(picker).getByRole('combobox', { name: 'Allergy name' }), 'Ibuprofen')
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    // It matched the reviewed list, so it binds as a verified exclusion — not a name-match chip.
+    expect(loadChatSession().allergies).toEqual(['ibuprofen'])
+    expect(loadChatSession().unverifiedAllergens).toEqual([])
+  })
+
   it('resolves autocomplete text to a verified option and makes an honest unverified chip removable', async () => {
     serveAllergenOptions()
     streamChatMock.mockReturnValue(completedStream(clarificationAnswer))

@@ -73,22 +73,45 @@ export function AllergenPicker({
     })
   }
 
-  function addTypedAllergen() {
+  /**
+   * The two lists as they stand, with whatever is still sitting in the text box folded in.
+   *
+   * <p>Confirming has to read the box, not just the chips. A person who types "yellow dye" and
+   * presses the confirm button — never having noticed the separate Add — has told us their allergy;
+   * every part of the screen says so. Sending only the chips would drop it, mark the clarification
+   * answered, and let the next request proceed on a list the server then treats as complete: it
+   * would show them a product containing that allergen as `no_match_found` (§2-2). An allergy the
+   * user has typed is declared, whichever button they reach for.
+   */
+  function listsIncludingTypedText(): { keys: string[]; unverified: string[] } {
     const typed = typedAllergen.trim()
-    if (!typed) return
+    const keys = new Set(selectedKeys)
+    const unverified = [...unverifiedAllergens]
 
-    const folded = typed.toLocaleLowerCase()
-    const resolved = availableOptions.find(
-      (option) =>
-        option.key.toLocaleLowerCase() === folded || option.label.toLocaleLowerCase() === folded,
-    )
-    if (resolved) {
-      setSelected(resolved.key, true)
-    } else {
-      setUnverifiedAllergens((current) =>
-        current.some((item) => item.toLocaleLowerCase() === folded) ? current : [...current, typed],
+    if (typed) {
+      const folded = typed.toLocaleLowerCase()
+      const resolved = availableOptions.find(
+        (option) =>
+          option.key.toLocaleLowerCase() === folded || option.label.toLocaleLowerCase() === folded,
       )
+      if (resolved) {
+        keys.add(resolved.key)
+      } else if (!unverified.some((item) => item.toLocaleLowerCase() === folded)) {
+        unverified.push(typed)
+      }
     }
+
+    return {
+      keys: availableOptions.flatMap((option) => (keys.has(option.key) ? [option.key] : [])),
+      unverified,
+    }
+  }
+
+  function addTypedAllergen() {
+    if (!typedAllergen.trim()) return
+    const { keys, unverified } = listsIncludingTypedText()
+    setSelectedKeys(new Set(keys))
+    setUnverifiedAllergens(unverified)
     setTypedAllergen('')
   }
 
@@ -187,15 +210,15 @@ export function AllergenPicker({
           <Button
             label="Use selected allergies"
             variant="primary"
-            isDisabled={selectedKeys.size === 0 && unverifiedAllergens.length === 0}
-            onClick={() =>
-              onConfirm(
-                availableOptions.flatMap((option) =>
-                  selectedKeys.has(option.key) ? [option.key] : [],
-                ),
-                unverifiedAllergens,
-              )
+            isDisabled={
+              selectedKeys.size === 0 &&
+              unverifiedAllergens.length === 0 &&
+              typedAllergen.trim() === ''
             }
+            onClick={() => {
+              const { keys, unverified } = listsIncludingTypedText()
+              onConfirm(keys, unverified)
+            }}
           />
           <Button label="Cancel" variant="secondary" onClick={onDismiss} />
         </div>

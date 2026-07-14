@@ -165,18 +165,35 @@ class ChatProxyControllerTest {
     void unverifiedAllergensAlwaysAppendServerCaveat() throws Exception {
         String replyWithModelWarning = modelAnswer("[]", "[]")
                 .replace("\"warnings\":[]", "\"warnings\":[\"Model warning\"]");
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
 
         MermAidAnswer answer = answerOf(controller(replyWithModelWarning, emptyContext())
                 .completions(requestWithUnverifiedAllergen("can I take this?", "Yellow dye")));
 
-        assertThat(answer.warnings())
-                .containsExactly("Model warning", ChatProxyController.UNVERIFIED_ALLERGEN_CAVEAT);
+        assertThat(answer.warnings()).containsExactly("Model warning", caveat);
         assertThat(String.join(" ", answer.warnings())).doesNotContain("safe");
 
         MermAidAnswer emergency = answerOf(controller(replyWithModelWarning, emptyContext())
                 .completions(requestWithUnverifiedAllergen(
                         "I have crushing chest pain and cannot breathe", "Yellow dye")));
-        assertThat(emergency.warnings()).contains(ChatProxyController.UNVERIFIED_ALLERGEN_CAVEAT);
+        assertThat(emergency.warnings()).contains(caveat);
+    }
+
+    @Test
+    @DisplayName("FR-017: the caveat names the typed allergens, so it cannot soften a verified block")
+    void theCaveatNamesOnlyWhatTheUserTyped() throws Exception {
+        // A session can carry both: ingredients picked from the reviewed list, and names typed free-
+        // hand. A blanket "the named allergens were checked by name only" then sits beside a card the
+        // server stamped BLOCKED for a reviewed ingredient, and reads as though that block, too, were
+        // just a name we matched and should be confirmed before believing. It says which names it
+        // means, and says the rest of the page still stands.
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
+
+        assertThat(caveat)
+                .contains("Yellow dye")
+                .contains("you typed")
+                .doesNotContain("safe");
+        assertThat(caveat.toLowerCase()).contains("does not change any other warning");
     }
 
     @Test
