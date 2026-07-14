@@ -8,9 +8,12 @@ import com.mermaid.chat.AnswerValidator.ViolationCode;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -38,6 +41,20 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatProxyController {
 
     private static final long STREAM_TIMEOUT_MS = 120_000L;
+    /**
+     * Names the allergens it is talking about, and only those.
+     *
+     * <p>"The named allergens were checked by name only" reads, in a session that also carries
+     * picker selections, as though it covers those too — so a card the server stamped {@code
+     * blocked} for a reviewed ingredient sits next to a sentence saying that match was merely a
+     * name and needs confirming. The caveat belongs to the words the user typed, so it says them.
+     */
+    static String unverifiedAllergenCaveat(Set<String> typedAllergens) {
+        return "The allergens you typed ("
+                + String.join(", ", new TreeSet<>(typedAllergens))
+                + ") were checked against ingredient names only; a pharmacist must confirm them. "
+                + "This does not change any other warning on this page.";
+    }
 
     private final ChatProxyService chatProxyService;
     private final DrugContextRetriever drugContextRetriever;
@@ -68,7 +85,9 @@ public class ChatProxyController {
         var redFlag = emergencyTriage.screen(ChatProxyService.userMessagesForSafety(request));
         if (redFlag.isPresent()) {
             log.warn("Emergency triage fired: {} — answering without calling the model", redFlag.get());
-            return respond(emergencyTriage.emergencyAnswer(redFlag.get()), stream);
+            return respond(withUnverifiedAllergenCaveat(
+                    emergencyTriage.emergencyAnswer(redFlag.get()),
+                    MermaidRequestExtension.excludedIngredients(request).unverifiedTerms()), stream);
         }
 
         return respond(answer(request), stream);
@@ -132,12 +151,20 @@ public class ChatProxyController {
      * retrieved nothing, and useless.
      */
     private MermAidAnswer answer(JsonNode request) {
+        MermaidRequestExtension.StructuredExclusions exclusions =
+                MermaidRequestExtension.excludedIngredients(request);
+        return withUnverifiedAllergenCaveat(
+                answer(request, exclusions), exclusions.unverifiedTerms());
+    }
+
+    private MermAidAnswer answer(
+            JsonNode request, MermaidRequestExtension.StructuredExclusions exclusions) {
         String userText = ChatProxyService.lastUserMessage(request);
         DrugContext context =
                 drugContextRetriever.retrieve(
                         userText,
                         ChatProxyService.userMessagesForSafety(request),
-                        MermaidRequestExtension.excludedIngredients(request));
+                        exclusions);
         if (context.directAnswer().isPresent()) {
             return context.directAnswer().orElseThrow();
         }
@@ -189,6 +216,35 @@ public class ChatProxyController {
         return coerced;
     }
 
+    private static MermAidAnswer withUnverifiedAllergenCaveat(
+            MermAidAnswer answer, Set<String> unverifiedAllergens) {
+        if (unverifiedAllergens.isEmpty()) {
+            return answer;
+        }
+        List<String> warnings = new ArrayList<>();
+        if (answer.warnings() != null) {
+            warnings.addAll(answer.warnings());
+        }
+        String caveat = unverifiedAllergenCaveat(unverifiedAllergens);
+        if (!warnings.contains(caveat)) {
+            warnings.add(caveat);
+        }
+        return new MermAidAnswer(
+                answer.schemaVersion(),
+                answer.answerId(),
+                answer.language(),
+                answer.dataStatus(),
+                answer.urgency(),
+                answer.summary(),
+                answer.clarifyingQuestions(),
+                answer.guidance(),
+                answer.drugs(),
+                answer.uiActions(),
+                answer.sourceRefs(),
+                List.copyOf(warnings),
+                answer.disclaimer());
+    }
+
     private static Map<ViolationCode, Integer> violationCounts(List<ViolationCode> violations) {
         Map<ViolationCode, Integer> counts = new EnumMap<>(ViolationCode.class);
         violations.forEach(code -> counts.merge(code, 1, Integer::sum));
@@ -206,6 +262,13 @@ public class ChatProxyController {
      * <p>This narrows invariants 1 and 5 to what they should have been all along — <i>does the model's
      * citation point at a source we actually hold?</i> — and turns invariant 3 into a regression guard
      * over our own labelling rather than a gate on the model.
+     *
+     * <p>The allergy verdict is grounded the same way, and for a sharper reason. The model is handed
+     * each product's {@link AllergyCheck} and asked to carry it onto the card. Nothing stopped it from
+     * carrying it wrongly: a card that writes {@code no_match_found} over the server's {@code blocked}
+     * keeps the same product, the same ingredients and the same source, so every other invariant still
+     * passes and the person is shown "no match found" for a drug we blocked. The check is ours to
+     * compute and ours to state.
      */
     private MermAidAnswer ground(MermAidAnswer answer, DrugContext context) {
         return new MermAidAnswer(
@@ -217,11 +280,45 @@ public class ChatProxyController {
                 answer.summary(),
                 answer.clarifyingQuestions(),
                 answer.guidance(),
-                answer.drugs(),
+                groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
                 distinct(answer.uiActions()),
                 context.sources(),
                 answer.warnings(),
                 answer.disclaimer());
+    }
+
+    /**
+     * Stamps the server's own allergy verdict onto every card it can identify.
+     *
+     * <p>A card naming a product we did not retrieve is left as it is — invariant 6 rejects the whole
+     * answer for it moments later, and rewriting it here would only disguise the violation.
+     */
+    private static List<MermAidAnswer.DrugCard> groundAllergyChecks(
+            List<MermAidAnswer.DrugCard> drugs,
+            Map<String, DrugContextRetriever.GroundedDrug> groundedDrugs) {
+        if (drugs == null) {
+            return List.of();
+        }
+        List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
+        for (MermAidAnswer.DrugCard drug : drugs) {
+            DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
+            if (source == null || source.allergyCheck() == null) {
+                grounded.add(drug);
+                continue;
+            }
+            grounded.add(new MermAidAnswer.DrugCard(
+                    drug.id(),
+                    drug.productNameKo(),
+                    drug.productNameEn(),
+                    drug.ingredients(),
+                    drug.indicationSummary(),
+                    drug.directionsSummary(),
+                    drug.warnings(),
+                    drug.prescriptionStatus(),
+                    source.allergyCheck(),
+                    drug.sourceRefId()));
+        }
+        return List.copyOf(grounded);
     }
 
     /**

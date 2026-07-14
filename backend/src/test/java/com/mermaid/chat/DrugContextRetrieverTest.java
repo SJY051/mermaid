@@ -64,7 +64,11 @@ class DrugContextRetrieverTest {
 
     /** A complete structured list, as a well-behaved client sends it. */
     private static MermaidRequestExtension.StructuredExclusions exclusions(String... terms) {
-        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), false);
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), Set.of(), false);
+    }
+
+    private static MermaidRequestExtension.StructuredExclusions unverified(String... terms) {
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(), Set.of(terms), false);
     }
 
     private JsonNode contextJson(DrugContext context) throws Exception {
@@ -494,6 +498,151 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("FR-016: unverified text never reaches an upstream query or avoided keys")
+        void unverifiedTextNeverReachesUpstreamQuery() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(new RetrievalQuery(List.of("Yellow dye"), List.of("부루펜")), drugService)
+                    .retrieve("can I take 부루펜?", "can I take 부루펜?", unverified("Yellow dye"));
+
+            assertThat(drugService.seen.ingredientsEn()).isEmpty();
+            assertThat(drugService.seen.productNamesKo()).containsExactly("부루펜");
+            assertThat(drugService.avoidedKeys).isEmpty();
+            assertThat(drugService.seen.toString()).doesNotContain("Yellow dye");
+        }
+
+        @Test
+        @DisplayName("FR-016: malformed or bounded-away unverified input clarifies before retrieval")
+        void incompleteUnverifiedFieldClarifies() {
+            var wrongShape = mapper.createObjectNode();
+            wrongShape.putObject("mermaid").put("unverified_allergens", "Yellow dye");
+            var overBound = mapper.createObjectNode();
+            var entries = overBound.putObject("mermaid").putArray("unverified_allergens");
+            for (int i = 0; i < 11; i++) {
+                entries.add("allergen-" + i);
+            }
+
+            for (JsonNode request : List.of(wrongShape, overBound)) {
+                CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+                DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
+                        .retrieve(
+                                "can I take 부루펜?",
+                                "can I take 부루펜?",
+                                MermaidRequestExtension.excludedIngredients(request));
+
+                assertThat(context.directAnswer()).isPresent();
+                assertThat(drugService.seen).isNull();
+            }
+        }
+
+        @Test
+        @DisplayName("FR-017: an unverified name match warns and never blocks")
+        void unverifiedNameMatchWarnsWithoutBlocking() throws Exception {
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(TYLENOL), Set.of(TYLENOL.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("acetaminophen"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("warning");
+            assertThat(allergy.path("matchedIngredients").get(0).asText())
+                    .isEqualTo("Acetaminophen Granules");
+            assertThat(allergy.path("message").asText())
+                    .contains("Name match only", "acetaminophen", "pharmacist")
+                    .doesNotContain("safe");
+        }
+
+        @Test
+        @DisplayName("FR-017: a verified block outranks an unverified name match")
+        void verifiedBlockOutranksUnverifiedNameMatch() throws Exception {
+            Drug blocked = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), TYLENOL.ingredientsEn(), TYLENOL.mainIngredientKo(),
+                    TYLENOL.prescriptionStatus(), TYLENOL.narrative(), TYLENOL.durWarnings(),
+                    new AllergyCheck(
+                            AllergyCheck.Status.BLOCKED,
+                            List.of("Acetaminophen Granules"),
+                            "Contains Acetaminophen Granules, which you asked to avoid."),
+                    TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(blocked), Set.of(blocked.nameKo()), List.of(TYLENOL_SOURCE)));
+            var both = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("acetaminophen"), Set.of("acetaminophen"), false);
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", both);
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("blocked");
+            assertThat(allergy.path("message").asText()).doesNotContain("Name match only");
+        }
+
+        @Test
+        @DisplayName("FR-017: a product we cannot read is unknown under a named allergen, not no-match")
+        void ingredientlessProductIsUnknownNotNoMatch() throws Exception {
+            // An unverified-only declaration leaves the avoided set empty, so AllergyChecker returns
+            // NO_MATCH_FOUND before it ever looks at ingredients — and this product has none to look
+            // at. The name check could not run, and "No match found" would tell someone who just
+            // named an allergen that we looked. We did not (§2-2).
+            Drug ingredientless = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), List.of(), TYLENOL.mainIngredientKo(),
+                    TYLENOL.prescriptionStatus(), TYLENOL.narrative(), TYLENOL.durWarnings(),
+                    AllergyCheck.noMatch(), TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(new RetrievedContext(
+                    List.of(ingredientless), Set.of(ingredientless.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("Yellow dye"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("unknown");
+            assertThat(allergy.path("message").asText())
+                    .contains("could not")
+                    .contains("pharmacist")
+                    .doesNotContain("No match")
+                    .doesNotContain("safe");
+        }
+
+        @Test
+        @DisplayName("FR-017: a name match is added to a verified warning, never substituted for it")
+        void unverifiedNameMatchKeepsTheVerifiedWarning() throws Exception {
+            // The verified check has already warned about Ibuprofen — a partial match against a
+            // resolved exclude_ingredients entry. The unverified string then name-matches the OTHER
+            // ingredient. Replacing the check would drop the reviewed finding and leave the user
+            // hearing only "a pharmacist must confirm this name", which is the weaker of the two.
+            Drug warned = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), List.of("Acetaminophen Granules", "Ibuprofen"),
+                    TYLENOL.mainIngredientKo(), TYLENOL.prescriptionStatus(), TYLENOL.narrative(),
+                    TYLENOL.durWarnings(),
+                    new AllergyCheck(
+                            AllergyCheck.Status.WARNING,
+                            List.of("Ibuprofen"),
+                            "This product contains Ibuprofen, which may be related to an ingredient "
+                                    + "you avoid. Confirm with a pharmacist."),
+                    TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(warned), Set.of(warned.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("acetaminophen"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("warning");
+            assertThat(allergy.path("matchedIngredients"))
+                    .as("both findings survive: the verified ingredient and the name-matched one")
+                    .extracting(JsonNode::asText)
+                    .containsExactly("Ibuprofen", "Acetaminophen Granules");
+            assertThat(allergy.path("message").asText())
+                    .as("the reviewed warning is still spoken, with the name match appended")
+                    .contains("may be related to an ingredient you avoid")
+                    .contains("Name match only")
+                    .doesNotContain("safe");
+        }
+
+        @Test
         @DisplayName("SC-001: an unresolved structured entry returns the server clarification")
         void unresolvedStructuredEntryFailsClosed() throws Exception {
             // paracetamol's synonyms.tsv row is unsigned: it may aid lookup but must never gain
@@ -531,7 +680,7 @@ class DrugContextRetrieverTest {
             // A list we do not hold in full must clarify, like every other incomplete channel.
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
             var truncated = new MermaidRequestExtension.StructuredExclusions(
-                    Set.of("ibuprofen"), true);
+                    Set.of("ibuprofen"), Set.of(), true);
 
             DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
                     .retrieve("I have a headache", "I have a headache", truncated);

@@ -30,6 +30,15 @@ class MermaidRequestExtensionTest {
         return request;
     }
 
+    private ObjectNode requestWithUnverified(String... entries) {
+        ObjectNode request = mapper.createObjectNode();
+        ArrayNode list = request.putObject("mermaid").putArray("unverified_allergens");
+        for (String entry : entries) {
+            list.add(entry);
+        }
+        return request;
+    }
+
     @Test
     @DisplayName("an eleventh entry flags the list incomplete instead of vanishing")
     void eleventhEntryFlagsIncomplete() {
@@ -135,5 +144,20 @@ class MermaidRequestExtensionTest {
 
         assertThat(parsed.terms()).isEmpty();
         assertThat(parsed.incomplete()).isFalse();
+    }
+
+    @Test
+    @DisplayName("unverified allergens use the same shape, count, length, and blank rules")
+    void unverifiedAllergensUseTheSameCompletenessRules() {
+        ObjectNode request = requestWithUnverified("Yellow dye", "", "x".repeat(101));
+        ((ArrayNode) request.path("mermaid").path("unverified_allergens"))
+                .addObject()
+                .put("name", "latex");
+
+        StructuredExclusions parsed = MermaidRequestExtension.excludedIngredients(request);
+
+        assertThat(parsed.terms()).isEmpty();
+        assertThat(parsed.unverifiedTerms()).containsExactly("Yellow dye");
+        assertThat(parsed.incomplete()).isTrue();
     }
 }

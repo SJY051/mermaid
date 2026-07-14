@@ -3,6 +3,7 @@ package com.mermaid.chat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
 import com.mermaid.drug.DrugService;
@@ -11,9 +12,11 @@ import com.mermaid.drug.DrugService.RetrievedContext;
 import com.mermaid.drug.IngredientNormalizer;
 import com.mermaid.drug.domain.Drug;
 import com.mermaid.drug.domain.DurWarning;
+import com.mermaid.profile.domain.MatchConfidence;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,14 +75,15 @@ public class DrugContextRetriever {
      *     requests; that boundary belongs to the first-party send-every-turn obligation, not to
      *     this scan. Server-owned pending-allergy state is out of scope on purpose: transcripts
      *     stay off the server (§2-5).
-     * @param exclusions the structured {@code mermaid.exclude_ingredients} field: the raw terms,
-     *     plus whether the parser had to drop any (bounds). By contract the client sends the
-     *     COMPLETE list; it is the only channel that may authorize retrieval under a declared
-     *     allergy — so a list we do not hold in full authorizes nothing.
+     * @param exclusions the two structured allergen fields, plus whether the parser had to drop any
+     *     entry. Verified terms alone enter the avoided set; unverified names only annotate retrieved
+     *     products. By contract the client sends both complete lists, so a list we do not hold in
+     *     full authorizes nothing.
      */
     public DrugContext retrieve(
             String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
         Set<String> excludedIngredients = exclusions.terms();
+        Set<String> unverifiedAllergens = exclusions.unverifiedTerms();
         // The allergy gate runs BEFORE the extractor, like EmergencyTriage runs before the model:
         // a turn that fails closed must not depend on — or pay for — a model call.
         //
@@ -93,7 +97,10 @@ public class DrugContextRetriever {
         boolean currentTurnDeclares = AllergyDeclaration.presentIn(userText);
         boolean anyTurnDeclares = currentTurnDeclares || AllergyDeclaration.presentIn(allUserText);
         boolean allergyDeclared =
-                anyTurnDeclares || !excludedIngredients.isEmpty() || exclusions.incomplete();
+                anyTurnDeclares
+                        || !excludedIngredients.isEmpty()
+                        || !unverifiedAllergens.isEmpty()
+                        || exclusions.incomplete();
 
         Set<String> avoidedKeys = new HashSet<>();
         List<String> unresolved = new ArrayList<>();
@@ -116,7 +123,8 @@ public class DrugContextRetriever {
         //    list is absent or has any entry no signed row resolves (FR-004/FR-013).
         if (currentTurnDeclares
                 || exclusions.incomplete()
-                || (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty()))) {
+                || !unresolved.isEmpty()
+                || (anyTurnDeclares && avoidedKeys.isEmpty() && unverifiedAllergens.isEmpty())) {
             log.info(
                     "Allergy declared (currentTurn={}, structuredIncomplete={}, resolved={},"
                             + " unresolved={}) — returning server clarification",
@@ -143,6 +151,8 @@ public class DrugContextRetriever {
         long extractedAt = System.nanoTime();
 
         RetrievedContext retrieved = drugService.retrieve(query, avoidedKeys);
+        List<Drug> checkedDrugs = applyUnverifiedWarnings(retrieved.drugs(), unverifiedAllergens);
+        retrieved = new RetrievedContext(checkedDrugs, retrieved.allowedProductNames(), retrieved.sources());
         // Cold, the retrieval is roughly thirty sequential calls to 식약처. Warm, Redis answers.
         // Both numbers belong in the log; the gap between them is the case for parallelising.
         log.info("RAG pass 1: terms={}/{} → {} drug(s). extract {}ms, retrieve {}ms",
@@ -151,6 +161,89 @@ public class DrugContextRetriever {
 
         return new DrugContext(
                 render(retrieved, allergyDeclared), groundedDrugs(retrieved.drugs()), retrieved.sources());
+    }
+
+    private List<Drug> applyUnverifiedWarnings(List<Drug> drugs, Set<String> unverifiedAllergens) {
+        if (unverifiedAllergens.isEmpty()) {
+            return drugs;
+        }
+        return drugs.stream().map(drug -> applyUnverifiedWarning(drug, unverifiedAllergens)).toList();
+    }
+
+    private Drug applyUnverifiedWarning(Drug drug, Set<String> unverifiedAllergens) {
+        if (drug.allergyCheck().status() == AllergyCheck.Status.BLOCKED) {
+            return drug;
+        }
+
+        // No ingredient list, so the name check could not run at all. The verified checker already
+        // answers UNKNOWN in this case, but only when it has keys to compare — an unverified-only
+        // declaration leaves the avoided set empty, so the product arrives carrying NO_MATCH_FOUND.
+        // That state says "we looked and found nothing", and here we did not look (§2-2). Someone
+        // who has named an allergen must not read "No match found" off a product we cannot read.
+        if (drug.ingredientsEn().isEmpty()) {
+            return withAllergyCheck(
+                    drug,
+                    AllergyCheck.unknown(
+                            "We could not read this product's ingredients, so we could not check it "
+                                    + "against the allergens you named. Ask a pharmacist before taking it."));
+        }
+
+        Set<String> matchedIngredients = new LinkedHashSet<>();
+        Set<String> matchedNames = new LinkedHashSet<>();
+        for (String ingredient : drug.ingredientsEn()) {
+            for (String unverified : unverifiedAllergens) {
+                String unverifiedKey = normalizer.canonicalize(unverified);
+                if (normalizer.compare(ingredient, unverifiedKey) != MatchConfidence.UNKNOWN) {
+                    matchedIngredients.add(ingredient);
+                    matchedNames.add(unverified);
+                }
+            }
+        }
+        if (matchedIngredients.isEmpty()) {
+            return drug;
+        }
+
+        String nameMatchMessage = "Name match only: "
+                + String.join(", ", matchedIngredients)
+                + " matched the unverified allergen name "
+                + String.join(", ", matchedNames)
+                + ". A pharmacist must confirm this match.";
+
+        // A drug can already carry a WARNING from the verified check — a partial or compound match
+        // against exclude_ingredients. That warning names a reviewed ingredient the user actually
+        // declared; this one names a string they typed. Overwriting the first with the second would
+        // silently downgrade the verified finding to a name match, and the user would never hear
+        // about the allergen we did resolve. So carry both: verified message first, then the caveat.
+        AllergyCheck existing = drug.allergyCheck();
+        boolean hasVerifiedWarning = existing.status() == AllergyCheck.Status.WARNING;
+
+        Set<String> allMatched = new LinkedHashSet<>();
+        if (hasVerifiedWarning) {
+            allMatched.addAll(existing.matchedIngredients());
+        }
+        allMatched.addAll(matchedIngredients);
+
+        AllergyCheck warning = new AllergyCheck(
+                AllergyCheck.Status.WARNING,
+                List.copyOf(allMatched),
+                hasVerifiedWarning ? existing.message() + " " + nameMatchMessage : nameMatchMessage);
+        return withAllergyCheck(drug, warning);
+    }
+
+    private Drug withAllergyCheck(Drug drug, AllergyCheck check) {
+        return new Drug(
+                drug.id(),
+                drug.itemSeq(),
+                drug.nameKo(),
+                drug.nameEn(),
+                drug.manufacturerKo(),
+                drug.ingredientsEn(),
+                drug.mainIngredientKo(),
+                drug.prescriptionStatus(),
+                drug.narrative(),
+                drug.durWarnings(),
+                check,
+                drug.source());
     }
 
     private Map<String, GroundedDrug> groundedDrugs(List<Drug> drugs) {
@@ -179,7 +272,9 @@ public class DrugContextRetriever {
             // (INV6_PRODUCT_NOT_RETRIEVED — the #60 P1). INV6 still rejects any card that invents
             // ingredients for it: an empty grounded set never equals a non-empty answer set.
             grounded.put(
-                    drug.nameKo(), new GroundedDrug(drug.source().id(), Set.copyOf(ingredientKeys)));
+                    drug.nameKo(),
+                    new GroundedDrug(
+                            drug.source().id(), Set.copyOf(ingredientKeys), drug.allergyCheck()));
         }
         if (rejectedCount > 0) {
             log.warn("drug_grounding_failed code=UNNORMALIZABLE_INGREDIENT count={}", rejectedCount);
@@ -367,7 +462,19 @@ public class DrugContextRetriever {
     }
 
     /** The narrow server facts needed by invariants 1 and 6; model-authored prose stays separate. */
-    public record GroundedDrug(String sourceRefId, Set<String> ingredientKeys) {
+    /**
+     * What the server knows about one retrieved product, and therefore what the model is not allowed
+     * to contradict: which source it came from, which ingredients it holds — and what our own allergy
+     * check said about it.
+     *
+     * <p>{@code allergyCheck} is here for the same reason {@code sourceRefId} is (spec 2-9): the model
+     * is handed the verdict and asked to carry it, and a model that carries it wrongly must not be
+     * able to change what the user sees. It writes {@code no_match_found} over a {@code blocked} and
+     * every other check still passes — same product, same ingredients, same source. So the server
+     * stamps its own verdict back onto the card in post-processing rather than trusting the copy.
+     */
+    public record GroundedDrug(
+            String sourceRefId, Set<String> ingredientKeys, AllergyCheck allergyCheck) {
         public GroundedDrug {
             ingredientKeys = Set.copyOf(ingredientKeys);
         }

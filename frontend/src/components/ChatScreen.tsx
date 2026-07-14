@@ -95,6 +95,20 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
 
       <p className="whitespace-pre-wrap text-primary">{answer.summary}</p>
 
+      {/* Answer-level warnings — the server-authored unverified-allergen caveat lands here (§2-2,
+          FR-017). It must be visible even when no drug card carries a per-card warning, or a
+          name-only allergy check reads as a full one. role=status so a screen reader hears it. */}
+      {answer.warnings.length > 0 && (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded border border-[#e0a800] bg-surface p-3 text-sm text-primary"
+        >
+          {answer.warnings.map((warning, index) => (
+            <p key={index}>{warning}</p>
+          ))}
+        </div>
+      )}
+
       {/* TODO(team): proper medication cards with dosage pictograms — DEV-308 */}
       {answer.drugs.map((drug) => (
         <Card key={drug.id}>
@@ -141,6 +155,7 @@ export function ChatScreen() {
     sendError,
     latestAnswer,
     allergies,
+    unverifiedAllergens,
     unverifiableAllergy,
     send,
     confirmAllergies,
@@ -164,9 +179,18 @@ export function ChatScreen() {
     latestAnswer?.answerId === 'allergy-clarification' &&
     latestAnswer !== handledClarification
   const pickerOpen = editingAllergies || clarificationNeedsSelection
-  const composerPlaceholder = allergies.length
-    ? 'Ask your question again — answers will avoid your selected ingredients.'
-    : "I have a sore throat and a fever, and it's 11pm."
+  // Two lists, two different promises, and conflating them overstates the safety of one. Only
+  // `allergies` become `exclude_ingredients` — resolved keys the backend filters retrieval on.
+  // `unverifiedAllergens` are strings the user typed: the backend matches them against ingredient
+  // names and warns, and never excludes a product on their account (§2-6 — an unsigned binding may
+  // not block). "Answers will avoid" would promise a filter that does not run for them.
+  const composerPlaceholder = unverifiedAllergens.length
+    ? allergies.length
+      ? 'Ask again — answers avoid your selected ingredients. The allergens you typed are checked by name only.'
+      : 'Ask again — the allergens you typed are checked by name only, not avoided.'
+    : allergies.length
+      ? 'Ask your question again — answers will avoid your selected ingredients.'
+      : "I have a sore throat and a fever, and it's 11pm."
 
   // `retryable: false` means "this exact request will not succeed if resent" — so the block
   // lifts the moment the question is edited. Locking Ask outright would trap the user whose
@@ -193,8 +217,13 @@ export function ChatScreen() {
     setEditingAllergies(false)
   }
 
-  function confirmSelectedAllergies(keys: string[]) {
-    confirmAllergies(keys)
+  function confirmSelectedAllergies(keys: string[], unverified: string[]) {
+    // Confirming is the user asserting "this list — selections plus unverified chips — is my
+    // allergies". It covers the declaration whether or not it added a NEW entry: re-stating an
+    // already-selected allergy (ibuprofen selected, then "…and I'm allergic to ibuprofen") must
+    // proceed on the existing list, not lock the conversation. Only "My allergy isn't listed"
+    // (dismiss) declares something the list cannot express and ends lookup.
+    confirmAllergies(keys, unverified)
     // Confirming answers the current clarification: close the picker until a LATER one arrives.
     // The composer takes the picker's place again on the next render — its reappearance is the
     // cue to ask again, so no explicit focus call (which would race that remount) is needed.
@@ -203,13 +232,13 @@ export function ChatScreen() {
   }
 
   function dismissAllergenPicker() {
-    // "My allergy isn't listed" — the one allergen the user needs is not one we can bind, so no
-    // medicine in this conversation can be checked against it. End lookup rather than proceed on
-    // an incomplete list (the 3rd-P0 fix: a stale/partial list must not read as a complete one).
-    // The lock is persisted in the session so a reload cannot lift it (the 5th-P0 fix).
     setHandledClarification(latestAnswer)
     setEditingAllergies(false)
-    declareUnverifiableAllergy()
+    if (clarificationNeedsSelection) {
+      // Closing a clarification without adding an item leaves the new declaration uncovered.
+      // Persist the lock so reload cannot silently resume on the older, incomplete lists.
+      declareUnverifiableAllergy()
+    }
   }
 
   // Drug lookup ended for this conversation: an allergy we cannot verify was declared.
@@ -233,6 +262,7 @@ export function ChatScreen() {
     <div className="px-3 pb-2">
       <AllergenPicker
         initialSelectedKeys={allergies}
+        initialUnverifiedAllergens={unverifiedAllergens}
         onConfirm={confirmSelectedAllergies}
         onDismiss={dismissAllergenPicker}
       />
@@ -241,7 +271,7 @@ export function ChatScreen() {
 
   const composerPanel = (
     <div className="flex flex-col gap-2 pb-2">
-      {allergies.length > 0 && (
+      {(allergies.length > 0 || unverifiedAllergens.length > 0) && (
         <div className="flex justify-end px-3">
           <Button
             label="Edit allergy list"

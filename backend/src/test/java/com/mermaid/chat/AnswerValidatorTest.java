@@ -33,7 +33,9 @@ class AnswerValidatorTest {
 
     private static Map<String, GroundedDrug> grounded(
             String productNameKo, String sourceRefId, String... ingredientKeys) {
-        return Map.of(productNameKo, new GroundedDrug(sourceRefId, Set.of(ingredientKeys)));
+        return Map.of(
+                productNameKo,
+                new GroundedDrug(sourceRefId, Set.of(ingredientKeys), AllergyCheck.noMatch()));
     }
 
     private static MermAidAnswer.Ingredient ingredient(String nameEn) {

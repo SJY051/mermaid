@@ -9,9 +9,11 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.DrugContextRetriever.GroundedDrug;
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
@@ -101,9 +103,14 @@ class ChatProxyControllerTest {
     }
 
     private static DrugContext contextWith(String... productNames) {
+        return contextWith(AllergyCheck.noMatch(), productNames);
+    }
+
+    /** The same, but carrying the server's own allergy verdict for each retrieved product. */
+    private static DrugContext contextWith(AllergyCheck serverCheck, String... productNames) {
         Map<String, GroundedDrug> grounded = new LinkedHashMap<>();
         for (String productName : productNames) {
-            grounded.put(productName, new GroundedDrug(TYLENOL_SOURCE.id(), Set.of()));
+            grounded.put(productName, new GroundedDrug(TYLENOL_SOURCE.id(), Set.of(), serverCheck));
         }
         return new DrugContext("DRUG_CONTEXT: …", grounded, List.of(TYLENOL_SOURCE));
     }
@@ -118,6 +125,12 @@ class ChatProxyControllerTest {
         var req = mapper.createObjectNode();
         req.set("messages", messages);
         return req;
+    }
+
+    private JsonNode requestWithUnverifiedAllergen(String userText, String allergen) {
+        ObjectNode request = (ObjectNode) request(userText);
+        request.putObject("mermaid").putArray("unverified_allergens").add(allergen);
+        return request;
     }
 
     @SuppressWarnings("unchecked")
@@ -145,6 +158,66 @@ class ChatProxyControllerTest {
         assertThat(answer.answerId()).isEqualTo("allergy-clarification");
         assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
         assertThat(answer.drugs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("FR-017: the server appends the unverified-allergen caveat to every final answer")
+    void unverifiedAllergensAlwaysAppendServerCaveat() throws Exception {
+        String replyWithModelWarning = modelAnswer("[]", "[]")
+                .replace("\"warnings\":[]", "\"warnings\":[\"Model warning\"]");
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
+
+        MermAidAnswer answer = answerOf(controller(replyWithModelWarning, emptyContext())
+                .completions(requestWithUnverifiedAllergen("can I take this?", "Yellow dye")));
+
+        assertThat(answer.warnings()).containsExactly("Model warning", caveat);
+        assertThat(String.join(" ", answer.warnings())).doesNotContain("safe");
+
+        MermAidAnswer emergency = answerOf(controller(replyWithModelWarning, emptyContext())
+                .completions(requestWithUnverifiedAllergen(
+                        "I have crushing chest pain and cannot breathe", "Yellow dye")));
+        assertThat(emergency.warnings()).contains(caveat);
+    }
+
+    @Test
+    @DisplayName("FR-017: the caveat names the typed allergens, so it cannot soften a verified block")
+    void theCaveatNamesOnlyWhatTheUserTyped() throws Exception {
+        // A session can carry both: ingredients picked from the reviewed list, and names typed free-
+        // hand. A blanket "the named allergens were checked by name only" then sits beside a card the
+        // server stamped BLOCKED for a reviewed ingredient, and reads as though that block, too, were
+        // just a name we matched and should be confirmed before believing. It says which names it
+        // means, and says the rest of the page still stands.
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
+
+        assertThat(caveat)
+                .contains("Yellow dye")
+                .contains("you typed")
+                .doesNotContain("safe");
+        assertThat(caveat.toLowerCase()).contains("does not change any other warning");
+    }
+
+    @Test
+    @DisplayName("the server's allergy verdict wins: a model cannot write no_match_found over it")
+    void serverOwnsTheAllergyVerdict() throws Exception {
+        // The model is handed the check and asked to carry it. Nothing stopped it from carrying it
+        // wrongly — and a card that changes only `allergyCheck` keeps the same product, ingredients
+        // and source, so every other invariant passes and the person reads "no match found" for a
+        // drug the server blocked (§2-2). The card here does exactly that; the server overrules it.
+        AllergyCheck serverBlocked = new AllergyCheck(
+                AllergyCheck.Status.BLOCKED,
+                List.of("Acetaminophen Granules"),
+                "Contains Acetaminophen Granules, which you asked to avoid.");
+
+        MermAidAnswer answer = answerOf(controller(
+                        modelAnswer(drugCard(TYLENOL, "src:mfds:202005623"), "[]"),
+                        contextWith(serverBlocked, TYLENOL))
+                .completions(request("can I take 타이레놀?")));
+
+        assertThat(answer.drugs()).hasSize(1);
+        AllergyCheck shown = answer.drugs().get(0).allergyCheck();
+        assertThat(shown.status()).isEqualTo(AllergyCheck.Status.BLOCKED);
+        assertThat(shown.matchedIngredients()).containsExactly("Acetaminophen Granules");
+        assertThat(shown.message()).doesNotContain("ok").doesNotContain("safe");
     }
 
     private static String drugCard(String productNameKo, String sourceRefId) {

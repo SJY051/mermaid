@@ -68,11 +68,12 @@ export interface ChatSession {
   messages: StoredMessage[]
   /** Ingredients the user mentioned this session. NOT persisted unless they opt in. */
   allergies: string[]
+  /** User-authored allergen names that have no reviewed dictionary binding. */
+  unverifiedAllergens: string[]
   /**
-   * The user declared an allergy that is not in our option list ("My allergy isn't listed"), so
-   * drug lookup is ended for this conversation. Persisted with the conversation because it is a
-   * safety lock: a reload restores the prior turns and allergies, and without this the lock would
-   * reset and retrieval could proceed on a list missing the unlisted allergen (§2-2).
+   * The user closed a clarification without adding a verified selection or unverified name, so drug
+   * lookup is ended for this conversation. Persisted with the conversation because it is a safety
+   * lock: without it a reload could proceed on lists that do not cover the latest declaration.
    */
   unverifiableAllergy: boolean
 }
@@ -81,6 +82,7 @@ const EMPTY_SESSION: ChatSession = {
   sessionId: '',
   messages: [],
   allergies: [],
+  unverifiedAllergens: [],
   unverifiableAllergy: false,
 }
 
