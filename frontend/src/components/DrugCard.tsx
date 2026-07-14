@@ -108,7 +108,7 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
           <AllergyBadge check={drug.allergyCheck} />
         </section>
 
-        {!isBlocked && drug.indicationSummary ? (
+        {!isBlocked ? (
           <section aria-labelledby={`${titleId}-indication`}>
             <h3
               id={`${titleId}-indication`}
@@ -116,9 +116,22 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
             >
               For
             </h3>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-primary">
-              {drug.indicationSummary}
-            </p>
+            {drug.indicationSummary ? (
+              <p className="mt-1 whitespace-pre-wrap text-sm text-primary">
+                {drug.indicationSummary}
+              </p>
+            ) : (
+              // The server removed it: either 식약처 published no 효능효과 for this product, or the
+              // summary the model wrote of it carried a number that text does not contain — which is
+              // how "For: take 8 tablets every 2 hours" used to reach this box, one line above the
+              // official dose, bypassing the dose gate entirely.
+              //
+              // A blank here would read as "this medicine is for nothing in particular", in the box
+              // that tells a person whether the medicine is for THEM. Silence is not safety (§2-2).
+              <p className="mt-1 text-sm text-primary">
+                We are not showing what this medicine is for. Read the package, or ask the pharmacist.
+              </p>
+            )}
           </section>
         ) : null}
 

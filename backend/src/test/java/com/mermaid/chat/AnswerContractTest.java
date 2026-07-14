@@ -306,6 +306,7 @@ class AnswerContractTest {
                 null,
                 List.of(),
                 null,
+                null,
                 MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                 List.of(),
                 null);

@@ -48,6 +48,9 @@ class ChatProxyControllerTest {
             "src:mfds:202005623", "식품의약품안전처", "202005623",
             WHEN, SourceRef.DataMode.FIXTURE, "MFDS licence information");
 
+    /** 식약처's 효능효과 for 타이레놀. The card's "For" box is a translation of THIS, and of nothing else. */
+    private static final String OFFICIAL_EFFICACY = "감기로 인한 발열 및 동통, 두통, 신경통, 근육통에 사용합니다.";
+
     private static final String TYLENOL = "어린이타이레놀산160밀리그램(아세트아미노펜)";
 
     /**
@@ -123,6 +126,7 @@ class ChatProxyControllerTest {
                         "Tylenol",
                         List.of(),
                         officialDosageKo,
+                        OFFICIAL_EFFICACY,
                         MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                         List.of(),
                         null),
@@ -304,6 +308,7 @@ class ChatProxyControllerTest {
                     "Tylenol",
                     List.of(),
                     null,
+                    OFFICIAL_EFFICACY,
                     // The ministry's licence says prescription-only, and it publishes a
                     // contraindication. The model's card below says neither.
                     MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION,
@@ -338,6 +343,7 @@ class ChatProxyControllerTest {
                     "Tylenol",
                     List.of("Acetaminophen"),
                     null,
+                    OFFICIAL_EFFICACY,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
                     null);
@@ -386,6 +392,7 @@ class ChatProxyControllerTest {
                     "Tylenol 500mg",
                     List.of("Acetaminophen"),
                     null,
+                    OFFICIAL_EFFICACY,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
                     null);
@@ -428,6 +435,7 @@ class ChatProxyControllerTest {
                     "Tylenol 500mg",
                     List.of("Acetaminophen"),
                     null,
+                    OFFICIAL_EFFICACY,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
                     null);
@@ -454,6 +462,80 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("a dose does not stop being a dose because it is written in the For box")
+        void doseHiddenInTheIndicationIsStripped() throws Exception {
+            // The bypass review found: invariant 7 took the model's authority over `directionsSummary`
+            // away, and the card now prints 식약처's own 용법용량 there. It closed one field and left the
+            // one NEXT TO IT — `indicationSummary` is model-owned, on the same card, under the same
+            // government footer, and rendered ABOVE the official dose.
+            //
+            //     For: Take 8 tablets every 2 hours.
+            //
+            // The whole dose gate, bypassed by moving the sentence one box up. We locked a door and
+            // left the window.
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of(),
+                    AllergyCheck.noMatch(),
+                    "Tylenol",
+                    List.of(),
+                    "만 12세 이상: 1회 1~2정",
+                    OFFICIAL_EFFICACY,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            String card = """
+                [{"productNameKo":"%s","productNameEn":null,"ingredients":[],
+                  "indicationSummary":"Take 8 tablets every 2 hours.",
+                  "directionsSummary":null,"labelCautions":null,
+                  "warnings":[],"prescriptionStatus":"otc",
+                  "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
+                  "sourceRefId":"src:mfds:202005623"}]
+                """.formatted(TYLENOL);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(card, "[]"), contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            // The efficacy text has no 8 and no 2 in it, so the sentence has no source and does not
+            // survive. The card says so rather than going blank (§2-2).
+            assertThat(answer.drugs().get(0).indicationSummary()).isNull();
+        }
+
+        @Test
+        @DisplayName("a real indication, whose numbers the efficacy text does contain, survives")
+        void groundedIndicationSurvives() throws Exception {
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of(),
+                    AllergyCheck.noMatch(),
+                    "Tylenol",
+                    List.of(),
+                    null,
+                    OFFICIAL_EFFICACY,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            String card = """
+                [{"productNameKo":"%s","productNameEn":null,"ingredients":[],
+                  "indicationSummary":"For fever, headache and muscle pain from a cold.",
+                  "directionsSummary":null,"labelCautions":null,
+                  "warnings":[],"prescriptionStatus":"otc",
+                  "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
+                  "sourceRefId":"src:mfds:202005623"}]
+                """.formatted(TYLENOL);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(card, "[]"), contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).indicationSummary())
+                    .isEqualTo("For fever, headache and muscle pain from a cold.");
+        }
+
+        @Test
         @DisplayName("a null ingredient does not crash grounding into a 500")
         void nullIngredientElementIsDropped() throws Exception {
             // The schema-less retry path accepts `ingredients: [null]` as valid JSON, and grounding
@@ -467,6 +549,7 @@ class ChatProxyControllerTest {
                     "Tylenol",
                     List.of(),
                     null,
+                    OFFICIAL_EFFICACY,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
                     null);
@@ -501,6 +584,7 @@ class ChatProxyControllerTest {
                     "Tylenol",
                     List.of(),
                     null,
+                    OFFICIAL_EFFICACY,
                     MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
                     List.of(),
                     null);

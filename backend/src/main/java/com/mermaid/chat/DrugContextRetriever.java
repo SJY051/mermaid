@@ -282,6 +282,7 @@ public class DrugContextRetriever {
                             drug.nameEn(),
                             List.copyOf(drug.ingredientsEn()),
                             drug.narrative() == null ? null : drug.narrative().useMethod(),
+                            drug.narrative() == null ? null : drug.narrative().efficacy(),
                             MermAidAnswer.DrugCard.PrescriptionStatus.from(
                                     drug.prescriptionStatus().wire()),
                             cardWarnings(drug),
@@ -563,6 +564,12 @@ public class DrugContextRetriever {
             String productNameEn,
             List<String> ingredientNamesEn,
             String officialDosageKo,
+            /**
+             * 식약처's 효능효과 for this product, in Korean. What the model's {@code indicationSummary}
+             * is checked against — because a field the model owns is a field the model can put a DOSE
+             * in, and "For: take 8 tablets every 2 hours" renders above the official dose on the card.
+             */
+            String officialEfficacyKo,
             /**
              * The MFDS licence record's 전문/일반 classification. A server fact with a wire value
              * already, so there is nothing for the model to add and nothing to check — the server

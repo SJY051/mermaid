@@ -183,6 +183,19 @@ describe('DrugCard', () => {
     expect(caveat.textContent).not.toMatch(/\bsafe\b/i)
   })
 
+  it('says what the medicine is FOR is missing, rather than leaving the box blank (P0)', () => {
+    // `null` means the server removed it: either 식약처 published no 효능효과, or the model's summary
+    // carried a number that text does not contain — which is how "For: take 8 tablets every 2 hours"
+    // used to reach this box, one line above the official dose, bypassing the dose gate entirely.
+    //
+    // A blank here reads as "this medicine is for nothing in particular", in the box that tells a
+    // person whether the medicine is for THEM.
+    render(<DrugCard drug={drug({ indicationSummary: null })} source={source} />)
+
+    expect(screen.getByRole('heading', { name: 'For' })).toBeInTheDocument()
+    expect(screen.getByText(/not showing what this medicine is for/i)).toBeInTheDocument()
+  })
+
   it('says a dose is missing rather than leaving the card silent (P0)', () => {
     // `null` means the ministry published no 용법용량 — never "this medicine has no particular
     // dosing". Rendering nothing would let the second reading through, in the exact place a person

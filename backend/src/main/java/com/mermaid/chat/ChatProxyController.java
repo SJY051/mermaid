@@ -515,7 +515,7 @@ public class ChatProxyController {
                     drug.productNameKo(),
                     drug.productNameEn(),
                     onlyGroundedIngredientFields(drug.ingredients()),
-                    drug.indicationSummary(),
+                    groundedIndication(drug, source),
                     drug.directionsSummary(),
                     groundedCautions(drug, source),
                     source.warnings(),
@@ -576,6 +576,46 @@ public class ChatProxyController {
                 .filter(Objects::nonNull)
                 .map(i -> new MermAidAnswer.Ingredient(null, i.nameEn(), i.normalizedKey(), null, null))
                 .toList();
+    }
+
+    /**
+     * A dose does not stop being a dose because it is written in the "For" box.
+     *
+     * <p>Invariant 7 took the model's authority over {@code directionsSummary} away and the card now
+     * prints 식약처's own 용법용량 there, untranslated. That closed one field. It did not close the
+     * FIELD NEXT TO IT: {@code indicationSummary} is model-owned, rendered on the same card under the
+     * same government footer, and rendered <em>above</em> the official dose. Nothing stopped a card
+     * from saying
+     *
+     * <pre>  For: Take 8 tablets every 2 hours.  </pre>
+     *
+     * and the whole dose gate was bypassed by moving the sentence one box up. Review found this; we
+     * had locked a door and left the window.
+     *
+     * <p>So the indication is bound the same way the cautions are: it is a translation of 식약처's
+     * 효능효과, and every number in it must be a number that text contains. A dose is made of numbers
+     * the efficacy text does not have, so it does not survive. With no official efficacy text held,
+     * no number survives at all.
+     *
+     * <p>The digit rule remains a filter and not a proof (see {@link #numbersAreGrounded}) — a
+     * plausible wrong sentence carrying no number is OUT-02 and still open. What it does close is the
+     * one thing that is machine-decidable and that a person acts on: a quantity with no source.
+     */
+    private static String groundedIndication(
+            MermAidAnswer.DrugCard drug, DrugContextRetriever.GroundedDrug source) {
+        String indication = drug.indicationSummary();
+        if (indication == null || indication.isBlank()) {
+            return null;
+        }
+        String official = source.officialEfficacyKo();
+        if (official != null && !official.isBlank() && numbersAreGrounded(indication, official)) {
+            return indication;
+        }
+        log.warn(
+                "indication_ungrounded product={} hasOfficialEfficacy={}",
+                drug.productNameKo(),
+                source.officialEfficacyKo() != null);
+        return null;
     }
 
     private static String groundedCautions(
