@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   fetchFacilities,
+  fetchGeocode,
   locationNotice,
   resolveLocation,
   SEOUL_CITY_HALL,
@@ -8,7 +9,7 @@ import {
 } from '../lib/facilities'
 import { splitByOpenStatus } from '../lib/facilitySplit'
 import { setManualLocation } from '../lib/storage'
-import type { Facility, FacilityType } from '../lib/types'
+import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 import { FacilityMap } from './FacilityMap'
 
 const RADIUS_M = 1000
@@ -194,9 +195,14 @@ export function MapScreen({ active }: MapScreenProps) {
     setTypeFilter(nextType)
   }
 
-  function useManualLocation(center: { lat: number; lng: number }) {
-    setManualLocation({ ...center, label: 'Chosen map spot' })
-    setLocation({ ...center, source: 'manual' })
+  function useManualLocation(center: { lat: number; lng: number }, label = 'Chosen map spot') {
+    setManualLocation({ ...center, label })
+    setLocation({ ...center, source: 'manual', label })
+  }
+
+  function useAddress(result: GeocodeResult) {
+    const label = result.roadAddress || result.jibunAddress || result.englishAddress
+    useManualLocation({ lat: result.latitude, lng: result.longitude }, label)
   }
 
   function clearManualLocation() {
@@ -291,6 +297,9 @@ export function MapScreen({ active }: MapScreenProps) {
             : {
                 canClear: location.source === 'manual',
                 onUseSpot: useManualLocation,
+                onSearchAddress: fetchGeocode,
+                onUseAddress: useAddress,
+                currentLabel: location.source === 'manual' ? location.label : undefined,
                 onClear: clearManualLocation,
               }
         }

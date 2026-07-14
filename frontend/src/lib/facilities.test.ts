@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchFacilities, resolveLocation, SEOUL_CITY_HALL } from './facilities'
+import { fetchFacilities, fetchGeocode, resolveLocation, SEOUL_CITY_HALL } from './facilities'
 import { savePreferences } from './storage'
 
 function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown> }) {
@@ -84,6 +84,38 @@ describe('fetchFacilities surfaces the server’s own words when it fails', () =
   })
 })
 
+describe('fetchGeocode calls only our server', () => {
+  it('sends the address as the query parameter and returns our coordinate shape', async () => {
+    const match = {
+      roadAddress: '서울특별시 중구 세종대로 110',
+      jibunAddress: '서울특별시 중구 태평로1가 31',
+      englishAddress: '110 Sejong-daero, Jung-gu, Seoul',
+      latitude: 37.5666103,
+      longitude: 126.9783882,
+    }
+    const spy = mockFetch({ json: async () => [match] })
+
+    await expect(fetchGeocode(match.roadAddress)).resolves.toEqual([match])
+
+    const url = requestedUrl(spy)
+    expect(url.pathname).toBe('/api/v1/geocode')
+    expect(url.searchParams.get('query')).toBe(match.roadAddress)
+    expect(url.host).toBe('localhost')
+  })
+
+  it('rejects a failed search instead of turning it into no matches', async () => {
+    mockFetch({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        error: { code: 'SOURCE_UNAVAILABLE', message: 'Address search is unavailable.', retryable: true },
+      }),
+    })
+
+    await expect(fetchGeocode('an address')).rejects.toThrow('Address search is unavailable.')
+  })
+})
+
 describe('resolveLocation is honest about where the centre came from', () => {
   it('uses the device position even when a manual location is stored', async () => {
     savePreferences({
@@ -116,7 +148,12 @@ describe('resolveLocation is honest about where the centre came from', () => {
       },
     })
 
-    await expect(resolveLocation()).resolves.toEqual({ lat: 35.1, lng: 129.1, source: 'manual' })
+    await expect(resolveLocation()).resolves.toEqual({
+      lat: 35.1,
+      lng: 129.1,
+      source: 'manual',
+      label: 'Chosen map spot',
+    })
   })
 
   it('falls back when the browser has no geolocation and no manual location', async () => {
