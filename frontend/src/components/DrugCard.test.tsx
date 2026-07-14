@@ -40,6 +40,7 @@ function drug(overrides: Partial<DrugCardData> = {}): DrugCardData {
     ],
     indicationSummary: 'For headache, fever, and mild aches.',
     directionsSummary: 'Adults: take one tablet every 4–6 hours.',
+    labelCautions: 'Ask a doctor before use if you drink alcohol daily.',
     warnings: [
       'Do not combine with other acetaminophen products.',
       'Swallow whole — do not crush or split this tablet.',
@@ -155,6 +156,29 @@ describe('DrugCard', () => {
     expect(screen.getByRole('heading', { name: 'Directions' })).toBeInTheDocument()
     expect(screen.getByText(/not showing a dose/i)).toBeInTheDocument()
     expect(screen.getByText(/ask the pharmacist/i)).toBeInTheDocument()
+  })
+
+  it('says the cautions are missing rather than leaving the card silent (P0)', () => {
+    // `null` means the server would not stand behind the summary the model wrote of 식약처's
+    // 주의사항 — or holds none to check it against (invariant 8). It never means "this medicine has
+    // nothing to be careful about", and a card with no Cautions heading says exactly that.
+    render(<DrugCard drug={drug({ labelCautions: null })} source={source} />)
+
+    expect(screen.getByRole('heading', { name: 'Cautions from the label' })).toBeInTheDocument()
+    expect(screen.getByText(/not showing this medicine's cautions/i)).toBeInTheDocument()
+    expect(screen.getByText(/ask\s+the pharmacist/i)).toBeInTheDocument()
+  })
+
+  it('states an empty contraindication list rather than hiding the section (P0)', () => {
+    // The server writes this array from 식약처's DUR record now (invariant 8), so empty is a claim:
+    // the ministry publishes no contraindication for this product. The section used to disappear,
+    // and a card with no warnings on it reads as a medicine with none — §2-2's trap, one field over.
+    render(<DrugCard drug={drug({ warnings: [] })} source={source} />)
+
+    expect(screen.getByRole('heading', { name: 'Official contraindications' })).toBeInTheDocument()
+    expect(screen.getByText(/publishes no contraindications/i)).toBeInTheDocument()
+    expect(screen.getByText(/not a clearance to take it/i)).toBeInTheDocument()
+    expect(screen.queryByText(/\bsafe\b/i)).not.toBeInTheDocument()
   })
 
   it('never shows dosing or indication guidance for a blocked medicine', () => {

@@ -50,8 +50,18 @@ export interface DrugCard {
   ingredients: Ingredient[]
   indicationSummary: string | null
   directionsSummary: string | null
-  /** Includes DUR contraindications (spec §2-10). */
+  /**
+   * The model's English summary of 식약처's 주의사항·경고·상호작용·부작용, checked by the server against the
+   * ministry's own numbers. Null when it could not be — the card says so rather than showing
+   * nothing (invariant 8).
+   */
+  labelCautions: string | null
+  /**
+   * 식약처's DUR contraindications (spec §2-10), written by the server, not the model. Empty means
+   * the ministry has published none — which the card states in words. It never means "no warnings".
+   */
   warnings: string[]
+  /** The server's value from the MFDS licence record; the model does not get a say (invariant 8). */
   prescriptionStatus: PrescriptionStatus
   allergyCheck: AllergyCheck
   sourceRefId: string

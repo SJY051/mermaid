@@ -143,14 +143,38 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
           </section>
         ) : null}
 
-        {drug.warnings.length > 0 ? (
-          <section aria-labelledby={`${titleId}-warnings`}>
+        {!isBlocked ? (
+          <section aria-labelledby={`${titleId}-cautions`}>
             <h3
-              id={`${titleId}-warnings`}
+              id={`${titleId}-cautions`}
               className="text-xs font-bold uppercase tracking-wide text-secondary"
             >
-              Warnings
+              Cautions from the label
             </h3>
+            {drug.labelCautions ? (
+              <p className="mt-1 whitespace-pre-wrap text-sm text-primary">{drug.labelCautions}</p>
+            ) : (
+              // Either the ministry gave us no 주의사항 for this medicine, or the summary the model
+              // wrote of it could not be traced back to the ministry's own words (invariant 8).
+              // Rendering nothing would leave a blank where the cautions belong, and a card with no
+              // cautions on it reads as a medicine with none — the same trap as a `no_match_found`
+              // allergy read as "safe" (§2-2).
+              <p className="mt-1 text-sm text-primary">
+                We are not showing this medicine&apos;s cautions. Read them on the package, or ask
+                the pharmacist — they can read the Korean label with you.
+              </p>
+            )}
+          </section>
+        ) : null}
+
+        <section aria-labelledby={`${titleId}-warnings`}>
+          <h3
+            id={`${titleId}-warnings`}
+            className="text-xs font-bold uppercase tracking-wide text-secondary"
+          >
+            Official contraindications
+          </h3>
+          {drug.warnings.length > 0 ? (
             <ul className="mt-1 space-y-2">
               {drug.warnings.map((warning, index) => (
                 <li
@@ -167,8 +191,16 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
                 </li>
               ))}
             </ul>
-          </section>
-        ) : null}
+          ) : (
+            // An empty list is the server's statement that 식약처 has published no DUR record for this
+            // product — not that nothing about it is worth knowing. This section used to vanish
+            // entirely, and a card with no Warnings heading reads as a medicine with no warnings.
+            <p className="mt-1 text-sm text-primary">
+              <span lang="ko">식약처</span> publishes no contraindications for this medicine. That is
+              not a clearance to take it — ask the pharmacist.
+            </p>
+          )}
+        </section>
 
         <footer className="flex flex-wrap items-start gap-2 border-t border-primary pt-3">
           {source.dataMode === 'fixture' ? <Badge variant="neutral" label="Sample data" /> : null}

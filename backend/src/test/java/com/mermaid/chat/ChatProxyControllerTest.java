@@ -114,12 +114,23 @@ class ChatProxyControllerTest {
     /** The same, and carrying the ministry's 용법용량 — what the model's directions are checked against. */
     private static DrugContext contextWithDosage(
             AllergyCheck serverCheck, String officialDosageKo, String... productNames) {
+        return contextWith(
+                new GroundedDrug(
+                        TYLENOL_SOURCE.id(),
+                        Set.of(),
+                        serverCheck,
+                        officialDosageKo,
+                        MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                        List.of(),
+                        null),
+                productNames);
+    }
+
+    /** The server's whole record for a product — what invariant 8 stamps onto the card. */
+    private static DrugContext contextWith(GroundedDrug record, String... productNames) {
         Map<String, GroundedDrug> grounded = new LinkedHashMap<>();
         for (String productName : productNames) {
-            grounded.put(
-                    productName,
-                    new GroundedDrug(
-                            TYLENOL_SOURCE.id(), Set.of(), serverCheck, officialDosageKo));
+            grounded.put(productName, record);
         }
         return new DrugContext("DRUG_CONTEXT: …", grounded, List.of(TYLENOL_SOURCE));
     }
@@ -234,13 +245,35 @@ class ChatProxyControllerTest {
     }
 
     private static String drugCard(String productNameKo, String sourceRefId, String directions) {
+        return drugCard(productNameKo, sourceRefId, directions, null, "[]", "otc");
+    }
+
+    /** A model-authored card, in full — every field invariant 7 or 8 can overrule. */
+    private static String drugCard(
+            String productNameKo,
+            String sourceRefId,
+            String directions,
+            String labelCautions,
+            String warningsJson,
+            String prescriptionStatus) {
         return """
             [{"productNameKo":"%s","productNameEn":null,"ingredients":[],
-              "indicationSummary":"fever","directionsSummary":%s,"warnings":[],
-              "prescriptionStatus":"otc",
+              "indicationSummary":"fever","directionsSummary":%s,"labelCautions":%s,
+              "warnings":%s,
+              "prescriptionStatus":"%s",
               "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
               "sourceRefId":"%s"}]
-            """.formatted(productNameKo, directions == null ? "null" : "\"" + directions + "\"", sourceRefId);
+            """.formatted(
+                productNameKo,
+                quoted(directions),
+                quoted(labelCautions),
+                warningsJson,
+                prescriptionStatus,
+                sourceRefId);
+    }
+
+    private static String quoted(String value) {
+        return value == null ? "null" : "\"" + value + "\"";
     }
 
     // ── invariant 7: a dose the ministry did not state is not a dose ────────────────────────────
@@ -322,6 +355,158 @@ class ChatProxyControllerTest {
 
             assertThat(answer.drugs().get(0).directionsSummary())
                     .isEqualTo("Follow the dosing on the package, or ask the pharmacist.");
+        }
+    }
+
+    // ── invariant 8: the card's warnings, status and cautions are the server's ──────────────────
+
+    @Nested
+    @DisplayName("the server's own record")
+    class ServerRecordGate {
+
+        /**
+         * What the server holds for this product: 식약처 says 전문의약품, publishes one contraindication,
+         * and its 주의사항 names one age. (That the DUR list is rendered into these English strings —
+         * and that 병용금기 stays a count — is {@code DrugContextRetrieverTest}'s to prove. Here the
+         * question is only whether the model can overrule them, and it must not.)
+         */
+        private static final List<String> PUBLISHED = List.of(
+                "Contraindicated during pregnancy (Acetaminophen) — 임부에게 투여하지 말 것. "
+                        + "Source: MFDS DUR, notified 2026-01-01.");
+        private static final String OFFICIAL_CAUTIONS = "만 3세 미만 영아에게는 투여하지 마십시오.";
+
+        private static DrugContext serverRecord(List<String> warnings, String officialCautionKo) {
+            return contextWith(
+                    new GroundedDrug(
+                            TYLENOL_SOURCE.id(),
+                            Set.of(),
+                            AllergyCheck.noMatch(),
+                            null,
+                            MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION,
+                            warnings,
+                            officialCautionKo),
+                    TYLENOL);
+        }
+
+        private static DrugContext serverRecord() {
+            return serverRecord(PUBLISHED, OFFICIAL_CAUTIONS);
+        }
+
+        @Test
+        @DisplayName("a contraindication the model dropped is still on the card")
+        void droppedContraindicationSurvives() throws Exception {
+            // The whole defect, in one card. The model was *told* to copy every durWarnings entry;
+            // being told is not an invariant. It returns `warnings: []`, and every other check
+            // passes — same product, same ingredients, same source — so a pregnant reader is shown a
+            // card 식약처 has published a pregnancy contraindication for, with no warning on it.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null, null, "[]", "otc"),
+                                    "[]"),
+                            serverRecord())
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs()).hasSize(1);
+            assertThat(answer.drugs().get(0).warnings()).isEqualTo(PUBLISHED);
+        }
+
+        @Test
+        @DisplayName("a warning the model invented is not on the card")
+        void inventedWarningIsDiscarded() throws Exception {
+            // The other direction, and the one that wears a government footer: an unsourced medical
+            // claim the ministry never published, rendered beside real ones under a 식약처 stamp.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null, null,
+                                            "[\"Do not take this with alcohol or grapefruit.\"]", "otc"),
+                                    "[]"),
+                            serverRecord())
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).warnings())
+                    .isEqualTo(PUBLISHED)
+                    .noneMatch(w -> w.contains("grapefruit"));
+        }
+
+        @Test
+        @DisplayName("a product 식약처 published nothing for gets an empty list, not the model's")
+        void anEmptyDurRecordStaysEmpty() throws Exception {
+            // The card then renders "no contraindications published" in words rather than dropping
+            // the section — a missing Warnings heading reads as "nothing to be careful about", the
+            // trap §2-2 names for `no_match_found`. DrugCard.test.tsx holds that half.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null, null,
+                                            "[\"Ask a doctor before use.\"]", "otc"),
+                                    "[]"),
+                            serverRecord(List.of(), OFFICIAL_CAUTIONS))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).warnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("the server's prescription status wins over the model's")
+        void serverOwnsThePrescriptionStatus() throws Exception {
+            // 식약처 says 전문의약품 and the model's card says otc. A traveller who reads "OTC" walks to a
+            // counter and cannot buy it — or, the way round that costs more, skips the doctor they
+            // needed. The server holds SPCLTY_PBLC; there was never anything here for a model to add.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(drugCard(TYLENOL, "src:mfds:202005623"), "[]"), serverRecord())
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).prescriptionStatus())
+                    .isEqualTo(MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION);
+        }
+
+        @Test
+        @DisplayName("a caution whose number the ministry never wrote is removed")
+        void inventedCautionNumberIsStripped() throws Exception {
+            // The label says 만 3세 미만; the card says under 12. A stricter-sounding claim is still a
+            // claim nobody can stand behind. Invariant 7's digit rule, on the field the label's
+            // cautions moved into.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null,
+                                            "Do not give to children under 12 years of age.", "[]", "otc"),
+                                    "[]"),
+                            serverRecord())
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).labelCautions()).isNull();
+        }
+
+        @Test
+        @DisplayName("a faithful caution keeps the ministry's numbers, and survives")
+        void faithfulCautionSurvives() throws Exception {
+            // The English is the model's to write. Only the quantity has to be the ministry's.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null,
+                                            "Do not give to infants under 3 years old.", "[]", "otc"),
+                                    "[]"),
+                            serverRecord())
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).labelCautions())
+                    .isEqualTo("Do not give to infants under 3 years old.");
+        }
+
+        @Test
+        @DisplayName("no ministry caution text means no caution may be stated at all")
+        void withoutOfficialCautionsNothingSurvives() throws Exception {
+            // Same rule as the dosing: nothing to check against is not permission to guess. We hold
+            // no 주의사항 for this product, so a caution on its card has no source at all — and this
+            // one carries no number, so only the missing text can catch it.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null,
+                                            "Take care if you have liver problems.", "[]", "otc"),
+                                    "[]"),
+                            serverRecord(PUBLISHED, null))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).labelCautions()).isNull();
         }
     }
 

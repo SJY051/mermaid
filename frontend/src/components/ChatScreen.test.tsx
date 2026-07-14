@@ -206,6 +206,7 @@ describe('when the answer arrives', () => {
         ],
         indicationSummary: 'For headache and fever.',
         directionsSummary: 'Follow the official label.',
+        labelCautions: null,
         warnings: ['Do not combine with other acetaminophen products.'],
         prescriptionStatus: 'otc',
         allergyCheck: { status: 'no_match_found', matchedIngredients: [], message: '' },

@@ -282,8 +282,10 @@ public class ChatProxyController {
                 answer.summary(),
                 answer.clarifyingQuestions(),
                 answer.guidance(),
-                groundDirections(
-                        groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
+                groundServerRecord(
+                        groundDirections(
+                                groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
+                                context.groundedDrugs()),
                         context.groundedDrugs()),
                 distinct(answer.uiActions()),
                 context.sources(),
@@ -378,10 +380,98 @@ public class ChatProxyController {
                 drug.ingredients(),
                 drug.indicationSummary(),
                 null,
+                drug.labelCautions(),
                 drug.warnings(),
                 drug.prescriptionStatus(),
                 drug.allergyCheck(),
                 drug.sourceRefId());
+    }
+
+    /**
+     * The card's warnings, prescription status and cautions, taken back from the model. Invariant 8.
+     *
+     * <p>Three fields, one principle, and it is invariant 7's: <b>bind the model to the server's
+     * record on what a person acts on; leave it free on what they only read.</b>
+     *
+     * <ul>
+     *   <li><b>{@code warnings}</b> — 식약처's DUR contraindications. The model was told to copy every
+     *       one of them onto the card and nothing checked that it had, so a dropped contraindication
+     *       reached the reader and an invented one reached them under a footer naming the ministry.
+     *       Neither shows up in any other invariant: the product, the ingredients and the source are
+     *       all still right. We hold the record, so we write it, and the model's array is discarded.
+     *   <li><b>{@code prescriptionStatus}</b> — a server fact with a wire value already
+     *       ({@code SPCLTY_PBLC}/{@code ETC_OTC_CODE}). There was never anything for the model to
+     *       add here, only something for it to get wrong.
+     *   <li><b>{@code labelCautions}</b> — the model's English summary of 주의사항·경고·상호작용·부작용.
+     *       This one <i>is</i> a translation, like the indication and the directions, so it stays the
+     *       model's to write — and is checked the way the directions are, by invariant 7's digit
+     *       rule: every number in it must be a number the ministry wrote. A caution for a product
+     *       whose caution text we do not hold has no source at all, and does not survive.
+     * </ul>
+     *
+     * <p>A stripped caution becomes {@code null} and the card says so in words — it never becomes an
+     * absent section. Silence where a caution was reads as "nothing to be careful about", which is
+     * the same trap as {@code no_match_found} read as "safe" (§2-2). The same holds for a product
+     * with no DUR record at all: an empty warnings array is a statement, and the card states it.
+     *
+     * <p>A card naming a product we did not retrieve is left untouched, as in {@link
+     * #groundAllergyChecks}: invariant 6 rejects the whole answer for it moments later, and dressing
+     * it in server facts first would only disguise the violation.
+     */
+    private static List<MermAidAnswer.DrugCard> groundServerRecord(
+            List<MermAidAnswer.DrugCard> drugs,
+            Map<String, DrugContextRetriever.GroundedDrug> groundedDrugs) {
+
+        List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
+        for (MermAidAnswer.DrugCard drug : drugs) {
+            DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
+            if (source == null) {
+                grounded.add(drug);
+                continue;
+            }
+            grounded.add(new MermAidAnswer.DrugCard(
+                    drug.id(),
+                    drug.productNameKo(),
+                    drug.productNameEn(),
+                    drug.ingredients(),
+                    drug.indicationSummary(),
+                    drug.directionsSummary(),
+                    groundedCautions(drug, source),
+                    source.warnings(),
+                    source.prescriptionStatus(),
+                    drug.allergyCheck(),
+                    drug.sourceRefId()));
+        }
+        return List.copyOf(grounded);
+    }
+
+    /**
+     * Null — and the card's own words — for a caution we cannot trace to the ministry's text.
+     *
+     * <p>Stricter than the directions in one place, and the difference is the point. Directions with
+     * no quantity in them survive a product we hold no 용법용량 for, because <em>"follow the dosing on
+     * the package"</em> is a pointer and contradicts no label. There is no equivalent caution: a
+     * sentence in this field is a medical claim whatever numbers it does or does not contain, and
+     * <em>"take care if you have liver problems"</em> is exactly as unsourced as a wrong age
+     * threshold. No official caution text, no caution.
+     */
+    private static String groundedCautions(
+            MermAidAnswer.DrugCard drug, DrugContextRetriever.GroundedDrug source) {
+        String cautions = drug.labelCautions();
+        if (cautions == null || cautions.isBlank()) {
+            return null;
+        }
+        String official = source.officialCautionKo();
+        if (official != null && !official.isBlank() && numbersAreGrounded(cautions, official)) {
+            return cautions;
+        }
+        // The product name is ours — it came from the ministry. The rejected sentence is model
+        // output shaped by whatever the user typed, and a log is not a place to put that (§2-5).
+        log.warn(
+                "cautions_ungrounded product={} hasOfficialCautions={}",
+                drug.productNameKo(),
+                source.officialCautionKo() != null);
+        return null;
     }
 
     /**
@@ -410,6 +500,7 @@ public class ChatProxyController {
                     drug.ingredients(),
                     drug.indicationSummary(),
                     drug.directionsSummary(),
+                    drug.labelCautions(),
                     drug.warnings(),
                     drug.prescriptionStatus(),
                     source.allergyCheck(),
