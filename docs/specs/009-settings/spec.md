@@ -69,9 +69,18 @@ A switch, **off by default**, labelled and described in the words of what actual
 
 The state today, shown under it, exactly as the wireframe does: `ibuprofen · aspirin (this session only)`.
 
-**Turning it OFF deletes what was stored, immediately.** An opt-out that leaves the data behind is not
-an opt-out. The word "forget" appears in the confirmation, and the list is gone from `localStorage`
-before the toggle finishes animating.
+**Turning it OFF asks once, and then deletes what was stored.** An opt-out that leaves the data behind
+is not an opt-out — but a list of someone's allergies is not something to delete on a mis-tap either,
+and re-entering it is exactly the friction that gets a person to skip declaring an allergy at all.
+
+So: a confirmation. *"Forget your allergy list? We will delete ibuprofen and aspirin from this device.
+You can tell us again at any time."* Confirm → the key is gone from `localStorage` before the toggle
+settles. Cancel → nothing changes, including the switch, which must not appear to have moved.
+
+The confirmation is deliberately a **reusable destructive-consent dialog**, not a bespoke one: the
+medical-profile work spec 002 deferred (allergies, conditions, current medicines) will need exactly
+this shape — name what will be deleted, say where it lives, say it can be given again — and will
+replace this switch rather than sit beside it.
 
 **Turning it ON does not retroactively promise anything.** It saves the list as it is now; it does not
 claim the app was safer before.
@@ -120,8 +129,9 @@ Bounded shell (007 FR-001), `prefers-reduced-motion` honoured (007 FR-004).
 - **SC-001**: the appearance control has three states and actually changes `color-scheme` on `:root`.
   Asserted by computed style, not by a class name.
 - **SC-002**: allergy memory is **off** on a fresh device. A test asserts the default.
-- **SC-003**: turning it off **removes the key** from `localStorage`. The test reads storage directly
-  and goes red if the data survives.
+- **SC-003**: turning it off asks for confirmation first; **Confirm removes the key** from
+  `localStorage` (the test reads storage directly and goes red if the data survives), and **Cancel
+  changes nothing** — not the storage, and not the switch's position.
 - **SC-004**: the word "safe" appears nowhere on this screen, in any state. Asserted (§2-2).
 - **SC-005**: an unverified typed allergen is shown as name-match-only, never as avoided.
 - **SC-006**: contrast scan reports 0 failures on Settings in light and in dark.
