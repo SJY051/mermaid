@@ -279,4 +279,26 @@ class SearchTermExtractorTest {
             assertThat(parse("   ").isEmpty()).isTrue();
         }
     }
+
+    @Nested
+    @DisplayName("no allergen surface exists (spec 005 SC-003, redesign 2026-07-14)")
+    class NoAllergenSurface {
+
+        @Test
+        @DisplayName("an allergens array in the model reply is ignored, not parsed")
+        void allergensInReplyAreIgnored() {
+            // The extraction schema has no allergen field; review found four distinct ways a stated
+            // allergen was lost between the user's text and the gate, so free-text allergens now
+            // fail closed to a clarifying question upstream of this extractor. A model (or an
+            // injected prompt) volunteering an allergens array must change nothing here.
+            RetrievalQuery query = SearchTermExtractor.parse(
+                    "{\"ingredients\":[\"Acetaminophen\"],\"productNames\":[],"
+                            + "\"allergens\":[\"aspirin\"]}",
+                    new ObjectMapper());
+
+            assertThat(query.ingredientsEn()).containsExactly("Acetaminophen");
+            assertThat(query).hasNoNullFieldsOrProperties();
+            assertThat(query.toString()).doesNotContain("aspirin");
+        }
+    }
 }

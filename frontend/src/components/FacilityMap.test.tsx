@@ -1,5 +1,5 @@
 import { StrictMode } from 'react'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FacilityMap } from './FacilityMap'
@@ -17,7 +17,7 @@ import type { Facility } from '../lib/types'
  */
 interface MarkerStub {
   setMap: ReturnType<typeof vi.fn>
-  onClick?: () => void
+  element?: HTMLButtonElement
 }
 
 function installNaverStub({
@@ -26,28 +26,33 @@ function installNaverStub({
   markerThrows = false,
 }: { autoInit?: boolean; scriptLoaded?: boolean; markerThrows?: boolean } = {}) {
   const markers: MarkerStub[] = []
-  const infoWindow = { setContent: vi.fn(), open: vi.fn(), close: vi.fn() }
   const readyHandlers: Array<() => void> = []
   let mapsCreated = 0
+  let mapContainer: HTMLElement | null = null
 
   const naver = {
     maps: {
       Map: class {
-        constructor() {
+        constructor(container: HTMLElement) {
           mapsCreated += 1
+          mapContainer = container
         }
       },
       LatLng: class {},
       Point: class {},
-      InfoWindow: class {
-        setContent = infoWindow.setContent
-        open = infoWindow.open
-        close = infoWindow.close
-      },
       Marker: class {
-        setMap = vi.fn()
-        constructor() {
+        element?: HTMLButtonElement
+        setMap = vi.fn((nextMap: unknown) => {
+          if (nextMap === null) this.element?.remove()
+        })
+        constructor(options: { icon?: { content?: string } }) {
           if (markerThrows) throw new Error('Naver marker internals are unavailable')
+          if (options.icon?.content && mapContainer) {
+            const host = document.createElement('div')
+            host.innerHTML = options.icon.content
+            this.element = host.firstElementChild as HTMLButtonElement
+            mapContainer.appendChild(this.element)
+          }
           markers.push(this as unknown as MarkerStub)
         }
       },
@@ -60,9 +65,6 @@ function installNaverStub({
           return { eventName: event, listener: handler, listenerId: '', target: _target }
         },
         removeListener: vi.fn(),
-        addListener: (marker: MarkerStub, event: string, handler: () => void) => {
-          if (event === 'click') marker.onClick = handler
-        },
       },
     },
   }
@@ -76,7 +78,6 @@ function installNaverStub({
 
   return {
     markers,
-    infoWindow,
     readyHandlers,
     script,
     mapsCreated: () => mapsCreated,
@@ -121,7 +122,7 @@ beforeEach(() => {
 
 afterEach(() => {
   // Unmount FIRST, while the naver stub still exists. React can leave a passive mount effect
-  // (the one that builds markers and the InfoWindow) scheduled but unflushed when a test's last
+  // (the one that builds markers) scheduled but unflushed when a test's last
   // assertion only needed the DOM; whatever flushes it next — including the unmount itself —
   // must find `naver` still defined. CI run 29110631929 failed exactly there: the stub was
   // removed before the deferred flush, and FacilityMap.tsx:54 threw `naver is not defined`
@@ -254,6 +255,28 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
   })
 })
 
+describe('fixture provenance is visible wherever the shared map is used (spec §2-9)', () => {
+  it('labels fixture facilities, including related results rendered outside the map', () => {
+    installNaverStub()
+    const live = facility()
+    const sample = facility({ id: 'facility:nmc:sample' })
+    sample.source.dataMode = 'fixture'
+
+    const { rerender } = render(<FacilityMap center={centre} facilities={[live]} />)
+    expect(screen.queryByTestId('map-fixture-notice')).not.toBeInTheDocument()
+
+    rerender(<FacilityMap center={centre} facilities={[live, sample]} />)
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
+      'Sample data — availability may not reflect current conditions.',
+    )
+
+    rerender(<FacilityMap center={centre} facilities={[live]} additionalFixtureData={true} />)
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
+      'Sample data — availability may not reflect current conditions.',
+    )
+  })
+})
+
 describe('facility details (UI-03, DEV-207)', () => {
   it('opens the detail drawer when a facility in the accessible list is selected', async () => {
     const user = userEvent.setup()
@@ -264,9 +287,119 @@ describe('facility details (UI-03, DEV-207)', () => {
       </FavoritesProvider>,
     )
 
-    await user.click(await screen.findByRole('button', { name: /가나약국/ }))
+    const list = await screen.findByTestId('facility-list')
+    await user.click(within(list).getByRole('button', { name: /Pharmacy · Open now · 140m/ }))
 
     expect(screen.getByRole('dialog', { name: '가나약국' })).toBeInTheDocument()
+  })
+
+  it('renders a real marker button whose Enter key opens the detail drawer', async () => {
+    const user = userEvent.setup()
+    installNaverStub()
+    const unknownHospital = facility({
+      id: 'facility:hira:1',
+      type: 'hospital',
+      nameKo: '서울병원',
+      operation: {
+        isOpenNow: null,
+        status: 'unknown',
+        statusConfidence: 'unknown',
+        verifiedAt: null,
+        notice: '',
+      },
+    })
+    render(<FacilityMap center={centre} facilities={[unknownHospital]} />)
+
+    const map = screen.getByTestId('naver-map')
+    const pin = await waitFor(() => {
+      const button = map.querySelector<HTMLButtonElement>('button[data-facility-index="0"]')
+      expect(button).not.toBeNull()
+      return button!
+    })
+    expect(pin.tagName).toBe('BUTTON')
+    expect(pin).toHaveAttribute('data-facility-kind', 'hospital')
+    expect(pin).toHaveAttribute('data-facility-status', 'unknown')
+    expect(pin.querySelector('[data-kind-icon="hospital"]')).not.toBeNull()
+    expect(pin.querySelector('[data-status-glyph="unknown"]')).toHaveTextContent('?')
+    expect(pin).toHaveAccessibleName(
+      '서울병원 Hospital, Hours unknown, 140 metres away. Open details.',
+    )
+
+    pin.focus()
+    expect(pin).toHaveFocus()
+    await user.keyboard('{Enter}')
+
+    expect(screen.getByRole('dialog', { name: '서울병원' })).toBeInTheDocument()
+  })
+
+  it('opens the facility represented by the pointer-selected pin', async () => {
+    const user = userEvent.setup()
+    installNaverStub()
+    render(
+      <FacilityMap
+        center={centre}
+        facilities={[
+          facility({ nameKo: '청실약국' }),
+          facility({ id: 'facility:nmc:2', nameKo: '명약국' }),
+        ]}
+      />,
+    )
+
+    const map = screen.getByTestId('naver-map')
+    const firstPin = await within(map).findByRole('button', { name: /청실약국/ })
+    await user.click(firstPin)
+
+    expect(screen.getByRole('dialog', { name: '청실약국' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '명약국' })).not.toBeInTheDocument()
+  })
+})
+
+describe('map pins use shape for kind and a non-colour glyph for status', () => {
+  it('renders only displayed supported facility types in its persistent legend', async () => {
+    const { markers } = installNaverStub()
+    const hospital = facility({
+      id: 'facility:hira:1',
+      type: 'hospital',
+      nameKo: '서울병원',
+      operation: {
+        isOpenNow: null,
+        status: 'unknown',
+        statusConfidence: 'unknown',
+        verifiedAt: null,
+        notice: '',
+      },
+    })
+    render(<FacilityMap center={centre} facilities={[facility(), hospital]} />)
+
+    await waitFor(() => expect(markers).toHaveLength(2))
+    const map = screen.getByTestId('naver-map')
+    expect(
+      map.querySelector('[data-facility-kind="pharmacy"][data-facility-status="open"] [data-status-glyph="open"]'),
+    ).toHaveTextContent('✓')
+    expect(
+      map.querySelector('[data-facility-kind="hospital"][data-facility-status="unknown"] [data-status-glyph="unknown"]'),
+    ).toHaveTextContent('?')
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    expect(legend).toHaveTextContent('Pharmacy')
+    expect(legend).toHaveTextContent('Hospital')
+    expect(legend.querySelector('[data-legend-kind="pharmacy"]')).not.toBeNull()
+    expect(legend.querySelector('[data-legend-kind="hospital"]')).not.toBeNull()
+    expect(legend).not.toHaveTextContent('Emergency room')
+    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).toBeNull()
+    expect(legend).toHaveTextContent('Open now')
+    expect(legend).toHaveTextContent('Hours unknown')
+    expect(legend).toHaveTextContent('Closed')
+  })
+
+  it('does not advertise hospitals when only pharmacy results are displayed', async () => {
+    installNaverStub()
+    render(<FacilityMap center={centre} facilities={[facility()]} />)
+
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    expect(legend).toHaveTextContent('Pharmacy')
+    expect(legend).not.toHaveTextContent('Hospital')
+    expect(legend.querySelector('[data-legend-kind="pharmacy"]')).not.toBeNull()
+    expect(legend.querySelector('[data-legend-kind="hospital"]')).toBeNull()
   })
 })
 
@@ -296,20 +429,16 @@ describe('markers are torn down, because Naver markers are not React children', 
 })
 
 describe('a facility name from a government API is data, not markup', () => {
-  it('escapes the name and phone before they become an InfoWindow', async () => {
-    const { markers, infoWindow } = installNaverStub()
+  it('escapes the name before it becomes marker HTML', async () => {
+    const { markers } = installNaverStub()
     const hostile = facility({
       nameKo: '<img src=x onerror="alert(1)">약국',
-      phone: '02-000-0000"><script>alert(1)</script>',
     })
     render(<FacilityMap center={centre} facilities={[hostile]} />)
 
     await waitFor(() => expect(markers).toHaveLength(1))
-    markers[0].onClick!()
-
-    const html = infoWindow.setContent.mock.calls[0][0] as string
-    expect(html).not.toContain('<img')
-    expect(html).not.toContain('<script>')
-    expect(html).toContain('&lt;img')
+    const map = screen.getByTestId('naver-map')
+    expect(map.querySelector('img')).toBeNull()
+    expect(map).toHaveTextContent('<img src=x onerror="alert(1)">약국')
   })
 })

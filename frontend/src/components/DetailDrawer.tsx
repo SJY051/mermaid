@@ -24,10 +24,16 @@ function operationLabel(facility: Facility): string {
   return 'Hours unknown'
 }
 
-function operationDotClass(facility: Facility): string {
-  if (facility.operation.isOpenNow === true) return 'bg-[#1a7a34]'
-  if (facility.operation.isOpenNow === false) return 'bg-[#8a8f98]'
-  return 'bg-[#e0a800]'
+function operationGlyph(facility: Facility): string {
+  if (facility.operation.isOpenNow === true) return '✓'
+  if (facility.operation.isOpenNow === false) return '×'
+  return '?'
+}
+
+function operationGlyphClass(facility: Facility): string {
+  if (facility.operation.isOpenNow === true) return 'bg-[#1a7a34] text-white'
+  if (facility.operation.isOpenNow === false) return 'bg-[#9aa0a8] text-[#1a1a1a]'
+  return 'bg-[#e0a800] text-[#1a1a1a]'
 }
 
 /**
@@ -65,12 +71,18 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/45" data-testid="detail-drawer-backdrop">
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/45"
+      data-testid="detail-drawer-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-primary bg-primary p-5 shadow-2xl"
+        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
       >
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-tertiary" aria-hidden="true" />
 
@@ -99,9 +111,12 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
             </span>
             <span className="flex items-center gap-2 font-medium text-primary">
               <span
-                className={`h-2.5 w-2.5 rounded-full ${operationDotClass(facility)}`}
+                data-testid="detail-operation-glyph"
+                className={`grid h-5 w-5 place-items-center rounded-full text-xs font-bold ${operationGlyphClass(facility)}`}
                 aria-hidden="true"
-              />
+              >
+                {operationGlyph(facility)}
+              </span>
               {operationLabel(facility)}
             </span>
             <span className="text-secondary">{Math.round(facility.distanceMeters)} m away</span>
@@ -138,7 +153,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
           {saveError && <p role="alert" className="text-sm text-secondary">{saveError}</p>}
 
           {facility.operation.notice && (
-            <p className="rounded-lg bg-secondary p-3 text-primary">{facility.operation.notice}</p>
+            <p className="rounded-lg bg-muted p-3 text-primary">{facility.operation.notice}</p>
           )}
 
           <div className="border-t border-primary pt-4">

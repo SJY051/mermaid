@@ -260,6 +260,35 @@ describe('conversation state', () => {
     expect(screen.getByText('Drink water and rest.')).toBeInTheDocument()
   })
 
+  it('sends every earlier user turn with the request, newest last (spec 005 FR-013)', async () => {
+    // The server's allergy scan runs over ALL user messages in the request. The turn that
+    // matters is the bare reply to the allergy clarifying question: "ibuprofen" alone carries
+    // no allergy keyword, so a request carrying only the newest turn would retrieve unguarded
+    // and could show the person the very ingredient they just declared. Mutation: send only
+    // the current turn again — this goes red.
+    const secondAnswer = JSON.stringify({
+      ...JSON.parse(validAnswer),
+      answerId: 'a2',
+      summary: 'Which ingredient are you allergic to?',
+    })
+    streamChatMock
+      .mockReturnValueOnce(completedStream(validAnswer))
+      .mockReturnValueOnce(completedStream(secondAnswer))
+    renderChat()
+    const user = await ask('I am allergic to something, what can I take?')
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'ibuprofen')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Which ingredient are you allergic to?')
+
+    expect(streamChatMock).toHaveBeenLastCalledWith([
+      { role: 'user', content: 'I am allergic to something, what can I take?' },
+      { role: 'user', content: 'ibuprofen' },
+    ])
+  })
+
   it('persists a completed turn and restores it in a fresh provider', async () => {
     streamChatMock.mockReturnValue(completedStream(validAnswer))
     const firstRender = renderChat()
