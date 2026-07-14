@@ -179,9 +179,18 @@ export function ChatScreen() {
     latestAnswer?.answerId === 'allergy-clarification' &&
     latestAnswer !== handledClarification
   const pickerOpen = editingAllergies || clarificationNeedsSelection
-  const composerPlaceholder = allergies.length || unverifiedAllergens.length
-    ? 'Ask your question again — answers will avoid your selected ingredients.'
-    : "I have a sore throat and a fever, and it's 11pm."
+  // Two lists, two different promises, and conflating them overstates the safety of one. Only
+  // `allergies` become `exclude_ingredients` — resolved keys the backend filters retrieval on.
+  // `unverifiedAllergens` are strings the user typed: the backend matches them against ingredient
+  // names and warns, and never excludes a product on their account (§2-6 — an unsigned binding may
+  // not block). "Answers will avoid" would promise a filter that does not run for them.
+  const composerPlaceholder = unverifiedAllergens.length
+    ? allergies.length
+      ? 'Ask again — answers avoid your selected ingredients. The allergens you typed are checked by name only.'
+      : 'Ask again — the allergens you typed are checked by name only, not avoided.'
+    : allergies.length
+      ? 'Ask your question again — answers will avoid your selected ingredients.'
+      : "I have a sore throat and a fever, and it's 11pm."
 
   // `retryable: false` means "this exact request will not succeed if resent" — so the block
   // lifts the moment the question is edited. Locking Ask outright would trap the user whose

@@ -190,14 +190,30 @@ public class DrugContextRetriever {
             return drug;
         }
 
+        String nameMatchMessage = "Name match only: "
+                + String.join(", ", matchedIngredients)
+                + " matched the unverified allergen name "
+                + String.join(", ", matchedNames)
+                + ". A pharmacist must confirm this match.";
+
+        // A drug can already carry a WARNING from the verified check — a partial or compound match
+        // against exclude_ingredients. That warning names a reviewed ingredient the user actually
+        // declared; this one names a string they typed. Overwriting the first with the second would
+        // silently downgrade the verified finding to a name match, and the user would never hear
+        // about the allergen we did resolve. So carry both: verified message first, then the caveat.
+        AllergyCheck existing = drug.allergyCheck();
+        boolean hasVerifiedWarning = existing.status() == AllergyCheck.Status.WARNING;
+
+        Set<String> allMatched = new LinkedHashSet<>();
+        if (hasVerifiedWarning) {
+            allMatched.addAll(existing.matchedIngredients());
+        }
+        allMatched.addAll(matchedIngredients);
+
         AllergyCheck warning = new AllergyCheck(
                 AllergyCheck.Status.WARNING,
-                List.copyOf(matchedIngredients),
-                "Name match only: "
-                        + String.join(", ", matchedIngredients)
-                        + " matched the unverified allergen name "
-                        + String.join(", ", matchedNames)
-                        + ". A pharmacist must confirm this match.");
+                List.copyOf(allMatched),
+                hasVerifiedWarning ? existing.message() + " " + nameMatchMessage : nameMatchMessage);
         return new Drug(
                 drug.id(),
                 drug.itemSeq(),

@@ -444,9 +444,11 @@ describe('allergen picker (spec 005 FR-014)', () => {
     expect(loadChatSession().unverifiedAllergens).toEqual(['Yellow dye'])
     expect(Object.values(localStorage).join('\n')).not.toContain('ibuprofen')
     expect(Object.values(localStorage).join('\n')).not.toContain('Yellow dye')
+    // Both channels are present, and they carry different promises: ibuprofen is excluded from
+    // retrieval, "Yellow dye" only warns on a name match. The placeholder says exactly that.
     expect(screen.getByRole('textbox')).toHaveAttribute(
       'placeholder',
-      'Ask your question again — answers will avoid your selected ingredients.',
+      'Ask again — answers avoid your selected ingredients. The allergens you typed are checked by name only.',
     )
 
     await user.clear(screen.getByRole('textbox'))
@@ -467,6 +469,30 @@ describe('allergen picker (spec 005 FR-014)', () => {
         },
       },
     )
+  })
+
+  it('never promises to avoid an allergen it can only name-check (P1)', async () => {
+    // Unverified chips alone. The backend sends these as `unverified_allergens`, which it matches by
+    // name and warns on — it never excludes a product for them (§2-6: an unsigned binding may not
+    // block). Telling this user "answers will avoid your selected ingredients" would promise a
+    // filter that does not run, and they would read a warning card as one that had been filtered.
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am allergic to something')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    await user.type(within(picker).getByRole('combobox', { name: 'Allergy name' }), 'Yellow dye')
+    await user.click(within(picker).getByRole('button', { name: 'Add allergy' }))
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+
+    expect(loadChatSession().allergies).toEqual([])
+    expect(loadChatSession().unverifiedAllergens).toEqual(['Yellow dye'])
+
+    const placeholder = screen.getByRole('textbox').getAttribute('placeholder')
+    expect(placeholder).toBe('Ask again — the allergens you typed are checked by name only, not avoided.')
+    expect(placeholder).not.toMatch(/will avoid/i)
+    expect(placeholder).not.toMatch(/safe/i)
   })
 
   it('resolves autocomplete text to a verified option and makes an honest unverified chip removable', async () => {

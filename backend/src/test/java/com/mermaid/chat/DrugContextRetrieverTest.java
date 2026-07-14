@@ -579,6 +579,43 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("FR-017: a name match is added to a verified warning, never substituted for it")
+        void unverifiedNameMatchKeepsTheVerifiedWarning() throws Exception {
+            // The verified check has already warned about Ibuprofen — a partial match against a
+            // resolved exclude_ingredients entry. The unverified string then name-matches the OTHER
+            // ingredient. Replacing the check would drop the reviewed finding and leave the user
+            // hearing only "a pharmacist must confirm this name", which is the weaker of the two.
+            Drug warned = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), List.of("Acetaminophen Granules", "Ibuprofen"),
+                    TYLENOL.mainIngredientKo(), TYLENOL.prescriptionStatus(), TYLENOL.narrative(),
+                    TYLENOL.durWarnings(),
+                    new AllergyCheck(
+                            AllergyCheck.Status.WARNING,
+                            List.of("Ibuprofen"),
+                            "This product contains Ibuprofen, which may be related to an ingredient "
+                                    + "you avoid. Confirm with a pharmacist."),
+                    TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(warned), Set.of(warned.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("acetaminophen"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("warning");
+            assertThat(allergy.path("matchedIngredients"))
+                    .as("both findings survive: the verified ingredient and the name-matched one")
+                    .extracting(JsonNode::asText)
+                    .containsExactly("Ibuprofen", "Acetaminophen Granules");
+            assertThat(allergy.path("message").asText())
+                    .as("the reviewed warning is still spoken, with the name match appended")
+                    .contains("may be related to an ingredient you avoid")
+                    .contains("Name match only")
+                    .doesNotContain("safe");
+        }
+
+        @Test
         @DisplayName("SC-001: an unresolved structured entry returns the server clarification")
         void unresolvedStructuredEntryFailsClosed() throws Exception {
             // paracetamol's synonyms.tsv row is unsigned: it may aid lookup but must never gain
