@@ -71,8 +71,13 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   }, [onClose])
 
   return (
+    // `fixed` positions against the viewport, not the shell — so a drawer is exactly the way a
+    // screen opts out of the bound MobileShell places on everything else (007 FR-001), and on a
+    // desktop this one spanned all 1600px while the app behind it was 768. Centring the sheet and
+    // giving it the SAME max-width as the shell puts it back inside. The dim layer stays full-bleed
+    // on purpose: it is the part that should cover the screen.
     <div
-      className="fixed inset-0 z-50 flex items-end bg-black/45"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/45"
       data-testid="detail-drawer-backdrop"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -82,7 +87,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
+        className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
       >
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-tertiary" aria-hidden="true" />
 

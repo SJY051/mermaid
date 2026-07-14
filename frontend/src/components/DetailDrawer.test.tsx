@@ -142,6 +142,21 @@ describe('DetailDrawer', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  it('stays inside the shell bound instead of spanning the viewport', () => {
+    // `fixed` positions against the viewport, so a drawer is precisely how a screen escapes the
+    // bound MobileShell puts on everything else (007 FR-001). On a desktop this sheet covered all
+    // 1600px while the app behind it was 768 — the phone-width product became a full-width desktop
+    // surface the moment someone tapped a pharmacy.
+    //
+    // jsdom cannot measure, so this asserts the bound EXISTS — the same shape as the shell's own
+    // test; the widths are checked in a browser (SC-001). The dim layer is deliberately not bounded:
+    // covering the screen is its job.
+    renderDrawer()
+
+    expect(screen.getByRole('dialog').className).toMatch(/max-w-/)
+    expect(screen.getByTestId('detail-drawer-backdrop').className).toMatch(/justify-center/)
+  })
+
   it('exposes the bottom sheet as an accessible dialog', () => {
     renderDrawer()
 
