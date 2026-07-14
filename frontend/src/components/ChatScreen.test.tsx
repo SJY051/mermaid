@@ -237,6 +237,38 @@ describe('when the request fails', () => {
     expect(screen.getByRole('button', { name: /ask/i })).toBeEnabled()
   })
 
+  it('retries the failed question, not a draft typed while it was pending (P1)', async () => {
+    // The clear-on-send leaves the composer editable during a pending request. If the user
+    // starts a follow-up draft and the request then fails, the failed question must be what
+    // Try again resends — and the draft must be neither sent nor destroyed. The banner may
+    // only claim "it is still in the box above" when that is actually true.
+    const first = pendingStream()
+    const second = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream()).mockReturnValueOnce(second.stream())
+    renderChat()
+    const user = await ask('What can I take for a fever?')
+
+    // The box cleared at hand-off; the user starts drafting the next question.
+    await user.type(screen.getByRole('textbox'), 'And what about my headache')
+    first.fail(new Error('boom'))
+    const error = await screen.findByTestId('chat-error')
+
+    // The draft owns the box, so the banner must not claim the failed question is there.
+    expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
+    expect(error).not.toHaveTextContent('still in the box above')
+
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+    second.release(validAnswer)
+    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+
+    // The retry sent the FAILED question; the draft survived untouched.
+    const retryCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    expect(retryCall.filter((m) => m.role === 'user').at(-1)?.content).toBe(
+      'What can I take for a fever?',
+    )
+    expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
+  })
+
   it('retries from the error state and succeeds', async () => {
     const first = pendingStream()
     const second = pendingStream()

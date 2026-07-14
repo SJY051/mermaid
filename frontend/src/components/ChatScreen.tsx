@@ -46,7 +46,15 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   )
 }
 
-function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }) {
+function FailedAnswer({
+  turn,
+  restoredInBox,
+  onRetry,
+}: {
+  turn: ChatTurn
+  restoredInBox: boolean
+  onRetry: () => void
+}) {
   const sendError = turn.error
   if (!sendError) return null
 
@@ -57,7 +65,13 @@ function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }
         title="We could not get an answer."
         description={
           (sendError.retryable
-            ? 'Your question was not lost — it is still in the box above. '
+            ? // "It is still in the box above" is only said when it is actually true — if the
+              // person typed a new draft while the answer was pending, the draft owns the box
+              // and the failed question lives behind Try again instead.
+              'Your question was not lost — ' +
+              (restoredInBox
+                ? 'it is still in the box above. '
+                : 'Try again will resend it without touching what you are typing. ')
             : 'Sending the same question again will not fix this one. ' +
               'Edit your question to ask something different, or come back later. ') +
           `Technical detail: ${sendError.message}`
@@ -222,6 +236,15 @@ export function ChatScreen() {
     if (!sendError) return
     setInput((current) => (current === '' ? sendError.forInput : current))
   }, [sendError])
+
+  // Try again resends the FAILED question, never whatever the composer holds now — a draft
+  // typed while the answer was pending must be neither sent nor destroyed. When the box holds
+  // exactly the failed text (the restore case), clear it at hand-off like any send.
+  function retryFailed(failedInput: string) {
+    if (streaming || pickerOpen) return
+    setInput((current) => (current === failedInput ? '' : current))
+    void send(failedInput)
+  }
 
   function startNewConversation() {
     newConversation()
@@ -390,7 +413,13 @@ export function ChatScreen() {
                 <ChatMessage sender="assistant">
                   <ChatMessageBubble variant="ghost">
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
-                    {turn.error && <FailedAnswer turn={turn} onRetry={() => submit(input)} />}
+                    {turn.error && (
+                      <FailedAnswer
+                        turn={turn}
+                        restoredInBox={input === turn.error.forInput}
+                        onRetry={() => retryFailed(turn.error!.forInput)}
+                      />
+                    )}
                     {turn.answer && <AnsweredTurn turn={turn} />}
                   </ChatMessageBubble>
                 </ChatMessage>
