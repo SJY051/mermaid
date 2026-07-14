@@ -328,7 +328,7 @@ describe('facility details (UI-03, DEV-207)', () => {
 })
 
 describe('map pins use shape for kind and a non-colour glyph for status', () => {
-  it('renders only supported facility types in its persistent legend', async () => {
+  it('renders only displayed supported facility types in its persistent legend', async () => {
     const { markers } = installNaverStub()
     const hospital = facility({
       id: 'facility:hira:1',
@@ -362,6 +362,17 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
     expect(legend).toHaveTextContent('Open now')
     expect(legend).toHaveTextContent('Hours unknown')
     expect(legend).toHaveTextContent('Closed')
+  })
+
+  it('does not advertise hospitals when only pharmacy results are displayed', async () => {
+    installNaverStub()
+    render(<FacilityMap center={centre} facilities={[facility()]} />)
+
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    expect(legend).toHaveTextContent('Pharmacy')
+    expect(legend).not.toHaveTextContent('Hospital')
+    expect(legend.querySelector('[data-legend-kind="pharmacy"]')).not.toBeNull()
+    expect(legend.querySelector('[data-legend-kind="hospital"]')).toBeNull()
   })
 })
 

@@ -194,6 +194,8 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
     }
   }, [map, ready, facilities, markerIdPrefix])
 
+  const displayedFacilityTypes = new Set(facilities.map((facility) => facility.type))
+
   return (
     <section className="space-y-2" aria-label="Nearby facilities map">
       {caption && <p className="text-sm text-secondary">{caption}</p>}
@@ -204,26 +206,30 @@ export function FacilityMap({ center, zoom = 15, facilities = [], caption, notic
         aria-label="Map marker legend"
         className="flex flex-wrap gap-x-4 gap-y-1 rounded-full border border-primary bg-surface px-3 py-2 text-xs font-medium text-primary"
       >
-        <span className="inline-flex items-center gap-1.5">
-          <span
-            data-legend-kind="pharmacy"
-            aria-hidden="true"
-            className="grid h-4 w-4 place-items-center rounded-full border border-primary"
-          >
-            <span className="h-1.5 w-2.5 rotate-45 rounded-full bg-primary" />
+        {displayedFacilityTypes.has('pharmacy') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="pharmacy"
+              aria-hidden="true"
+              className="grid h-4 w-4 place-items-center rounded-full border border-primary"
+            >
+              <span className="h-1.5 w-2.5 rotate-45 rounded-full bg-primary" />
+            </span>
+            Pharmacy
           </span>
-          Pharmacy
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span
-            data-legend-kind="hospital"
-            aria-hidden="true"
-            className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary text-[13px] font-bold leading-none"
-          >
-            +
+        )}
+        {displayedFacilityTypes.has('hospital') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="hospital"
+              aria-hidden="true"
+              className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary text-[13px] font-bold leading-none"
+            >
+              +
+            </span>
+            Hospital
           </span>
-          Hospital
-        </span>
+        )}
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#1a7a34] text-[11px] font-bold text-white">✓</span>
           Open now
