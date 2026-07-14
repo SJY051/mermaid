@@ -400,7 +400,7 @@ describe('conversation state', () => {
     expect(screen.queryByText('Drink water and rest.')).not.toBeInTheDocument()
     expect(screen.queryByText('I have a headache')).not.toBeInTheDocument()
     expect(loadChatSession().messages).toEqual([])
-    expect(sessionStorage.getItem('mermaid.chatSession.v1')).toBeNull()
+    expect(sessionStorage.getItem('mermaid.chatSession.v2')).toBeNull()
   })
 
   it('survives a malformed stored session instead of leaving the app blank', () => {
@@ -409,7 +409,7 @@ describe('conversation state', () => {
     // to an empty conversation, never crash ChatProvider into a blank screen.
     for (const messages of [null, [null], [{ role: 'user' }]]) {
       sessionStorage.setItem(
-        'mermaid.chatSession.v1',
+        'mermaid.chatSession.v2',
         JSON.stringify({
           schemaVersion: '1.0',
           data: { sessionId: 's', messages, allergies: [] },
@@ -685,7 +685,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
     // key, but it must proceed on the existing list — restating a known allergy must not end
     // drug lookup (that would block care for anyone who mentions their allergy again).
     sessionStorage.setItem(
-      'mermaid.chatSession.v1',
+      'mermaid.chatSession.v2',
       JSON.stringify({
         schemaVersion: '1.0',
         data: {
@@ -733,7 +733,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
     // chip that vanished on reload would leave its ingredient un-warned — a product containing it
     // could then read as no_match_found (§2-2). This asserts the chip is both restored AND sent.
     sessionStorage.setItem(
-      'mermaid.chatSession.v1',
+      'mermaid.chatSession.v2',
       JSON.stringify({
         schemaVersion: '1.0',
         data: {
@@ -769,7 +769,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
 
   it('new conversation clears verified selections, unverified chips, and the lock', async () => {
     sessionStorage.setItem(
-      'mermaid.chatSession.v1',
+      'mermaid.chatSession.v2',
       JSON.stringify({
         schemaVersion: '1.0',
         data: {
@@ -799,7 +799,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
       'placeholder',
       "I have a sore throat and a fever, and it's 11pm.",
     )
-    expect(sessionStorage.getItem('mermaid.chatSession.v1')).toBeNull()
+    expect(sessionStorage.getItem('mermaid.chatSession.v2')).toBeNull()
   })
 
   it('edit re-entry shows both lists and cancel without changes changes nothing', async () => {
