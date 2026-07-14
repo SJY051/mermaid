@@ -46,6 +46,25 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   )
 }
 
+/**
+ * A question that got no answer, and is no longer the one the composer is holding.
+ *
+ * <p>Either it failed and the person moved on — they edited their question, and the new one was
+ * answered — or it came back from storage, where a failure's cause does not survive. Both cases
+ * have the same honest shape: we know it was asked and never answered, and we do not know that
+ * asking it again would work. So there is no Try again here, and no claim that it is in the box:
+ * the box holds whatever the person is writing now. The question itself is still in the record, and
+ * still in every request we send (FR-013), which is what it is there for.
+ */
+function UnansweredQuestion() {
+  return (
+    <p data-testid="chat-unanswered" className="text-sm text-secondary">
+      This question was never answered. It is still part of this conversation — ask it again if you
+      still need it.
+    </p>
+  )
+}
+
 function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }) {
   const sendError = turn.error
   if (!sendError) return null
@@ -405,6 +424,12 @@ export function ChatScreen() {
           {turns.map((turn, index) => {
             const pending =
               streaming && index === turns.length - 1 && !turn.answer && !turn.error
+            // Try again sends the composer, and the composer holds the question that has not been
+            // answered — which is this turn only while it is the last one. Once the person edits it
+            // into something else and that succeeds, this turn is history: the box has moved on, so
+            // a Try again here would send the wrong text, and "it is still in the box above" would
+            // be a lie. History says what it knows and offers no button.
+            const active = index === turns.length - 1
             return (
               <div key={turn.id} className="flex flex-col gap-2">
                 <ChatMessage sender="user">
@@ -413,9 +438,13 @@ export function ChatScreen() {
                 <ChatMessage sender="assistant">
                   <ChatMessageBubble variant="ghost">
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
-                    {turn.error && (
-                      <FailedAnswer turn={turn} onRetry={retryFailed} />
-                    )}
+                    {turn.error &&
+                      (active ? (
+                        <FailedAnswer turn={turn} onRetry={retryFailed} />
+                      ) : (
+                        <UnansweredQuestion />
+                      ))}
+                    {turn.unanswered && <UnansweredQuestion />}
                     {turn.answer && <AnsweredTurn turn={turn} />}
                   </ChatMessageBubble>
                 </ChatMessage>

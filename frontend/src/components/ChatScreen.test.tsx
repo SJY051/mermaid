@@ -358,7 +358,10 @@ describe('when the request fails', () => {
     // Two places, one question: the transcript keeps it (unanswered, honestly labelled) and the box
     // holds it ready to send. Neither is a copy the other can lose.
     expect(box).toHaveValue('I am allergic to ibuprofen')
-    expect(screen.getByTestId('chat-error')).toBeInTheDocument()
+    // Restored, so we know it was asked and never answered — and nothing else. No fabricated
+    // "retryable" verdict, and so no Try again button making a promise we cannot keep.
+    expect(screen.getByTestId('chat-unanswered')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
 
     await reloadedUser.type(box, ' and a headache')
     await reloadedUser.click(screen.getByRole('button', { name: /ask/i }))
@@ -371,6 +374,61 @@ describe('when the request fails', () => {
       { role: 'user', content: 'I am allergic to ibuprofen' },
       { role: 'user', content: 'I am allergic to ibuprofen and a headache' },
     ])
+  })
+
+  it('drops the retry affordance once the failed turn is history (P1)', async () => {
+    // Try again sends the composer. That is right while the failed question IS what the composer
+    // holds — and wrong the moment the person edits it into something else and that succeeds: the
+    // box is empty now, so the old turn's Try again would send nothing or, worse, an unrelated
+    // draft, while its banner still claimed the question was "still in the box above".
+    const first = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream())
+    renderChat()
+    const user = await ask('What can I take for a fever?')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument()
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'Actually, what about my headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    // The failed turn is still in the conversation (and in the request history) — but it no longer
+    // offers a button that would send the wrong thing, and it no longer claims to be in the box.
+    expect(screen.getByTestId('chat-unanswered')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/still in the box above/i)).not.toBeInTheDocument()
+  })
+
+  it('does not invent a retry verdict for a failure it restored from storage (P1)', async () => {
+    // The backend said this exact question cannot succeed if resent (retryable: false), and the app
+    // blocked it. A reload cannot remember that — the failure lived in the tab that is gone — so
+    // restoring it as "retryable" would offer Try again on a question already called hopeless.
+    // We know it was asked and never answered. We say that, and nothing more.
+    const { stream, fail } = pendingStream()
+    streamChatMock.mockReturnValueOnce(stream())
+    const { unmount } = renderChat()
+    await ask('a question the server cannot answer')
+    fail(
+      Object.assign(new Error('400'), {
+        error: {
+          code: 'INPUT_TOO_LARGE',
+          message: 'That question is too long.',
+          retryable: false,
+          request_id: 'req-7',
+        },
+      }),
+    )
+    await screen.findByTestId('chat-error')
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    unmount()
+
+    renderChat()
+    expect(screen.getByTestId('chat-unanswered')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/will not fix this one/i)).not.toBeInTheDocument()
   })
 
   it('keeps a failed question in storage after a later turn succeeds (P1)', async () => {

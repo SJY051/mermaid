@@ -17,7 +17,16 @@ export interface ChatTurn {
   createdAt: string
   answer?: MermAidAnswer
   raw?: string
+  /** A failure that happened in THIS tab: we know what went wrong and whether resending can help. */
   error?: SendFailure & { forInput: string }
+  /**
+   * Restored from storage with no answer behind it. We know the question was asked and never
+   * answered — and nothing else. Not why, and not whether asking again would help: the failure
+   * happened in a tab that is gone. So this says exactly that and no more. Fabricating a
+   * `retryable` verdict here would put a Try again button on a question the backend had already
+   * called hopeless, or withhold one from a question that would have worked.
+   */
+  unanswered?: boolean
 }
 
 interface ChatSessionContextValue {
@@ -42,21 +51,6 @@ interface ChatSessionContextValue {
 
 const ChatSessionContext = createContext<ChatSessionContextValue | null>(null)
 
-/**
- * The question a restored turn never got an answer to. It is a real thing that happened — the
- * person asked, and nothing came back — so it stays in the conversation rather than disappearing
- * with the tab's memory. It also has to stay: the server scans the questions in a request for a
- * declared allergy (spec 005 FR-013), and a question dropped from the record is dropped from every
- * later request too. That is how a failed "I am allergic to ibuprofen" ends up guarding nothing.
- */
-const UNANSWERED_ON_RELOAD = {
-  message: 'This question was never answered — the page was reloaded before it arrived.',
-  retryable: true,
-  // No request id: the failure this describes is the absence of an answer, not a server response
-  // we could look up. Inventing one would send a bug reporter after a log line that never existed.
-  requestId: null,
-} as const
-
 function restoreSession(session: ChatSession): ChatTurn[] {
   const turns: ChatTurn[] = []
 
@@ -74,11 +68,15 @@ function restoreSession(session: ChatSession): ChatTurn[] {
     if (!answered) {
       // A user message with no answer behind it: the request failed, or the tab was reloaded while
       // it was still in flight. Kept, and honestly labelled.
+      // The question was asked and never answered. It stays in the conversation — and so in every
+      // later request, which is what the server's allergy scan reads (spec 005 FR-013). A question
+      // dropped from the record is dropped from the scan, and that is how a failed "I am allergic
+      // to ibuprofen" ends up guarding nothing.
       turns.push({
         id: user.id,
         question: user.content,
         createdAt: user.createdAt,
-        error: { ...UNANSWERED_ON_RELOAD, forInput: user.content },
+        unanswered: true,
       })
       continue
     }
@@ -101,7 +99,7 @@ function restoreSession(session: ChatSession): ChatTurn[] {
         id: user.id,
         question: user.content,
         createdAt: user.createdAt,
-        error: { ...UNANSWERED_ON_RELOAD, forInput: user.content },
+        unanswered: true,
       })
     }
     i += 1
