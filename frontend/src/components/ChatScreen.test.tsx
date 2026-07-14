@@ -271,11 +271,12 @@ describe('when the request fails', () => {
     expect(screen.getByRole('textbox')).toHaveValue('And what about my headache')
   })
 
-  it('keeps the failed question as context when a DIFFERENT follow-up is sent (P1)', async () => {
-    // Dedup on retry must not drop the failed turn for a genuinely different follow-up. A failed
-    // "I am allergic to ibuprofen" followed by a drafted "and I also have fever" sent with Ask
-    // (not Try again) must still carry the allergy declaration, or the server's FR-013 scan never
-    // sees it and can retrieve an unguarded medicine.
+  it('blocks a new question until a pending retryable failure is resolved (P1)', async () => {
+    // A retryable failure must be resolved (Try again) before a new question is sent. If a drafted
+    // follow-up could go out while the failed turn is pending, the failed declaration "I am
+    // allergic to ibuprofen" would either be lost (dropped from sessionStorage on reload, so the
+    // FR-013 scan never sees it) or its context split across memory/storage/wire. Blocking the new
+    // question collapses that whole state space: the failure resolves into its own retry first.
     const first = pendingStream()
     const second = pendingStream()
     streamChatMock.mockReturnValueOnce(first.stream()).mockReturnValueOnce(second.stream())
@@ -287,17 +288,22 @@ describe('when the request fails', () => {
     first.fail(new Error('boom'))
     await screen.findByTestId('chat-error')
 
-    // Retryable failure leaves Ask enabled; the user presses Ask (not Try again) to send the draft.
-    await user.click(screen.getByRole('button', { name: /ask/i }))
+    // Ask is blocked while the retryable failure is pending — only Try again is offered.
+    expect(screen.getByRole('button', { name: /ask/i })).toBeDisabled()
+    expect(streamChatMock).toHaveBeenCalledTimes(1)
+
+    // Try again resolves the failure (replacing the failed turn with its own success); the draft
+    // survives and Ask is enabled again, ready to send the follow-up on its own.
+    await user.click(screen.getByRole('button', { name: /try again/i }))
     second.release(validAnswer)
     expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
 
-    // Both questions reached the server, in order — the failed allergy context was retained.
-    const secondCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
-    expect(secondCall.filter((m) => m.role === 'user')).toEqual([
+    const retryCall = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    expect(retryCall.filter((m) => m.role === 'user')).toEqual([
       { role: 'user', content: 'I am allergic to ibuprofen' },
-      { role: 'user', content: 'and I also have fever' },
     ])
+    expect(screen.getByRole('textbox')).toHaveValue('and I also have fever')
+    expect(screen.getByRole('button', { name: /ask/i })).toBeEnabled()
   })
 
   it('retries from the error state and succeeds', async () => {

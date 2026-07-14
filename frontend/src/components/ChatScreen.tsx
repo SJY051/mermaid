@@ -211,15 +211,24 @@ export function ChatScreen() {
   // correct next move IS an edit (INPUT_TOO_LARGE: shorten it and ask again).
   const askBlocked =
     sendError !== null && !sendError.retryable && input === sendError.forInput
+  // A RETRYABLE failure must be resolved (Try again) before a new question is sent. Otherwise a
+  // drafted follow-up would go out while the failed turn is still pending, and the failed turn's
+  // fate splits three ways: the in-memory history, the sessionStorage record, and the backend's
+  // allergy scan each need it, and reloading after a successful follow-up dropped it entirely
+  // (the declaration "I am allergic to ibuprofen" then vanished and retrieval proceeded
+  // unguarded). Resolving the failure first collapses that whole state space: the failed turn is
+  // replaced by its own successful retry, so it never lingers as context to be kept, lost, or
+  // duplicated. The drafted text stays in the box and is sent once the retry succeeds.
+  const retryPending = sendError !== null && sendError.retryable
   // While the picker is open, any request would carry the STALE exclude_ingredients — the newly
   // declared allergen is not in the list until the user confirms. Sending first would let the
   // backend proceed on a resolved-but-incomplete list and show a product containing it as
   // no_match_found. So the structured list must be updated (confirm) or the picker answered
   // (dismiss) before anything is sent. The picker itself, not the composer, is the next action.
-  const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen
+  const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen || retryPending
 
   function submit(text: string) {
-    if (!text.trim() || streaming || askBlocked || pickerOpen) return
+    if (!text.trim() || streaming || askBlocked || pickerOpen || retryPending) return
     // Clear at hand-off: a question left in the box gets silently resent glued to the front
     // of the next one (verified live 2026-07-14 — "…ibuprofenibuprofen"). Failures come back
     // via the effect below.
