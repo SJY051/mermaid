@@ -147,15 +147,20 @@ export function ChatScreen() {
   } = useChatSession()
   const [input, setInput] = useState('')
   const [menuOpen, setMenuOpen] = useState(false)
-  const [dismissedClarification, setDismissedClarification] =
+  // The clarification this user has already answered — by confirming a selection OR by
+  // dismissing it. A LATER clarification is a different answer object, so it re-opens the
+  // picker even when a selection already exists. Gating on `allergies.length === 0` instead
+  // would suppress the picker for a second, newly-declared allergy and leave the stale list
+  // in place — the request would then carry only the old exclude_ingredients and the backend,
+  // seeing a non-empty resolved list, would retrieve as if the new allergen were never named.
+  const [handledClarification, setHandledClarification] =
     useState<MermAidAnswer | null>(null)
   const [editingAllergies, setEditingAllergies] = useState(false)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
   const clarificationNeedsSelection =
     latestAnswer?.answerId === 'allergy-clarification' &&
-    latestAnswer !== dismissedClarification &&
-    allergies.length === 0
+    latestAnswer !== handledClarification
   const pickerOpen = editingAllergies || clarificationNeedsSelection
   const composerPlaceholder = allergies.length
     ? 'Ask your question again — answers will avoid your selected ingredients.'
@@ -177,18 +182,20 @@ export function ChatScreen() {
     newConversation()
     setInput('')
     setMenuOpen(false)
-    setDismissedClarification(null)
+    setHandledClarification(null)
     setEditingAllergies(false)
   }
 
   function confirmSelectedAllergies(keys: string[]) {
     confirmAllergies(keys)
+    // Confirming answers the current clarification: close the picker until a LATER one arrives.
+    setHandledClarification(latestAnswer)
     setEditingAllergies(false)
     composerRef.current?.focus()
   }
 
   function dismissAllergenPicker() {
-    setDismissedClarification(latestAnswer)
+    setHandledClarification(latestAnswer)
     setEditingAllergies(false)
     composerRef.current?.focus()
   }

@@ -473,6 +473,51 @@ describe('allergen picker (spec 005 FR-014)', () => {
     )
   })
 
+  it('re-opens the picker for a second, later allergy declaration and adds to the list (P0)', async () => {
+    // A user who already selected one allergy then declares a second in free text. The backend
+    // returns the clarification again (FR-001), but the old guard suppressed the picker once
+    // `allergies.length > 0`, leaving the stale ["ibuprofen"] list in place — the next request
+    // would carry only that, and the backend, seeing a non-empty resolved list, would retrieve
+    // as if the second allergen were never named. The picker must re-open, pre-filled.
+    serveAllergenOptions()
+    streamChatMock
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+      .mockReturnValueOnce(completedStream(validAnswer))
+    renderChat()
+    const user = await ask('I am allergic to ibuprofen')
+
+    const first = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(first).getByRole('checkbox', { name: 'Ibuprofen' }))
+    await user.click(within(first).getByRole('button', { name: 'Use selected allergies' }))
+    expect(loadChatSession().allergies).toEqual(['ibuprofen'])
+    // Confirming answered THIS clarification, so the picker closes (it is still the latest answer).
+    expect(screen.queryByRole('dialog', { name: /tell us your allergy/i })).not.toBeInTheDocument()
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'I am also allergic to aspirin')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+
+    const reopened = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(reopened).getByRole('checkbox', { name: 'Ibuprofen' })).toBeChecked()
+    await user.click(
+      within(reopened).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }),
+    )
+    await user.click(within(reopened).getByRole('button', { name: 'Use selected allergies' }))
+
+    const bothKeys = ['ibuprofen', 'acetylsalicylic-acid']
+    expect(loadChatSession().allergies).toEqual(bothKeys)
+
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'What can I take?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    expect(streamChatMock).toHaveBeenLastCalledWith(expect.anything(), undefined, {
+      mermaid: { exclude_ingredients: bothKeys },
+    })
+  })
+
   it("dismisses an unlisted allergy without sending or adding a mermaid field later", async () => {
     serveAllergenOptions()
     streamChatMock
