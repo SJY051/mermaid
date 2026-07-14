@@ -114,12 +114,23 @@ class ChatProxyControllerTest {
     /** The same, and carrying the ministry's 용법용량 — what the model's directions are checked against. */
     private static DrugContext contextWithDosage(
             AllergyCheck serverCheck, String officialDosageKo, String... productNames) {
+        return contextWith(
+                new GroundedDrug(
+                        TYLENOL_SOURCE.id(),
+                        Set.of(),
+                        serverCheck,
+                        officialDosageKo,
+                        MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                        List.of(),
+                        null),
+                productNames);
+    }
+
+    /** The server's whole record for a product — what invariant 8 stamps onto the card. */
+    private static DrugContext contextWith(GroundedDrug record, String... productNames) {
         Map<String, GroundedDrug> grounded = new LinkedHashMap<>();
         for (String productName : productNames) {
-            grounded.put(
-                    productName,
-                    new GroundedDrug(
-                            TYLENOL_SOURCE.id(), Set.of(), serverCheck, officialDosageKo));
+            grounded.put(productName, record);
         }
         return new DrugContext("DRUG_CONTEXT: …", grounded, List.of(TYLENOL_SOURCE));
     }
@@ -234,13 +245,109 @@ class ChatProxyControllerTest {
     }
 
     private static String drugCard(String productNameKo, String sourceRefId, String directions) {
+        return drugCard(productNameKo, sourceRefId, directions, null, "[]", "otc");
+    }
+
+    /** A model-authored card, in full — every field invariant 7 or 8 can overrule. */
+    private static String drugCard(
+            String productNameKo,
+            String sourceRefId,
+            String directions,
+            String labelCautions,
+            String warningsJson,
+            String prescriptionStatus) {
         return """
             [{"productNameKo":"%s","productNameEn":null,"ingredients":[],
-              "indicationSummary":"fever","directionsSummary":%s,"warnings":[],
-              "prescriptionStatus":"otc",
+              "indicationSummary":"fever","directionsSummary":%s,"labelCautions":%s,
+              "warnings":%s,
+              "prescriptionStatus":"%s",
               "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
               "sourceRefId":"%s"}]
-            """.formatted(productNameKo, directions == null ? "null" : "\"" + directions + "\"", sourceRefId);
+            """.formatted(
+                productNameKo,
+                quoted(directions),
+                quoted(labelCautions),
+                warningsJson,
+                prescriptionStatus,
+                sourceRefId);
+    }
+
+    private static String quoted(String value) {
+        return value == null ? "null" : "\"" + value + "\"";
+    }
+
+    // ── invariant 8: the server's record beats the model's copy of it ───────────────────────────
+
+    @Nested
+    @DisplayName("the server's own record wins over the model's version of it")
+    class ServerRecordGate {
+
+        /**
+         * The gap this closes was found by mutation, and it is the reason a green suite proves
+         * nothing on its own. The rendering tests (DrugContextRetrieverTest) showed the server
+         * BUILDS the right warnings; nothing showed the card ever RECEIVES them. Swap
+         * {@code source.warnings()} for {@code drug.warnings()} in {@code groundServerRecord} and
+         * the whole suite stayed green — because every fixture happened to agree with the server.
+         * A test where the model and the server say the same thing cannot tell which one was used.
+         * So here they disagree, and they disagree in the direction that hurts.
+         */
+        @Test
+        @DisplayName("a model that drops the contraindication and calls it OTC is overruled on both")
+        void modelCannotSoftenTheRecord() throws Exception {
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of(),
+                    AllergyCheck.noMatch(),
+                    null,
+                    // The ministry's licence says prescription-only, and it publishes a
+                    // contraindication. The model's card below says neither.
+                    MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION,
+                    List.of("Do not take if you are pregnant."),
+                    null);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", null, null, "[]", "otc"),
+                                    "[]"),
+                            contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            MermAidAnswer.DrugCard card = answer.drugs().get(0);
+            assertThat(card.warnings()).containsExactly("Do not take if you are pregnant.");
+            assertThat(card.prescriptionStatus())
+                    .isEqualTo(MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION);
+        }
+
+        @Test
+        @DisplayName("a warning the ministry never published does not reach the card either")
+        void modelCannotInventAWarning() throws Exception {
+            // The inverse, and the one a "copy them faithfully" instruction never guarded: a card
+            // that ADDS a contraindication is as ungrounded as one that drops it, and a person who
+            // avoids a medicine they could have taken is harmed by it too.
+            GroundedDrug record = new GroundedDrug(
+                    TYLENOL_SOURCE.id(),
+                    Set.of(),
+                    AllergyCheck.noMatch(),
+                    null,
+                    MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                    List.of(),
+                    null);
+
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(
+                                            TYLENOL,
+                                            "src:mfds:202005623",
+                                            null,
+                                            null,
+                                            "[\"Never take this with any other medicine.\"]",
+                                            "otc"),
+                                    "[]"),
+                            contextWith(record, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).warnings()).isEmpty();
+        }
     }
 
     // ── invariant 7: the dose is the ministry's, verbatim, or there is no dose ─────────────────

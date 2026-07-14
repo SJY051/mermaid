@@ -41,6 +41,7 @@ function drug(overrides: Partial<DrugCardData> = {}): DrugCardData {
     indicationSummary: 'For headache, fever, and mild aches.',
     // Server-written: 식약처's own 용법용량, verbatim and untranslated (invariant 7).
     directionsSummary: '만 12세 이상 소아 및 성인: 1회 1~2정씩 1일 3~4회 필요시 복용합니다.',
+    labelCautions: 'Ask a doctor before use if you drink alcohol daily.',
     warnings: [
       'Do not combine with other acetaminophen products.',
       'Swallow whole — do not crush or split this tablet.',
@@ -146,10 +147,10 @@ describe('DrugCard', () => {
     expect(screen.getByText('Ingredient list unavailable.')).toBeInTheDocument()
   })
 
-  it('shows the ministry\'s dose verbatim, in Korean, and says it is not translated (P0)', () => {
-    // The dose a person acts on is the ministry's, in the ministry's words. The model does not
-    // write this field — a mistranslated dose is an overdose, and a check that merely compared
-    // numbers passed "Take 12 tablets once daily" because the label's 만 12세 contains a 12.
+  it("shows the ministry's dose verbatim, in Korean, and says it is not translated (P0)", () => {
+    // The dose a person acts on is the ministry's, in the ministry's words. The model does not write
+    // this field — a mistranslated dose is an overdose, and a check that merely compared numbers
+    // passed "Take 12 tablets once daily" because the label's 만 12세 contains a 12.
     render(<DrugCard drug={drug()} source={source} />)
 
     const dose = screen.getByTestId('official-dosage')
@@ -160,15 +161,37 @@ describe('DrugCard', () => {
   })
 
   it('says a dose is missing rather than leaving the card silent (P0)', () => {
-    // The server strips dosing it cannot trace to 식약처's own 용법용량 (invariant 7), so `null` here
-    // means "we would not stand behind that number" — never "this medicine has no particular
+    // `null` means the ministry published no 용법용량 — never "this medicine has no particular
     // dosing". Rendering nothing would let the second reading through, in the exact place a person
     // looks for a number. The same trap as a no_match_found allergy read as reassurance (§2-2).
     render(<DrugCard drug={drug({ directionsSummary: null })} source={source} />)
 
     expect(screen.getByRole('heading', { name: 'Directions' })).toBeInTheDocument()
     expect(screen.getByText(/no official dosing for this medicine/i)).toBeInTheDocument()
-    expect(screen.getByText(/ask the pharmacist/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/ask the pharmacist/i).length).toBeGreaterThan(0)
+  })
+
+  it('says the cautions are missing rather than leaving the card silent (P0)', () => {
+    // `null` means the server would not stand behind the summary the model wrote of 식약처's
+    // 주의사항 — or holds none to check it against (invariant 8). It never means "this medicine has
+    // nothing to be careful about", and a card with no Cautions heading says exactly that.
+    render(<DrugCard drug={drug({ labelCautions: null })} source={source} />)
+
+    expect(screen.getByRole('heading', { name: 'Cautions from the label' })).toBeInTheDocument()
+    expect(screen.getByText(/not showing this medicine's cautions/i)).toBeInTheDocument()
+    expect(screen.getByText(/ask\s+the pharmacist/i)).toBeInTheDocument()
+  })
+
+  it('states an empty contraindication list rather than hiding the section (P0)', () => {
+    // The server writes this array from 식약처's DUR record now (invariant 8), so empty is a claim:
+    // the ministry publishes no contraindication for this product. The section used to disappear,
+    // and a card with no warnings on it reads as a medicine with none — §2-2's trap, one field over.
+    render(<DrugCard drug={drug({ warnings: [] })} source={source} />)
+
+    expect(screen.getByRole('heading', { name: 'Official contraindications' })).toBeInTheDocument()
+    expect(screen.getByText(/publishes no contraindications/i)).toBeInTheDocument()
+    expect(screen.getByText(/not a clearance to take it/i)).toBeInTheDocument()
+    expect(screen.queryByText(/\bsafe\b/i)).not.toBeInTheDocument()
   })
 
   it('never shows dosing or indication guidance for a blocked medicine', () => {

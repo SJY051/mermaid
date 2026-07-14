@@ -191,6 +191,11 @@ public class AnswerValidator {
             texts.add(drug.productNameEn());
             texts.add(drug.indicationSummary());
             texts.add(drug.directionsSummary());
+            // A rendered field the model still writes, so it is scanned like the two above it. The
+            // card's `warnings` are server-authored now (invariant 8) and could be dropped from this
+            // list — they stay, because a rendered string with no scan is one refactor away from
+            // being model text again, and the scan costs nothing.
+            texts.add(drug.labelCautions());
             texts.addAll(nullSafe(drug.warnings()));
             if (drug.allergyCheck() != null) {
                 texts.addAll(nullSafe(drug.allergyCheck().matchedIngredients()));

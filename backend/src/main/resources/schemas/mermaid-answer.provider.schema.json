@@ -137,6 +137,7 @@
           "ingredients",
           "indicationSummary",
           "directionsSummary",
+          "labelCautions",
           "warnings",
           "prescriptionStatus",
           "allergyCheck",
@@ -209,6 +210,12 @@
           },
           "directionsSummary": {
             "type": "string"
+          },
+          "labelCautions": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "warnings": {
             "type": "array",

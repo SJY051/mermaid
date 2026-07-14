@@ -35,7 +35,14 @@ class AnswerValidatorTest {
             String productNameKo, String sourceRefId, String... ingredientKeys) {
         return Map.of(
                 productNameKo,
-                new GroundedDrug(sourceRefId, Set.of(ingredientKeys), AllergyCheck.noMatch(), null));
+                new GroundedDrug(
+                        sourceRefId,
+                        Set.of(ingredientKeys),
+                        AllergyCheck.noMatch(),
+                        null,
+                        MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                        List.of(),
+                        null));
     }
 
     private static MermAidAnswer.Ingredient ingredient(String nameEn) {
@@ -56,6 +63,7 @@ class AnswerValidatorTest {
                 nameKo,
                 null,
                 ingredients,
+                null,
                 null,
                 null,
                 List.of(),
@@ -363,6 +371,7 @@ class AnswerValidatorTest {
                         "타이레놀",
                         null,
                         List.of(),
+                        null,
                         null,
                         null,
                         List.of("<script>alert(1)</script>"),

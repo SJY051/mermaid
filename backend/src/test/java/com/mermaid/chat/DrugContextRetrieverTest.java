@@ -1,6 +1,8 @@
 package com.mermaid.chat;
 
+import static org.assertj.core.api.Assertions.as;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -357,8 +359,39 @@ class DrugContextRetrieverTest {
         }
 
         @Test
-        @DisplayName("the model is told what to do with the count, and told not to invent the list")
-        void preambleExplainsTheCount() throws Exception {
+        @DisplayName("the count reaches the card as one server-authored sentence, naming no medicine")
+        void theServerWritesTheCountOntoTheCard() throws Exception {
+            // The model used to be asked to write this sentence itself. It is a fact about a
+            // government record — how many pairs are published — so the server states it, and the
+            // twenty Korean product names stay out of an English card either way.
+            List<String> warnings = groundedWarnings(
+                    of(DurWarning.Kind.COMBINATION, "아스피린정"),
+                    of(DurWarning.Kind.COMBINATION, "케토프로펜정"),
+                    of(DurWarning.Kind.PREGNANCY, "나르펜정"));
+
+            assertThat(warnings).hasSize(2);
+            assertThat(warnings)
+                    .anySatisfy(w -> assertThat(w).contains("Contraindicated during pregnancy"))
+                    .anySatisfy(w -> assertThat(w)
+                            .contains("2 medicines that must not be taken with this one")
+                            .contains("Tell the pharmacist"));
+            assertThat(String.join(" ", warnings))
+                    .doesNotContain("아스피린정")
+                    .doesNotContain("케토프로펜정");
+        }
+
+        @Test
+        @DisplayName("one 병용금기 is one medicine, not \"1 medicines\"")
+        void oneCombinationReadsAsOne() throws Exception {
+            assertThat(groundedWarnings(of(DurWarning.Kind.COMBINATION, "아스피린정")))
+                    .singleElement(as(STRING))
+                    .contains("1 medicine that must not be taken")
+                    .doesNotContain("1 medicines");
+        }
+
+        @Test
+        @DisplayName("the model is told to leave the card's warnings alone")
+        void preambleHandsWarningsToTheServer() throws Exception {
             Drug drug = new Drug(
                     "drug:mfds:1", "1", "나르펜정400밀리그램(이부프로펜)", null, "제조사", List.of("Ibuprofen"), null,
                     PrescriptionStatus.OTC, new Drug.Narrative("두통", null, null, null, null, null, null),
@@ -370,11 +403,93 @@ class DrugContextRetrieverTest {
                     .retrieve("headache", "headache", exclusions())
                     .systemMessage();
 
+            // The prompt is not the invariant — ChatProxyControllerTest holds that. But a prompt
+            // still telling the model to copy the warnings would have it write text the server then
+            // silently discards, and the two would drift apart unnoticed.
             assertThat(message)
-                    .contains("combinationContraindicationCount")
-                    .contains("tell a pharmacist")
-                    .contains("Do not invent the list");
+                    .contains("Leave each drug card's `warnings` as an empty array")
+                    .doesNotContain("Copy every entry of `durWarnings`");
         }
+    }
+
+    /** The DUR record, as the server renders it for the card. Post-processing invariant 8. */
+    @Nested
+    @DisplayName("the card's warnings, written by the server")
+    class CardWarnings {
+
+        @Test
+        @DisplayName("every published contraindication becomes an English sentence with its source")
+        void everyPublishedRecordIsRendered() throws Exception {
+            List<String> warnings = groundedWarnings(
+                    new DurWarning(DurWarning.Kind.PREGNANCY, "1", "타이레놀", "Acetaminophen",
+                            "임부에게 투여하지 말 것", "20140109", null, null),
+                    new DurWarning(DurWarning.Kind.ELDERLY, "1", "타이레놀", "Acetaminophen",
+                            null, "20140109", null, null));
+
+            // The Korean 금기 text rides along verbatim — a paraphrase of a government
+            // contraindication would be a new medical claim, and this way a pharmacist can read it.
+            assertThat(warnings).hasSize(2);
+            assertThat(warnings.get(0))
+                    .contains("Contraindicated during pregnancy")
+                    .contains("임부에게 투여하지 말 것")
+                    .contains("MFDS DUR, notified 2014-01-09");
+            assertThat(warnings.get(1)).contains("Caution advised for older adults");
+        }
+
+        @Test
+        @DisplayName("a product 식약처 published nothing for gets an empty list, not a reassuring one")
+        void noPublishedRecordIsAnEmptyList() throws Exception {
+            assertThat(groundedWarnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("the card's caution text is checked against all four narrative fields, not just 주의사항")
+        void officialCautionsCoverEveryNarrativeField() {
+            Drug drug = new Drug(
+                    "drug:mfds:1", "1", "네필드정", null, "제조사", List.of("Ibuprofen"), null,
+                    PrescriptionStatus.OTC,
+                    new Drug.Narrative("두통", "1일 3회", "만 3세 미만 금기", "음주 금지", "와파린과 병용 주의", "드물게 발진",
+                            "실온 보관"),
+                    List.of(), AllergyCheck.noMatch(), TYLENOL_SOURCE);
+
+            // A faithful sentence about an interaction or a side effect must not look invented
+            // merely because the caution field alone was used as its source text.
+            String official = grounded(drug).officialCautionKo();
+            assertThat(official).contains("만 3세 미만 금기").contains("음주 금지")
+                    .contains("와파린과 병용 주의").contains("드물게 발진");
+            assertThat(official).doesNotContain("실온 보관").doesNotContain("1일 3회");
+        }
+
+        @Test
+        @DisplayName("no narrative at all means no caution text to check a card against")
+        void withoutNarrativeThereIsNoCautionText() {
+            Drug drug = new Drug(
+                    "drug:mfds:1", "1", "무설명정", null, "제조사", List.of("Ibuprofen"), null,
+                    PrescriptionStatus.PRESCRIPTION, Drug.Narrative.EMPTY,
+                    List.of(), AllergyCheck.noMatch(), TYLENOL_SOURCE);
+
+            assertThat(grounded(drug).officialCautionKo()).isNull();
+            assertThat(grounded(drug).prescriptionStatus())
+                    .isEqualTo(MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION);
+        }
+    }
+
+    private List<String> groundedWarnings(DurWarning... published) {
+        Drug drug = new Drug(
+                "drug:mfds:198701721", "198701721", "나르펜정400밀리그램(이부프로펜)", null, "제조사",
+                List.of("Ibuprofen"), "이부프로펜", PrescriptionStatus.OTC,
+                new Drug.Narrative("두통", "1일 3회", null, null, null, null, null),
+                List.of(published), AllergyCheck.noMatch(), TYLENOL_SOURCE);
+        return grounded(drug).warnings();
+    }
+
+    /** The server's record for one drug, built by the code that really builds it. */
+    private DrugContextRetriever.GroundedDrug grounded(Drug drug) {
+        DrugContext context = retriever(
+                        new RetrievalQuery(List.of("Ibuprofen"), List.of()),
+                        new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(TYLENOL_SOURCE)))
+                .retrieve("I have a headache", "I have a headache", exclusions());
+        return context.groundedDrugs().get(drug.nameKo());
     }
 
     /**

@@ -82,11 +82,20 @@ public class SystemPromptProvider {
               "ingredients": [{"nameEn": "Acetaminophen", "nameKo": null, "amount": null, "unit": null}],
               "indicationSummary": "<what officialTextKo.efficacy says, in English>",
               "directionsSummary": "<what officialTextKo.useMethod says, in English>",
-              "warnings": ["<every durWarnings entry, plus anything in caution/warning>"],
-              "prescriptionStatus": "otc" | "prescription" | "unknown",
+              "labelCautions": "<what officialTextKo.caution, .warning, .interaction and .sideEffect say, in English>",
+              "warnings": [],
+              "prescriptionStatus": "unknown",
               "allergyCheck": {"status": "<copy from DRUG_CONTEXT>", "matchedIngredients": [], "message": "<copy>"},
               "sourceRefId": "<copy verbatim from DRUG_CONTEXT>"
             }
+
+            Leave each card's `warnings` empty and its `prescriptionStatus` as "unknown". The server \
+            writes both from the government record — they are facts it holds, not text to translate. \
+            The three summaries above them are the translation, and they are yours.
+
+            Every number you write in `directionsSummary` or `labelCautions` must be a number that \
+            appears in the ministry's own text for that medicine. The server removes the section if \
+            it is not.
 
             Each entry of `guidance` uses: `id`, `title`, `body`, `evidence` \
             ("official_data" | "general_safety" | "model_summary"), and `sourceRefIds`. \
