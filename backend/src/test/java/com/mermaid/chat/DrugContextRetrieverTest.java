@@ -579,6 +579,33 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("FR-017: a product we cannot read is unknown under a named allergen, not no-match")
+        void ingredientlessProductIsUnknownNotNoMatch() throws Exception {
+            // An unverified-only declaration leaves the avoided set empty, so AllergyChecker returns
+            // NO_MATCH_FOUND before it ever looks at ingredients — and this product has none to look
+            // at. The name check could not run, and "No match found" would tell someone who just
+            // named an allergen that we looked. We did not (§2-2).
+            Drug ingredientless = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), List.of(), TYLENOL.mainIngredientKo(),
+                    TYLENOL.prescriptionStatus(), TYLENOL.narrative(), TYLENOL.durWarnings(),
+                    AllergyCheck.noMatch(), TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(new RetrievedContext(
+                    List.of(ingredientless), Set.of(ingredientless.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("Yellow dye"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("unknown");
+            assertThat(allergy.path("message").asText())
+                    .contains("could not")
+                    .contains("pharmacist")
+                    .doesNotContain("No match")
+                    .doesNotContain("safe");
+        }
+
+        @Test
         @DisplayName("FR-017: a name match is added to a verified warning, never substituted for it")
         void unverifiedNameMatchKeepsTheVerifiedWarning() throws Exception {
             // The verified check has already warned about Ibuprofen — a partial match against a

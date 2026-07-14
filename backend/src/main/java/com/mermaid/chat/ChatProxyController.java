@@ -248,6 +248,13 @@ public class ChatProxyController {
      * <p>This narrows invariants 1 and 5 to what they should have been all along — <i>does the model's
      * citation point at a source we actually hold?</i> — and turns invariant 3 into a regression guard
      * over our own labelling rather than a gate on the model.
+     *
+     * <p>The allergy verdict is grounded the same way, and for a sharper reason. The model is handed
+     * each product's {@link AllergyCheck} and asked to carry it onto the card. Nothing stopped it from
+     * carrying it wrongly: a card that writes {@code no_match_found} over the server's {@code blocked}
+     * keeps the same product, the same ingredients and the same source, so every other invariant still
+     * passes and the person is shown "no match found" for a drug we blocked. The check is ours to
+     * compute and ours to state.
      */
     private MermAidAnswer ground(MermAidAnswer answer, DrugContext context) {
         return new MermAidAnswer(
@@ -259,11 +266,45 @@ public class ChatProxyController {
                 answer.summary(),
                 answer.clarifyingQuestions(),
                 answer.guidance(),
-                answer.drugs(),
+                groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
                 distinct(answer.uiActions()),
                 context.sources(),
                 answer.warnings(),
                 answer.disclaimer());
+    }
+
+    /**
+     * Stamps the server's own allergy verdict onto every card it can identify.
+     *
+     * <p>A card naming a product we did not retrieve is left as it is — invariant 6 rejects the whole
+     * answer for it moments later, and rewriting it here would only disguise the violation.
+     */
+    private static List<MermAidAnswer.DrugCard> groundAllergyChecks(
+            List<MermAidAnswer.DrugCard> drugs,
+            Map<String, DrugContextRetriever.GroundedDrug> groundedDrugs) {
+        if (drugs == null) {
+            return List.of();
+        }
+        List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
+        for (MermAidAnswer.DrugCard drug : drugs) {
+            DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
+            if (source == null || source.allergyCheck() == null) {
+                grounded.add(drug);
+                continue;
+            }
+            grounded.add(new MermAidAnswer.DrugCard(
+                    drug.id(),
+                    drug.productNameKo(),
+                    drug.productNameEn(),
+                    drug.ingredients(),
+                    drug.indicationSummary(),
+                    drug.directionsSummary(),
+                    drug.warnings(),
+                    drug.prescriptionStatus(),
+                    source.allergyCheck(),
+                    drug.sourceRefId()));
+        }
+        return List.copyOf(grounded);
     }
 
     /**

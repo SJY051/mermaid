@@ -175,6 +175,19 @@ public class DrugContextRetriever {
             return drug;
         }
 
+        // No ingredient list, so the name check could not run at all. The verified checker already
+        // answers UNKNOWN in this case, but only when it has keys to compare — an unverified-only
+        // declaration leaves the avoided set empty, so the product arrives carrying NO_MATCH_FOUND.
+        // That state says "we looked and found nothing", and here we did not look (§2-2). Someone
+        // who has named an allergen must not read "No match found" off a product we cannot read.
+        if (drug.ingredientsEn().isEmpty()) {
+            return withAllergyCheck(
+                    drug,
+                    AllergyCheck.unknown(
+                            "We could not read this product's ingredients, so we could not check it "
+                                    + "against the allergens you named. Ask a pharmacist before taking it."));
+        }
+
         Set<String> matchedIngredients = new LinkedHashSet<>();
         Set<String> matchedNames = new LinkedHashSet<>();
         for (String ingredient : drug.ingredientsEn()) {
@@ -214,6 +227,10 @@ public class DrugContextRetriever {
                 AllergyCheck.Status.WARNING,
                 List.copyOf(allMatched),
                 hasVerifiedWarning ? existing.message() + " " + nameMatchMessage : nameMatchMessage);
+        return withAllergyCheck(drug, warning);
+    }
+
+    private Drug withAllergyCheck(Drug drug, AllergyCheck check) {
         return new Drug(
                 drug.id(),
                 drug.itemSeq(),
@@ -225,7 +242,7 @@ public class DrugContextRetriever {
                 drug.prescriptionStatus(),
                 drug.narrative(),
                 drug.durWarnings(),
-                warning,
+                check,
                 drug.source());
     }
 
@@ -255,7 +272,9 @@ public class DrugContextRetriever {
             // (INV6_PRODUCT_NOT_RETRIEVED — the #60 P1). INV6 still rejects any card that invents
             // ingredients for it: an empty grounded set never equals a non-empty answer set.
             grounded.put(
-                    drug.nameKo(), new GroundedDrug(drug.source().id(), Set.copyOf(ingredientKeys)));
+                    drug.nameKo(),
+                    new GroundedDrug(
+                            drug.source().id(), Set.copyOf(ingredientKeys), drug.allergyCheck()));
         }
         if (rejectedCount > 0) {
             log.warn("drug_grounding_failed code=UNNORMALIZABLE_INGREDIENT count={}", rejectedCount);
@@ -443,7 +462,19 @@ public class DrugContextRetriever {
     }
 
     /** The narrow server facts needed by invariants 1 and 6; model-authored prose stays separate. */
-    public record GroundedDrug(String sourceRefId, Set<String> ingredientKeys) {
+    /**
+     * What the server knows about one retrieved product, and therefore what the model is not allowed
+     * to contradict: which source it came from, which ingredients it holds — and what our own allergy
+     * check said about it.
+     *
+     * <p>{@code allergyCheck} is here for the same reason {@code sourceRefId} is (spec 2-9): the model
+     * is handed the verdict and asked to carry it, and a model that carries it wrongly must not be
+     * able to change what the user sees. It writes {@code no_match_found} over a {@code blocked} and
+     * every other check still passes — same product, same ingredients, same source. So the server
+     * stamps its own verdict back onto the card in post-processing rather than trusting the copy.
+     */
+    public record GroundedDrug(
+            String sourceRefId, Set<String> ingredientKeys, AllergyCheck allergyCheck) {
         public GroundedDrug {
             ingredientKeys = Set.copyOf(ingredientKeys);
         }
