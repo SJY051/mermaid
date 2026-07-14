@@ -108,9 +108,18 @@ class ChatProxyControllerTest {
 
     /** The same, but carrying the server's own allergy verdict for each retrieved product. */
     private static DrugContext contextWith(AllergyCheck serverCheck, String... productNames) {
+        return contextWithDosage(serverCheck, null, productNames);
+    }
+
+    /** The same, and carrying the ministry's 용법용량 — what the model's directions are checked against. */
+    private static DrugContext contextWithDosage(
+            AllergyCheck serverCheck, String officialDosageKo, String... productNames) {
         Map<String, GroundedDrug> grounded = new LinkedHashMap<>();
         for (String productName : productNames) {
-            grounded.put(productName, new GroundedDrug(TYLENOL_SOURCE.id(), Set.of(), serverCheck));
+            grounded.put(
+                    productName,
+                    new GroundedDrug(
+                            TYLENOL_SOURCE.id(), Set.of(), serverCheck, officialDosageKo));
         }
         return new DrugContext("DRUG_CONTEXT: …", grounded, List.of(TYLENOL_SOURCE));
     }
@@ -221,13 +230,99 @@ class ChatProxyControllerTest {
     }
 
     private static String drugCard(String productNameKo, String sourceRefId) {
+        return drugCard(productNameKo, sourceRefId, "1일 4회");
+    }
+
+    private static String drugCard(String productNameKo, String sourceRefId, String directions) {
         return """
             [{"productNameKo":"%s","productNameEn":null,"ingredients":[],
-              "indicationSummary":"fever","directionsSummary":"1일 4회","warnings":[],
+              "indicationSummary":"fever","directionsSummary":%s,"warnings":[],
               "prescriptionStatus":"otc",
               "allergyCheck":{"status":"no_match_found","matchedIngredients":[],"message":"ok"},
               "sourceRefId":"%s"}]
-            """.formatted(productNameKo, sourceRefId);
+            """.formatted(productNameKo, directions == null ? "null" : "\"" + directions + "\"", sourceRefId);
+    }
+
+    // ── invariant 7: a dose the ministry did not state is not a dose ────────────────────────────
+
+    @Nested
+    @DisplayName("the directions gate")
+    class DirectionsGate {
+
+        /** 식약처's real 용법용량 for 타이레놀정500밀리그람. */
+        private static final String OFFICIAL = "만 12세 이상 소아 및 성인: 1회 1~2정씩 1일 3~4회 필요시 복용합니다.";
+
+        @Test
+        @DisplayName("a dose the ministry never wrote is removed from the card, not shown as verified")
+        void inventedDoseIsStripped() throws Exception {
+            // The card keeps its real product, its real ingredients, its real source — so every other
+            // invariant passes — and tells the reader to take four times the label's dose, under a
+            // footer naming 식약처. This is the whole defect: being *told* not to invent a dose is not
+            // an invariant, and until now nothing checked.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623",
+                                            "Take 8 tablets every 2 hours."),
+                                    "[]"),
+                            contextWithDosage(AllergyCheck.noMatch(), OFFICIAL, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            // Stripped, not rejected: the rest of the card is grounded, and someone who is unwell
+            // must not be left with nothing because the model got the numbers wrong.
+            assertThat(answer.drugs()).hasSize(1);
+            assertThat(answer.drugs().get(0).directionsSummary()).isNull();
+            assertThat(answer.drugs().get(0).indicationSummary()).isEqualTo("fever");
+            assertThat(answer.drugs().get(0).productNameKo()).isEqualTo(TYLENOL);
+        }
+
+        @Test
+        @DisplayName("a faithful translation keeps every number, and survives")
+        void faithfulTranslationSurvives() throws Exception {
+            // The English is the model's to write — that is the job we gave it. Only the quantities
+            // must be the ministry's, and here they are: 1, 2, 3, 4, 12.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623",
+                                            "Adults and children over 12: 1-2 tablets, 3 to 4 times a day as needed."),
+                                    "[]"),
+                            contextWithDosage(AllergyCheck.noMatch(), OFFICIAL, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).directionsSummary())
+                    .isEqualTo("Adults and children over 12: 1-2 tablets, 3 to 4 times a day as needed.");
+        }
+
+        @Test
+        @DisplayName("no ministry dosing text means no dose may be stated at all")
+        void withoutOfficialTextNoNumberSurvives() throws Exception {
+            // Nothing to check against is not permission to guess. A product whose 용법용량 the ministry
+            // did not give us has no dose we can stand behind, so a number here has no source at all.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623", "Take 2 tablets 3 times a day."),
+                                    "[]"),
+                            contextWithDosage(AllergyCheck.noMatch(), null, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).directionsSummary()).isNull();
+        }
+
+        @Test
+        @DisplayName("prose that states no quantity is not a dose, and stays")
+        void quantitylessProseSurvives() throws Exception {
+            // "Follow the label" contradicts no label. Stripping it would tell us nothing and cost
+            // the reader the one sentence pointing them at the package.
+            MermAidAnswer answer = answerOf(controller(
+                            modelAnswer(
+                                    drugCard(TYLENOL, "src:mfds:202005623",
+                                            "Follow the dosing on the package, or ask the pharmacist."),
+                                    "[]"),
+                            contextWithDosage(AllergyCheck.noMatch(), null, TYLENOL))
+                    .completions(request("can I take 타이레놀?")));
+
+            assertThat(answer.drugs().get(0).directionsSummary())
+                    .isEqualTo("Follow the dosing on the package, or ask the pharmacist.");
+        }
     }
 
     // ── the hallucination gate ─────────────────────────────────────────────────────────────────

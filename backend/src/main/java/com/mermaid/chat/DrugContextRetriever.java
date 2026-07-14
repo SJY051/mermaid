@@ -274,7 +274,10 @@ public class DrugContextRetriever {
             grounded.put(
                     drug.nameKo(),
                     new GroundedDrug(
-                            drug.source().id(), Set.copyOf(ingredientKeys), drug.allergyCheck()));
+                            drug.source().id(),
+                            Set.copyOf(ingredientKeys),
+                            drug.allergyCheck(),
+                            drug.narrative() == null ? null : drug.narrative().useMethod()));
         }
         if (rejectedCount > 0) {
             log.warn("drug_grounding_failed code=UNNORMALIZABLE_INGREDIENT count={}", rejectedCount);
@@ -474,7 +477,16 @@ public class DrugContextRetriever {
      * stamps its own verdict back onto the card in post-processing rather than trusting the copy.
      */
     public record GroundedDrug(
-            String sourceRefId, Set<String> ingredientKeys, AllergyCheck allergyCheck) {
+            String sourceRefId,
+            Set<String> ingredientKeys,
+            AllergyCheck allergyCheck,
+            /**
+             * 식약처's own 용법용량 for this product, in Korean, exactly as retrieved — and the only
+             * dosing text that exists. The model translates it; post-processing checks that every
+             * number it wrote is one of these numbers. Null when the ministry gave us no dosing
+             * text: then there is nothing to check the model against, and nothing it may say.
+             */
+            String officialDosageKo) {
         public GroundedDrug {
             ingredientKeys = Set.copyOf(ingredientKeys);
         }

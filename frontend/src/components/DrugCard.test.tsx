@@ -145,6 +145,18 @@ describe('DrugCard', () => {
     expect(screen.getByText('Ingredient list unavailable.')).toBeInTheDocument()
   })
 
+  it('says a dose is missing rather than leaving the card silent (P0)', () => {
+    // The server strips dosing it cannot trace to 식약처's own 용법용량 (invariant 7), so `null` here
+    // means "we would not stand behind that number" — never "this medicine has no particular
+    // dosing". Rendering nothing would let the second reading through, in the exact place a person
+    // looks for a number. The same trap as a no_match_found allergy read as reassurance (§2-2).
+    render(<DrugCard drug={drug({ directionsSummary: null })} source={source} />)
+
+    expect(screen.getByRole('heading', { name: 'Directions' })).toBeInTheDocument()
+    expect(screen.getByText(/not showing a dose/i)).toBeInTheDocument()
+    expect(screen.getByText(/ask the pharmacist/i)).toBeInTheDocument()
+  })
+
   it('never shows dosing or indication guidance for a blocked medicine', () => {
     render(
       <DrugCard

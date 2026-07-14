@@ -299,7 +299,7 @@ class AnswerContractTest {
     }
 
     private static GroundedDrug grounded(String sourceRefId, String... ingredientKeys) {
-        return new GroundedDrug(sourceRefId, Set.of(ingredientKeys), AllergyCheck.noMatch());
+        return new GroundedDrug(sourceRefId, Set.of(ingredientKeys), AllergyCheck.noMatch(), null);
     }
 
     private static ViolationCode expectedViolationCode(Path fixture) {

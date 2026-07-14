@@ -117,7 +117,7 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
           </section>
         ) : null}
 
-        {!isBlocked && drug.directionsSummary ? (
+        {!isBlocked ? (
           <section aria-labelledby={`${titleId}-directions`}>
             <h3
               id={`${titleId}-directions`}
@@ -125,9 +125,21 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
             >
               Directions
             </h3>
-            <p className="mt-1 whitespace-pre-wrap text-sm text-primary">
-              {drug.directionsSummary}
-            </p>
+            {drug.directionsSummary ? (
+              <p className="mt-1 whitespace-pre-wrap text-sm text-primary">
+                {drug.directionsSummary}
+              </p>
+            ) : (
+              // The server removes dosing it cannot trace to the ministry's own 용법용량 (post-
+              // processing invariant 7). Rendering nothing here would leave the card silent exactly
+              // where a person looks for a number — and silence reads as "no special dosing", the
+              // same trap as a `no_match_found` allergy read as "safe" (§2-2). So the card says
+              // what happened, and points at the two places the real dose is.
+              <p className="mt-1 text-sm text-primary">
+                We are not showing a dose for this medicine. Read the dosing on the package, or ask
+                the pharmacist — they can read the Korean label with you.
+              </p>
+            )}
           </section>
         ) : null}
 

@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -280,11 +282,106 @@ public class ChatProxyController {
                 answer.summary(),
                 answer.clarifyingQuestions(),
                 answer.guidance(),
-                groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
+                groundDirections(
+                        groundAllergyChecks(answer.drugs(), context.groundedDrugs()),
+                        context.groundedDrugs()),
                 distinct(answer.uiActions()),
                 context.sources(),
                 answer.warnings(),
                 answer.disclaimer());
+    }
+
+    /** A run of digits, with the separators a dose is written with (1.5, 1~2, 1-2, 1,000). */
+    private static final Pattern NUMBER = Pattern.compile("\\d[\\d.,]*");
+
+    /**
+     * A dose the ministry did not state is not a dose. Post-processing invariant 7.
+     *
+     * <p>The model is told to translate {@code officialTextKo.useMethod} and add nothing. Being told
+     * is not an invariant: nothing checked it, and a schema-valid answer could carry
+     * <em>"take 4 tablets every 4 hours"</em> for a label that says 1회 1정, 1일 3회 — under a footer
+     * naming 식약처 as the source. The card would be a government-branded overdose (OUT-03 in the
+     * DEV-603 review, filed there as P0 and unclosed until now).
+     *
+     * <p>So we check the one thing a machine can decide: <b>every number in the model's directions
+     * must be a number the ministry wrote.</b> Words are the model's to choose — that is the
+     * translation we asked for — but a quantity it invented has no source, and a quantity is what a
+     * person acts on. Digits are language-independent, so this holds across the translation without
+     * our having to parse either side.
+     *
+     * <p>A card that fails is <b>stripped of its directions, not rejected</b>. Rejecting the whole
+     * answer (as invariant 6 does for an invented product) would leave someone who is unwell with
+     * nothing at all, when everything else on the card is grounded and useful; the frontend says
+     * plainly that dosing is not shown and to read the package or ask the pharmacist. Degrade, do
+     * not annihilate.
+     *
+     * <p>Conservative by construction: it can only remove text, never add or alter it. A false
+     * positive (the model writes "every 8 hours" for 1일 3회 — a true restatement whose number is not
+     * in the label) costs one section and points the person at the pharmacist, which is where the
+     * exact dose should come from anyway.
+     */
+    private static List<MermAidAnswer.DrugCard> groundDirections(
+            List<MermAidAnswer.DrugCard> drugs,
+            Map<String, DrugContextRetriever.GroundedDrug> groundedDrugs) {
+
+        List<MermAidAnswer.DrugCard> grounded = new ArrayList<>(drugs.size());
+        for (MermAidAnswer.DrugCard drug : drugs) {
+            String directions = drug.directionsSummary();
+            if (directions == null || directions.isBlank()) {
+                grounded.add(drug);
+                continue;
+            }
+
+            DrugContextRetriever.GroundedDrug source = groundedDrugs.get(drug.productNameKo());
+            String official = source == null ? null : source.officialDosageKo();
+            if (numbersAreGrounded(directions, official)) {
+                grounded.add(drug);
+                continue;
+            }
+
+            // Name the product, never the sentence: the rejected text is model output shaped by
+            // whatever the user typed, and a log is not a place to put that (§2-5's principle, one
+            // step out). The product name is ours — it came from the ministry.
+            log.warn(
+                    "directions_ungrounded product={} hasOfficialDosage={}",
+                    drug.productNameKo(),
+                    official != null);
+            grounded.add(withoutDirections(drug));
+        }
+        return List.copyOf(grounded);
+    }
+
+    /** Every number the model wrote appears in the ministry's text. No ministry text, no numbers. */
+    private static boolean numbersAreGrounded(String directions, String official) {
+        Matcher numbers = NUMBER.matcher(directions);
+        if (official == null || official.isBlank()) {
+            // Nothing to check against. Prose with no quantity in it still says nothing a label
+            // could contradict, so it survives; the moment it names a number, it has no source.
+            return !numbers.find();
+        }
+        while (numbers.find()) {
+            // Trailing separators are punctuation, not part of the quantity: "1일 3회." ends a
+            // sentence, and "3." must still match the label's "3".
+            String number = numbers.group().replaceAll("[.,]+$", "");
+            if (!official.contains(number)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static MermAidAnswer.DrugCard withoutDirections(MermAidAnswer.DrugCard drug) {
+        return new MermAidAnswer.DrugCard(
+                drug.id(),
+                drug.productNameKo(),
+                drug.productNameEn(),
+                drug.ingredients(),
+                drug.indicationSummary(),
+                null,
+                drug.warnings(),
+                drug.prescriptionStatus(),
+                drug.allergyCheck(),
+                drug.sourceRefId());
     }
 
     /**
