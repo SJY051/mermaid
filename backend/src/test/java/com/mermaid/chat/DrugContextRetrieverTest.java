@@ -474,9 +474,8 @@ class DrugContextRetrieverTest {
             // know what the model omitted, so reaching the cap is a hard clarify — even if every
             // extracted name resolves.
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
-            List<String> atCap =
-                    java.util.Collections.nCopies(SearchTermExtractor.MAX_ALLERGENS, "aspirin");
-            RetrievalQuery query = new RetrievalQuery(List.of("Naproxen"), List.of(), atCap);
+            RetrievalQuery query = new RetrievalQuery(
+                    List.of("Naproxen"), List.of(), List.of("aspirin"), true);
 
             DrugContext context = gated(query, drugService).retrieve("I am allergic to aspirin", Set.of());
 

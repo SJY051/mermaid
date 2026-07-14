@@ -279,4 +279,39 @@ class SearchTermExtractorTest {
             assertThat(parse("   ").isEmpty()).isTrue();
         }
     }
+
+    @Nested
+    @DisplayName("the allergen clipping signal comes from the raw array (#62 P0, FR-012)")
+    class RawAllergenClipSignal {
+
+        private RetrievalQuery parse(String json) {
+            return SearchTermExtractor.parse(json, new ObjectMapper());
+        }
+
+        @Test
+        @DisplayName("a raw list at the cap keeps the signal even when dedup shrinks it")
+        void duplicateDoesNotLaunderTheCapSignal() {
+            // Ten raw entries, one a duplicate: accept() dedups to nine, but the RAW length is what
+            // says "maxItems may have clipped a stated allergen". Deriving the signal after
+            // sanitization loses it and a product with the omitted allergen can reach
+            // no_match_found.
+            String tenWithDuplicate = "{\"ingredients\":[],\"productNames\":[],\"allergens\":["
+                    + "\"aspirin\",\"aspirin\",\"ibuprofen\",\"acetaminophen\",\"naproxen\","
+                    + "\"cetirizine\",\"loratadine\",\"amoxicillin\",\"penicillin\",\"diclofenac\"]}";
+
+            RetrievalQuery query = parse(tenWithDuplicate);
+
+            assertThat(query.allergens()).hasSizeLessThan(10);
+            assertThat(query.allergensMaybeClipped()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a short list carries no clipping signal")
+        void shortListIsNotClipped() {
+            RetrievalQuery query = parse(
+                    "{\"ingredients\":[],\"productNames\":[],\"allergens\":[\"aspirin\"]}");
+
+            assertThat(query.allergensMaybeClipped()).isFalse();
+        }
+    }
 }

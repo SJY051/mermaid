@@ -176,7 +176,12 @@ public class SearchTermExtractor {
                         MAX_ALLERGENS,
                         MAX_INGREDIENT_LENGTH,
                         RejectionCode.ALLERGEN_WRONG_SHAPE);
-        return new RetrievalQuery(ingredients, productNames, allergens);
+        // The clipping signal comes from the RAW array, before accept() dedups and shape-filters:
+        // a raw list at the cap may have lost a stated allergen to maxItems, and a duplicate or
+        // invalid entry must not launder that signal away (spec 005 FR-012; #62 P0, third finding).
+        boolean allergensMaybeClipped =
+                root.path("allergens").isArray() && root.path("allergens").size() >= MAX_ALLERGENS;
+        return new RetrievalQuery(ingredients, productNames, allergens, allergensMaybeClipped);
     }
 
     /** Product and allergen names have authority only when the user, not the model, supplied them. */
@@ -188,7 +193,9 @@ public class SearchTermExtractor {
         List<String> userNamedAllergens = query.allergens().stream()
                 .filter(name -> foldedUserText.contains(name.toLowerCase(Locale.ROOT)))
                 .toList();
-        return new RetrievalQuery(query.ingredientsEn(), userNamedProducts, userNamedAllergens);
+        return new RetrievalQuery(
+                query.ingredientsEn(), userNamedProducts, userNamedAllergens,
+                query.allergensMaybeClipped());
     }
 
     private static List<String> accept(

@@ -114,7 +114,7 @@ public class DrugContextRetriever {
         //  - the extracted allergen list reached its cap, so the model may have clipped one the
         //    server can never see (FR-012). Screening only "nothing resolved" silently drops a mixed
         //    or clipped declaration and can manufacture no_match_found from "we did not check".
-        boolean allergensCapReached = extracted.allergens().size() >= SearchTermExtractor.MAX_ALLERGENS;
+        boolean allergensCapReached = extracted.allergensMaybeClipped();
         if (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty() || allergensCapReached)) {
             log.info("Allergy declared — {} unresolved, capReached={} — returning server clarification",
                     unresolved.size(), allergensCapReached);

@@ -307,14 +307,23 @@ public class DrugService {
 
     /** What the user asked about, and the only names the model may say. */
     public record RetrievalQuery(
-            List<String> ingredientsEn, List<String> productNamesKo, List<String> allergens) {
+            List<String> ingredientsEn,
+            List<String> productNamesKo,
+            List<String> allergens,
+            boolean allergensMaybeClipped) {
 
         public static final RetrievalQuery EMPTY =
-                new RetrievalQuery(List.of(), List.of(), List.of());
+                new RetrievalQuery(List.of(), List.of(), List.of(), false);
 
         /** Keeps existing callers source-compatible while the allergen carrier is introduced. */
         public RetrievalQuery(List<String> ingredientsEn, List<String> productNamesKo) {
-            this(ingredientsEn, productNamesKo, List.of());
+            this(ingredientsEn, productNamesKo, List.of(), false);
+        }
+
+        /** The raw-cap clipping signal defaults to false for callers that do not carry it. */
+        public RetrievalQuery(
+                List<String> ingredientsEn, List<String> productNamesKo, List<String> allergens) {
+            this(ingredientsEn, productNamesKo, allergens, false);
         }
 
         public boolean isEmpty() {
@@ -331,7 +340,7 @@ public class DrugService {
          * clinical act. See {@code AllergyDeclaration}, which decides when to call this.
          */
         public RetrievalQuery withoutProposedIngredients() {
-            return new RetrievalQuery(List.of(), productNamesKo, allergens);
+            return new RetrievalQuery(List.of(), productNamesKo, allergens, allergensMaybeClipped);
         }
     }
 
