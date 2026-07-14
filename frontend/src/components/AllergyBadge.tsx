@@ -43,7 +43,11 @@ export function AllergyBadge({ check }: { check: AllergyCheck }) {
             Don&apos;t take this one. A pharmacist can help you find the right option — no
             substitute is suggested here, on purpose.
           </p>
-          {detail && <p className="text-[#2a2d33]">{detail}</p>}
+          {/* No server sentence here, and only here. For a block it says "Contains Ibuprofen, which
+              you asked to avoid" — which is what the line above already said, in the same words. The
+              sentence earns its place on `warning` and `unknown`, where it says something the callout
+              cannot: that the match was a name and not a reviewed binding, or that we could not read
+              the ingredients at all. Repeating a sentence is how a reader learns to skip them. */}
         </div>
       )
 
