@@ -423,7 +423,7 @@ public class ChatProxyController {
                     drug.id(),
                     drug.productNameKo(),
                     drug.productNameEn(),
-                    withoutInventedStrengths(drug.ingredients()),
+                    onlyGroundedIngredientFields(drug.ingredients()),
                     drug.indicationSummary(),
                     drug.directionsSummary(),
                     groundedCautions(drug, source),
@@ -446,30 +446,37 @@ public class ChatProxyController {
      * threshold. No official caution text, no caution.
      */
     /**
-     * An ingredient strength we do not hold is not a strength. Invariant 8, one field over.
+     * An ingredient fact we never retrieved is not a fact. Invariant 8, applied to the whole row.
      *
-     * <p>We never retrieved these numbers. {@link com.mermaid.drug.domain.Drug} carries {@code
-     * ingredientsEn} — names, and only names. There is no {@code amount} and no {@code unit} anywhere
-     * in the record, and none in the context the model is handed. So every strength on a card was
-     * invented, in full, with no source of any kind — and {@code AnswerValidator} compares normalized
-     * NAMES, so a card reading <em>Acetaminophen · 5000 mg</em> passed every check and printed that
-     * number under a footer naming 식약처.
+     * <p>We hold ingredient names <b>in English</b>, and nothing else. {@link
+     * com.mermaid.drug.domain.Drug} carries {@code ingredientsEn} — parsed from 허가정보's {@code
+     * ITEM_INGR_NAME}, which is English — and the context the model is handed carries the same. There
+     * is no Korean ingredient name in the record, no {@code amount} and no {@code unit}, anywhere.
      *
-     * <p>There is nothing to ground them against, so they are removed. This is the same rule invariant
-     * 7 reached from the other side: where an output cannot be checked cheaply and soundly, take away
-     * the authority to produce it. The card renders the ingredient names, and the product name it sits
-     * under carries the strength the ministry actually licensed (타이레놀정<b>500밀리그람</b>).
+     * <p>So three of the five fields on a card's ingredient row had no source at all, and {@link
+     * AnswerValidator} compares normalized ENGLISH keys, which means a row could read
      *
-     * <p>If we ever parse 허가정보's {@code MATERIAL_NAME}, these become server facts and can come back.
-     * Until then a number here is a guess wearing a government footer.
+     * <pre>  Acetaminophen · 이부프로펜 · 5000 mg  </pre>
+     *
+     * and pass every invariant: the English name is the retrieved one, so INV6 is satisfied, while the
+     * Korean name beside it is a different drug entirely and the strength is ten times the licensed
+     * dose — all of it printed under a footer naming 식약처.
+     *
+     * <p>They are removed. The English name survives; that one IS grounded, and invariant 6 checks it.
+     * The Korean the person needs in a pharmacy is the PRODUCT name, which the card already shows and
+     * the server already owns (타이레놀정500밀리그람) — it is what they point at on a shelf.
+     *
+     * <p>Same rule as invariants 7 and 8 everywhere else: where an output cannot be checked cheaply and
+     * soundly, take away the authority to produce it. If 허가정보's {@code MATERIAL_NAME} is ever parsed,
+     * these become server facts and can come back.
      */
-    private static List<MermAidAnswer.Ingredient> withoutInventedStrengths(
+    private static List<MermAidAnswer.Ingredient> onlyGroundedIngredientFields(
             List<MermAidAnswer.Ingredient> ingredients) {
         if (ingredients == null) {
             return List.of();
         }
         return ingredients.stream()
-                .map(i -> new MermAidAnswer.Ingredient(i.nameKo(), i.nameEn(), i.normalizedKey(), null, null))
+                .map(i -> new MermAidAnswer.Ingredient(null, i.nameEn(), i.normalizedKey(), null, null))
                 .toList();
     }
 

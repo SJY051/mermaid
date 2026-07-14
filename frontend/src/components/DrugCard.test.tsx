@@ -70,14 +70,16 @@ describe('DrugCard', () => {
     const ingredients = within(card).getByRole('heading', { name: 'Ingredients' }).parentElement!
     const ingredientRows = within(ingredients).getAllByRole('listitem')
     expect(ingredientRows).toHaveLength(2)
-    // Names only. A strength here was invented — we never retrieved one (invariant 8), and the
-    // server strips it. The card has no way to print one even if a number leaked back in.
-    expect(ingredientRows[0]).toHaveTextContent('Acetaminophen · 아세트아미노펜')
+    // The English name, and nothing else. We hold ingredient names in English only (ITEM_INGR_NAME);
+    // the Korean name and the strength had no source at all, and the server strips them (invariant 8).
+    // The card has no way to print one even if it leaked back in.
+    expect(ingredientRows[0]).toHaveTextContent('Acetaminophen')
+    expect(ingredientRows[0]).not.toHaveTextContent('아세트아미노펜')
     expect(ingredientRows[0]).not.toHaveTextContent('500 mg')
-    expect(within(ingredientRows[0]).getByText('아세트아미노펜')).toHaveAttribute('lang', 'ko')
-    expect(ingredientRows[1]).toHaveTextContent('카페인무수물')
-    expect(ingredientRows[1]).not.toHaveTextContent('32')
-    expect(within(ingredientRows[1]).getByText('카페인무수물')).toHaveAttribute('lang', 'ko')
+    // No English name retrieved for this one — it falls back to the normalized key, not to a Korean
+    // name the model made up.
+    expect(ingredientRows[1]).toHaveTextContent('caffeine')
+    expect(ingredientRows[1]).not.toHaveTextContent('카페인무수물')
     expect(within(card).getByText('For headache, fever, and mild aches.')).toBeInTheDocument()
     expect(within(card).getByTestId('official-dosage')).toHaveTextContent('1회 1~2정씩 1일 3~4회')
     expect(

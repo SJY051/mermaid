@@ -24,31 +24,29 @@ const ALLERGY_BORDER_CLASSES: Record<AllergyStatus, string> = {
 }
 
 /**
- * Names only. `amount` and `unit` are deliberately not rendered.
+ * The English name, and nothing else. `nameKo`, `amount` and `unit` are deliberately not rendered.
  *
- * We never retrieved an ingredient strength: the server's `Drug` record holds ingredient NAMES and
- * nothing else, and neither does the context the model is given. So every strength a card ever
- * carried was invented in full, and the validator compares normalized names — `Acetaminophen ·
- * 5000 mg` passed every check and printed ten times the licensed dose under a footer naming 식약처.
+ * We hold ingredient names **in English** and nothing else — `Drug.ingredientsEn`, parsed from
+ * 허가정보's `ITEM_INGR_NAME`, which is English. There is no Korean ingredient name in the record, no
+ * amount and no unit. So three of the five fields on this row had no source at all, and the validator
+ * compares normalized ENGLISH keys, which means a row could read
  *
- * The server now strips them (invariant 8), so nothing should reach this component with one. The
- * render path goes too: a value we cannot source must not have a way onto the screen, or the next
- * time a number leaks in it will print itself under the verified footer exactly as this one did.
- * The strength the ministry licensed is in the product name above (타이레놀정500밀리그람).
+ *     Acetaminophen · 이부프로펜 · 5000 mg
+ *
+ * and pass every invariant: the English name is the retrieved one, the Korean beside it is a
+ * different drug, and the strength is ten times the licensed dose — under a footer naming 식약처.
+ *
+ * The server strips them (invariant 8), and the render paths go with them: a value we cannot source
+ * must not have a way onto the screen, or the next one that leaks in prints itself under the verified
+ * footer exactly as these did. The Korean a person needs in a pharmacy is the PRODUCT name, which the
+ * card already shows and the server already owns (타이레놀정500밀리그람) — it is what they point at.
  */
 function IngredientLine({ ingredient }: { ingredient: Ingredient }) {
   const fallbackName = ingredient.normalizedKey ?? 'Ingredient name unavailable'
 
   return (
     <li className="break-words text-sm text-primary">
-      {ingredient.nameEn ? <span>{ingredient.nameEn}</span> : null}
-      {ingredient.nameKo ? (
-        <>
-          {ingredient.nameEn ? ' · ' : null}
-          <span lang="ko">{ingredient.nameKo}</span>
-        </>
-      ) : null}
-      {!ingredient.nameEn && !ingredient.nameKo ? <span>{fallbackName}</span> : null}
+      {ingredient.nameEn ? <span>{ingredient.nameEn}</span> : <span>{fallbackName}</span>}
     </li>
   )
 }

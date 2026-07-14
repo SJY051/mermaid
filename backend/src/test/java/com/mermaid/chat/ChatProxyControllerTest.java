@@ -319,8 +319,8 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("an ingredient strength is removed — we never retrieved one to check it against")
-        void inventedIngredientStrengthIsStripped() throws Exception {
+        @DisplayName("every ingredient field we never retrieved is removed — strength AND Korean name")
+        void inventedIngredientFieldsAreStripped() throws Exception {
             // We hold ingredient NAMES and nothing else: Drug carries `ingredientsEn`, and there is no
             // amount and no unit anywhere in the record or in the context the model is handed. So every
             // strength on a card was invented in full, with no source of any kind — and the validator
@@ -337,7 +337,7 @@ class ChatProxyControllerTest {
 
             String card = """
                 [{"productNameKo":"%s","productNameEn":null,
-                  "ingredients":[{"nameKo":"아세트아미노펜","nameEn":"Acetaminophen",
+                  "ingredients":[{"nameKo":"이부프로펜","nameEn":"Acetaminophen",
                                   "normalizedKey":"acetaminophen","amount":"5000","unit":"mg"}],
                   "indicationSummary":"fever","directionsSummary":null,"labelCautions":null,
                   "warnings":[],"prescriptionStatus":"otc",
@@ -350,8 +350,12 @@ class ChatProxyControllerTest {
                     .completions(request("can I take 타이레놀?")));
 
             MermAidAnswer.Ingredient shown = answer.drugs().get(0).ingredients().get(0);
-            // The name survives — that one IS grounded, and invariant 6 checks it.
+            // The ENGLISH name survives — that one IS grounded, and invariant 6 checks it.
             assertThat(shown.nameEn()).isEqualTo("Acetaminophen");
+            // The Korean name beside it was a DIFFERENT DRUG (이부프로펜 = ibuprofen), and the validator
+            // never looked: it compares normalized English keys. We hold no Korean ingredient name to
+            // check it against — 허가정보 gives us ITEM_INGR_NAME, which is English — so it goes.
+            assertThat(shown.nameKo()).isNull();
             assertThat(shown.amount()).isNull();
             assertThat(shown.unit()).isNull();
         }
