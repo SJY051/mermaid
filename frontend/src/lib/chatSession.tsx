@@ -213,13 +213,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
       const previousTurns = turnsRef.current
       const lastTurn = previousTurns.at(-1)
+      const lastError = lastTurn?.error
       // A retry resends the failed question verbatim, so it REPLACES that turn — sending it again
       // would put the same question in the request twice. Any OTHER send after a failure KEEPS the
       // failed turn: the person asked it, and its text must stay in the record and in the request.
       // Dropping it would let a failed "I am allergic to ibuprofen" vanish before the next turn,
       // and the server's scan over the request's questions would never see it (FR-013).
-      const retryingLast = lastTurn?.error != null && lastTurn.question === text
-      const nextTurns = retryingLast
+      //
+      // With one exception, and it is the failure that says so itself. `retryable: false` means the
+      // server will not accept this request — INPUT_TOO_LARGE is the live one — and we tell the
+      // person to shorten their question. If the oversized turn stayed in the record, their
+      // shortened question would ride out behind it and hit the same limit, forever: the recovery
+      // we advertised cannot work, and the conversation is dead. So an edit past a non-retryable
+      // failure replaces it. Nothing is lost that was ever received — the server rejected the
+      // request outright, so it never saw that turn, and a conversation that can no longer send
+      // guards nobody.
+      const supersedesLast =
+        lastError != null && (lastTurn?.question === text || !lastError.retryable)
+      const nextTurns = supersedesLast
         ? [...previousTurns.slice(0, -1), pendingTurn]
         : [...previousTurns, pendingTurn]
 

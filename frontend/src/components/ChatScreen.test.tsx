@@ -312,6 +312,42 @@ describe('when the request fails', () => {
     )
   })
 
+  it('lets a shortened question through after the backend refused an oversized one (P1)', async () => {
+    // INPUT_TOO_LARGE tells the person to shorten their question, and that is the whole recovery
+    // path. Keeping the oversized turn in the record makes it a lie: the shortened question rides
+    // out behind the original and hits the same limit, forever. A conversation that can no longer
+    // send an answer to anyone guards no one, so a non-retryable failure is superseded by the edit.
+    const { stream, fail } = pendingStream()
+    streamChatMock.mockReturnValueOnce(stream())
+    renderChat()
+    const user = await ask('a very long question '.repeat(5))
+    fail(
+      Object.assign(new Error('413'), {
+        error: {
+          code: 'INPUT_TOO_LARGE',
+          message: 'That question is too long.',
+          retryable: false,
+          request_id: 'req-9',
+        },
+      }),
+    )
+    await screen.findByTestId('chat-error')
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    // The request carries the short question ALONE — the oversized one the server refused is gone
+    // from the wire and from the record, so it cannot break every later turn.
+    const sent = streamChatMock.mock.calls[1][0] as { role: string; content: string }[]
+    expect(sent.filter((m) => m.role === 'user').map((m) => m.content)).toEqual(['headache?'])
+    expect(loadChatSession().messages.filter((m) => m.role === 'user').map((m) => m.content)).toEqual([
+      'headache?',
+    ])
+  })
+
   it('keeps the failed question in the request when it is edited rather than retried (P1)', async () => {
     // A retry replaces the failed turn; an EDIT does not. The person still asked the first
     // question, and if the edit is what drops it, a failed "I am allergic to ibuprofen" edited into
