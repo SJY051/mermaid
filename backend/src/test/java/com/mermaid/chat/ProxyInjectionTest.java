@@ -109,7 +109,7 @@ class ProxyInjectionTest {
             public Mono<String> completeJson(
                     String systemPrompt, String userText, String schemaName, JsonNode schema) {
                 assertThat(schema.path("properties").path("allergens").path("maxItems").asInt())
-                        .isEqualTo(3);
+                        .isEqualTo(SearchTermExtractor.MAX_ALLERGENS);
                 assertThat(schema.path("required").toString()).contains("\"allergens\"");
                 assertThat(systemPrompt).contains("`allergens`", "proposes candidates only");
                 return Mono.just(

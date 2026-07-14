@@ -108,14 +108,16 @@ public class DrugContextRetriever {
             }
         }
 
-        // A declared allergy must be accounted for IN FULL. If ANY declared allergen — free text or
-        // exclude_ingredients — did not resolve to an authoritative key, we cannot claim the drug was
-        // checked against it, so we fail closed even when other allergens did resolve. Screening only
-        // the "nothing resolved" case silently drops a mixed declaration and can manufacture
-        // no_match_found from "we did not check" (FR-004; #59 follow-up P0 on retrieve()).
-        if (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty())) {
-            log.info("Allergy declared with {} unresolved allergen(s) — returning server clarification",
-                    unresolved.size());
+        // A declared allergy must be accounted for IN FULL. Fail closed when:
+        //  - nothing resolved (avoidedKeys empty), or
+        //  - any declared allergen from free text or exclude_ingredients is unresolved (FR-004), or
+        //  - the extracted allergen list reached its cap, so the model may have clipped one the
+        //    server can never see (FR-012). Screening only "nothing resolved" silently drops a mixed
+        //    or clipped declaration and can manufacture no_match_found from "we did not check".
+        boolean allergensCapReached = extracted.allergens().size() >= SearchTermExtractor.MAX_ALLERGENS;
+        if (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty() || allergensCapReached)) {
+            log.info("Allergy declared — {} unresolved, capReached={} — returning server clarification",
+                    unresolved.size(), allergensCapReached);
             return DrugContext.allergyClarification();
         }
 

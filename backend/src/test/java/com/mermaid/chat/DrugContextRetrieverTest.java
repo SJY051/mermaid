@@ -467,6 +467,24 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("an allergen list at the extraction cap fails closed — the model may have clipped one (#62 P0, FR-012)")
+        void allergenListAtCapFailsClosed() {
+            // The extractor caps allergens; a list at the cap may be clipped, and a clipped allergen
+            // is exactly the silently-dropped case the unresolved check cannot see. The server can't
+            // know what the model omitted, so reaching the cap is a hard clarify — even if every
+            // extracted name resolves.
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            List<String> atCap =
+                    java.util.Collections.nCopies(SearchTermExtractor.MAX_ALLERGENS, "aspirin");
+            RetrievalQuery query = new RetrievalQuery(List.of("Naproxen"), List.of(), atCap);
+
+            DrugContext context = gated(query, drugService).retrieve("I am allergic to aspirin", Set.of());
+
+            assertThat(context.directAnswer()).as("cap reached must fail closed").isPresent();
+            assertThat(drugService.seen).as("fail-closed must happen before retrieval").isNull();
+        }
+
+        @Test
         @DisplayName("with no allergy the model's ingredients pass through untouched")
         void noAllergyNoGate() {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);

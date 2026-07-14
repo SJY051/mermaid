@@ -79,6 +79,23 @@ if it were unproblematic.
 - **FR-003**: The model MUST NOT author the avoided-ingredient set. If a new
   model-facing surface (see FR-009) proposes an allergen, the server MUST re-validate it
   against FR-001 and FR-002 before it affects any allergy state.
+- **FR-011**: The `allergens` extraction cap MUST NOT silently truncate a user's stated
+  allergens. Unlike `ingredients` / `productNames` — which are interpolated into the
+  government API query, so their cap bounds query size (DoS) — `allergens` never leaves as a
+  query; it feeds `AllergenBinder`, whose **origin check** (only names literally present in
+  the user's own text) is the natural bound, and the user's message length bounds that. So
+  the cap MUST be large enough (or effectively origin-bounded) that naming N allergens loses
+  none. **Decided 2026-07-13:** raise / relax `MAX_ALLERGENS` so a realistic multi-allergen
+  declaration is never clipped. A model that *omits* a stated allergen (rather than the cap
+  clipping it) is a **residual risk**: mitigated by the pass-1 prompt requiring every
+  ingredient the user says they are allergic to, with **FR-004 as the fail-closed backstop**
+  (any unresolved declared allergen → clarify).
+- **FR-012 (cap-reached fail-closed)**: Because the server cannot see what the model
+  dropped, if the extracted `allergens` list **reaches the cap** the turn MUST fail closed
+  to clarification — the list may have been clipped, and a clipped allergen is exactly the
+  silently-dropped case FR-004 cannot see. This makes the guarantee independent of the cap
+  value: raising the cap widens what is answered directly, and reaching it is a hard
+  clarify. Together FR-011 + FR-012 + FR-004 close the #62 bot P0 (cap-clipped allergen).
 
 ### Fail-closed on unresolved allergy
 - **FR-004**: When an allergy is declared and **any** declared allergen fails to resolve
@@ -89,9 +106,10 @@ if it were unproblematic.
   mixed declaration (one bound, one unresolved) and can manufacture `no_match_found` from
   "we did not check" — the #59 follow-up P0. This covers both free-text allergens and the
   `exclude_ingredients` field.
-- **FR-005**: When an allergy is declared and at least one allergen resolves, the
-  existing block/warning/no_match_found/unknown states apply unchanged, computed against
-  the resolved avoided set.
+- **FR-005**: The normal block/warning/no_match_found/unknown states apply **only when
+  every declared allergen resolves** to a signed ingredient. In a mixed declaration where
+  any allergen is unresolved, FR-004 governs (clarify) — not this rule. (Narrowed from
+  "at least one resolves", which contradicted FR-004 for mixed declarations — #62 bot P1.)
 
 ### Normalization
 - **FR-006**: User-supplied allergen text MUST be normalized before binding:
