@@ -161,6 +161,52 @@ if it were unproblematic.
   `exclude_ingredients` directly and a profile-holding user skips the clarification
   entirely — the gate already proceeds on a fully-resolved structured list.
 
+### Unverified allergens (DEV-562, DEV-561 follow-up — decided with 윤서진 2026-07-14 PM)
+
+> **Why.** The picker's "My allergy isn't listed" originally ended drug lookup for the
+> conversation (fail-closed, the honest floor). That is safe but unhelpful: the person
+> gets nothing at all. A name-match filter is strictly better than both alternatives —
+> better than pretending the allergen doesn't exist, and better than refusing to look —
+> as long as it never claims more authority than a name match has. False positives are
+> acceptable (an over-warned user asks a pharmacist); false negatives are why the copy
+> may never read as verification.
+
+- **FR-016 (unverified allergen channel)**: The client MAY send
+  `mermaid.unverified_allergens: string[]` — allergen names the user typed that matched
+  no FR-015 option. It is user-authored only (never model-authored, never extracted).
+  The parser applies the same completeness rules as `exclude_ingredients`: same entry
+  count and length bounds, blank entries droppable, anything non-textual or out of
+  bounds or wrong-shaped flags `incomplete` and the gate clarifies. Presence of
+  unverified allergens alone does NOT fail closed — carrying them is the point — but it
+  does set `allergyDeclared`, so SA-08 suppression applies and only user-named products
+  are looked up. **An unverified allergen MUST NEVER become an upstream search term or
+  reach any government API query** — it filters retrieved results only (query injection
+  and quota are the reasons; the DEV-603 threat model gains this entry).
+- **FR-017 (name-match warning, never block, never silence)**: For every retrieved
+  product, each unverified allergen is compared server-side against the product's
+  ingredient names (case-folded word/substring containment, the existing
+  `IngredientNormalizer.compare` PARTIAL machinery). A match yields **`warning`** —
+  never `blocked` (§2-6: no signed binding, no block authority) — with copy that names
+  the matched text and says it is a NAME match only, confirm with a pharmacist. When
+  any unverified allergen is present, the server MUST append one server-authored
+  warning to the answer (post-processing, like provenance — the model cannot omit it)
+  saying those allergens were checked by name only and a pharmacist must confirm;
+  `no_match_found` products keep their status but that session-level caveat is what
+  keeps §2-2 honest. The word "safe" stays banned everywhere.
+- **FR-018 (picker free-text entry)**: The picker gains a free-text input with
+  autocomplete against the FR-015 options. Input resolving to an option becomes that
+  option (checked, verified path); input matching nothing becomes an **unverified
+  chip**, visually distinct from verified selections and labeled honestly ("name-match
+  warnings only — a pharmacist can fully check this one"). Unverified chips persist in
+  the session (`ChatSession.unverifiedAllergens`, sessionStorage §2-5) and ride every
+  request per FR-016. Dismiss semantics: closing a picker that a clarification opened,
+  WITHOUT having covered the declaration (no new selection or chip), keeps the
+  conversation-ending lock (`unverifiableAllergy`) — the FR-014 fallback; closing an
+  Edit-mode picker with no changes is a plain cancel. The whole FR-014 state-space
+  checklist applies and MUST be tested: a second free-text declaration re-opens the
+  picker pre-filled with BOTH lists; the picker still replaces the composer (no Ask
+  while pending); reload persists both lists and the lock; new conversation clears all.
+
 ### Normalization
 - **FR-006**: User-supplied allergen text MUST be normalized before binding:
   case-folding plus a **reviewed alias/spelling list** for common variants (no fuzzy /
