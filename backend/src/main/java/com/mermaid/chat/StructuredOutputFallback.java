@@ -71,7 +71,17 @@ public class StructuredOutputFallback {
             }
             return withGuarantees(parsed);
         } catch (Exception e) {
-            log.warn("model_answer_rejected code=COERCION_FAILED count=1");
+            // The type, and the field it choked on — not the content. Jackson's own message quotes
+            // the source text it failed to parse, and that text is the model's answer about this
+            // person's symptoms: a log line is a place things persist, and a consultation does not
+            // persist (§2-5). The field path is enough to tell a schema drift from a broken model.
+            String path = e instanceof com.fasterxml.jackson.databind.JsonMappingException mapping
+                    ? mapping.getPathReference()
+                    : "unknown";
+            log.warn(
+                    "model_answer_rejected code=COERCION_FAILED exception={} path={}",
+                    e.getClass().getSimpleName(),
+                    path);
             return safeAnswer(rawContent);
         }
     }

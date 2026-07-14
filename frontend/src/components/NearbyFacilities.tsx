@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { FacilityMap } from './FacilityMap'
 import {
   fetchFacilities,
+  fetchGeocode,
   locationNotice,
   resolveLocation,
   SEOUL_CITY_HALL,
   type ResolvedLocation,
 } from '../lib/facilities'
 import { setManualLocation } from '../lib/storage'
-import type { Facility, FacilityType } from '../lib/types'
+import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 
 export interface NearbyFacilitiesProps {
   /** Straight from the assistant's `OPEN_FACILITY_MAP` payload. */
@@ -81,9 +82,14 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
   const plural = type === 'pharmacy' ? 'pharmacies' : 'hospitals'
   const caption = `${plural} within ${radiusM}m${openNow ? ', open now' : ''}`
 
-  function useManualLocation(center: { lat: number; lng: number }) {
-    setManualLocation({ ...center, label: 'Chosen map spot' })
-    setLocation({ ...center, source: 'manual' })
+  function useManualLocation(center: { lat: number; lng: number }, label = 'Chosen map spot') {
+    setManualLocation({ ...center, label })
+    setLocation({ ...center, source: 'manual', label })
+  }
+
+  function useAddress(result: GeocodeResult) {
+    const label = result.roadAddress || result.jibunAddress || result.englishAddress
+    useManualLocation({ lat: result.latitude, lng: result.longitude }, label)
   }
 
   function clearManualLocation() {
@@ -104,6 +110,9 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
             : {
                 canClear: location.source === 'manual',
                 onUseSpot: useManualLocation,
+                onSearchAddress: fetchGeocode,
+                onUseAddress: useAddress,
+                currentLabel: location.source === 'manual' ? location.label : undefined,
                 onClear: clearManualLocation,
               }
         }

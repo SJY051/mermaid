@@ -391,7 +391,13 @@ describe('manual location selection', () => {
     render(
       <FacilityMap
         center={centre}
-        manualLocation={{ canClear: false, onUseSpot, onClear: vi.fn() }}
+        manualLocation={{
+          canClear: false,
+          onUseSpot,
+          onSearchAddress: vi.fn().mockResolvedValue([]),
+          onUseAddress: vi.fn(),
+          onClear: vi.fn(),
+        }}
       />,
     )
 
@@ -405,6 +411,52 @@ describe('manual location selection', () => {
 
     expect(onUseSpot).toHaveBeenCalledWith({ lat: 35.1796, lng: 129.0756 })
     expect(screen.queryByRole('img', { name: 'Chosen map centre' })).not.toBeInTheDocument()
+  })
+
+  it('searches, distinguishes failures from no matches, and returns the picked address', async () => {
+    const user = userEvent.setup()
+    const result = {
+      roadAddress: '서울특별시 중구 세종대로 110',
+      jibunAddress: '서울특별시 중구 태평로1가 31',
+      englishAddress: '110 Sejong-daero, Jung-gu, Seoul',
+      latitude: 37.5666103,
+      longitude: 126.9783882,
+    }
+    const onSearchAddress = vi.fn()
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('upstream failed'))
+      .mockResolvedValueOnce([result])
+    const onUseAddress = vi.fn()
+    installNaverStub()
+    render(
+      <FacilityMap
+        center={centre}
+        manualLocation={{
+          canClear: false,
+          onUseSpot: vi.fn(),
+          onSearchAddress,
+          onUseAddress,
+          onClear: vi.fn(),
+        }}
+      />,
+    )
+
+    const query = screen.getByRole('searchbox', { name: 'Search an address' })
+    await user.type(query, 'Seoul City Hall')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    expect(await screen.findByText('No address matched. Try a more specific address.')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not search for that address. Please try again.',
+    )
+    expect(screen.queryByText('No address matched. Try a more specific address.')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(await screen.findByRole('button', { name: /서울특별시 중구 세종대로 110/ }))
+
+    expect(onSearchAddress).toHaveBeenLastCalledWith('Seoul City Hall')
+    expect(onUseAddress).toHaveBeenCalledWith(result)
   })
 })
 
