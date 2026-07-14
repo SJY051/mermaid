@@ -134,6 +134,18 @@ describe('DetailDrawer', () => {
     expect(onClose).toHaveBeenCalledOnce()
   })
 
+  it('closes when the dimmed map backdrop is clicked, but not when the card is clicked', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<DetailDrawer facility={facility()} onClose={onClose} />)
+
+    await user.click(screen.getByRole('dialog'))
+    expect(onClose).not.toHaveBeenCalled()
+
+    await user.click(screen.getByTestId('detail-drawer-backdrop'))
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it('exposes the bottom sheet as an accessible dialog', () => {
     render(<DetailDrawer facility={facility()} onClose={() => {}} />)
 

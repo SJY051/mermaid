@@ -57,7 +57,13 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   }, [onClose])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end bg-black/45" data-testid="detail-drawer-backdrop">
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/45"
+      data-testid="detail-drawer-backdrop"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose()
+      }}
+    >
       <section
         role="dialog"
         aria-modal="true"
