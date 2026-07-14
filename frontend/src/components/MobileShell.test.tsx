@@ -122,6 +122,32 @@ describe('MobileShell', () => {
     expectActive('Settings')
   })
 
+  it('does not load the saved-places profile until the tab is opened', async () => {
+    // Every screen stays mounted so the chat survives a tab switch — which means SavedScreen exists
+    // from the first paint, and a profile request would go out before anyone had asked for one. The
+    // `active` prop is what stops it. Nothing guarded that until this test: flipping it to a constant
+    // `true` left the whole suite green, so the shell could have started fetching on load again
+    // without anyone noticing.
+    // Answer by URL. Every screen is mounted in this shell, so a stub that returns the profile shape
+    // to everyone hands MapScreen an object where it expects an array of facilities — which surfaces
+    // as an unhandled rejection and a runner exit code of 1 while every test still reports green.
+    const fetchMock = vi.fn(async (url: unknown) =>
+      String(url).includes('/profiles/')
+        ? { ok: true, status: 200, json: async () => ({ favorites: [] }) }
+        : { ok: true, status: 200, json: async () => [] },
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+    render(<MobileShell />)
+
+    const profileCalls = () =>
+      fetchMock.mock.calls.filter((call) => String(call[0]).includes('/profiles/'))
+    expect(profileCalls()).toHaveLength(0)
+
+    await user.click(screen.getByRole('button', { name: 'Saved' }))
+    await waitFor(() => expect(profileCalls().length).toBeGreaterThan(0))
+  })
+
   it('keeps the disclaimer visible on every tab', async () => {
     const user = userEvent.setup()
     render(<MobileShell />)
