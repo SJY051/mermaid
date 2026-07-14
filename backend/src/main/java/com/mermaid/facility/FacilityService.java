@@ -37,13 +37,42 @@ public class FacilityService {
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
     private static final int METRES_PER_KM = 1000;
     private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
-    // The pharmacy location endpoint supplies at most 100 rows. Checking all of those only for an
-    // open-now request widens the useful search without adding pagination or an unbounded fan-out.
-    private static final int MAX_OPEN_NOW_PHARMACY_CANDIDATES = 100;
+    /**
+     * How many distance-ranked candidates an {@code open_now=true} request inspects before returning
+     * the nearest confirmed-open results. Looking only as far as the returned pin limit would hide a
+     * farther open facility behind nearer closed ones.
+     *
+     * <p>100 is the pharmacy location endpoint's own row cap, so for pharmacies it drops nothing. HIRA
+     * supplies more — the Seoul City Hall fixture reports {@code totalCount: 440} — so for hospitals
+     * this is a deliberate cap, and an open hospital ranked 101st or farther stays invisible.
+     *
+     * <p>Quota is not what bounds this. The daily budgets are 1,000 calls for the pharmacy APIs — the
+     * tightest we hold — and 10,000 for HIRA; both detail lookups are cached per id ({@code @Cacheable}),
+     * so a second map load over the same area re-spends nothing. Hospitals share the pharmacy's cap
+     * because latency is the binding constraint, not because HIRA is scarce: with 10x the headroom it
+     * has no reason to be the more conservative of the two.
+     *
+     * <p>Measured live at Seoul City Hall, radius 2,000 m, cold cache (2026-07-14):
+     *
+     * <pre>
+     *   hospital open_now=true  (100 candidates)  27.6 s
+     *   hospital open_now=false ( 10 candidates)  18.4 s
+     *   hospital list paging alone (limit=1)      20.7 s   &lt;-- dominates
+     *   pharmacy open_now=true  (100 candidates)   1.1 s
+     *   any of the above, warm cache              0.07 s
+     * </pre>
+     *
+     * <p>So widening the candidate set costs roughly 7-9 s, and <b>this constant is not the dial that
+     * matters</b>: HIRA's list paging is sequential ({@code HospitalApiClient} walks totalCount page by
+     * page) and costs ~20 s on its own. Lowering this cap would buy back seconds while leaving a sick
+     * person waiting twenty of them. Fetch the pages concurrently first, then re-measure before tuning
+     * anything here.
+     */
+    private static final int MAX_OPEN_NOW_CANDIDATES = 100;
     private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;
     /** HIRA 종별코드 for 요양병원 (long-term-care hospitals) — the stable code, not the label. */
     private static final String NURSING_HOSPITAL_CODE = "28";
-    /** The public API's maximum result count, keeping one map load within a bounded detail fan-out. */
+    /** The public API's maximum number of returned map pins. */
     public static final int MAX_FACILITY_RESULTS = 50;
 
     private final PharmacyApiClient pharmacyApiClient;
@@ -57,10 +86,7 @@ public class FacilityService {
         return findNearby(lat, lng, radiusMeters, openNow, type, MAX_FACILITY_RESULTS);
     }
 
-    /**
-     * Returns the nearest requested number of facilities. Hospital detail calls are bounded by the
-     * same public result limit because a dense HIRA radius otherwise creates one upstream call per row.
-     */
+    /** Returns the nearest requested number of facilities. */
     public List<Facility> findNearby(
             double lat, double lng, int radiusMeters, boolean openNow, FacilityType type, int limit) {
         return switch (type) {
@@ -76,8 +102,7 @@ public class FacilityService {
         Instant retrievedAt = now.toInstant();
 
         PharmacyApiClient.PharmacyBatch batch = pharmacyApiClient.findNear(lat, lng);
-        int candidateLimit =
-                openNow ? MAX_OPEN_NOW_PHARMACY_CANDIDATES : limit;
+        int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
         List<PharmacyApiClient.RawPharmacy> candidates =
                 batch.pharmacies().stream()
                 // The location API has no radius parameter and can return 100 rows. Filter before
@@ -207,19 +232,21 @@ public class FacilityService {
         // for acute care, so omit only that exact code before any detail call, matching the stable code
         // rather than the display label; unknown/other codes remain visible rather than guessed out.
         //
-        // Sort by distance and keep the API's requested nearest N *before* the fan-out: distance comes
-        // from the list, so we spend a detail call only on facilities that can appear in this response.
-        List<NearbyHospital> nearest =
+        // HIRA detail calls are per-ykiho. For an ordinary map load, inspect only pins that can be
+        // returned; for open-now, inspect a wider but fixed candidate set so a farther open hospital
+        // is not hidden behind nearer closed ones.
+        int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
+        List<NearbyHospital> candidates =
                 batch.hospitals().stream()
                         .map(h -> new NearbyHospital(h, hospitalDistanceMetres(h, lat, lng)))
                         .filter(h -> h.distanceMeters() <= radiusMeters)
                         .filter(h -> !NURSING_HOSPITAL_CODE.equals(h.raw().classificationCode()))
                         .sorted(Comparator.comparingDouble(NearbyHospital::distanceMeters))
-                        .limit(limit)
+                        .limit(candidateLimit)
                         .toList();
 
         return Parallel.map(
-                        nearest,
+                        candidates,
                         HOSPITAL_DETAIL_CONCURRENCY,
                         h ->
                                 toHospital(
@@ -232,6 +259,7 @@ public class FacilityService {
                 .stream()
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
                 .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .limit(limit)
                 .toList();
     }
 

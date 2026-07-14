@@ -13,15 +13,16 @@ tags: [facility, DEV-202, DEV-203, performance]
 The prior pharmacy path inspected every in-radius timetable before applying its returned-result
 `limit`. That preserved distant open pharmacies but made a cold request sequential and expensive.
 Moving `limit` ahead of the timetable lookup would reduce that fan-out but wrongly hide a farther
-open pharmacy. The two roles must therefore be separated. HIRA hospital details are also an N+1
-fan-out, but are substantially more expensive and already have a bounded nearest-result policy.
+open facility. The two roles must therefore be separated. HIRA hospital details are also an N+1
+fan-out, so their wider open-now candidate set must have a fixed safety cap.
 
 ## Goals / non-goals
 
-- **Goals:** Find a wider bounded set of open pharmacies; bound both upstream fan-outs; preserve
-  `isOpenNow: null` as unknown; state the intentional hospital trade-off in the contract.
+- **Goals:** Find a wider bounded set of open pharmacies and hospitals; bound both upstream
+  fan-outs; preserve `isOpenNow: null` as unknown; distinguish the returned-result limit from the
+  inspected candidate set.
 - **Non-goals:** Promise every open facility in an arbitrary radius; add pharmacy list pagination;
-  change HIRA hospital candidate selection; implement frontend loading or empty-state copy.
+  remove HIRA's bounded detail fan-out; implement frontend loading or empty-state copy.
 
 ## Requirements
 
@@ -33,11 +34,12 @@ fan-out, but are substantially more expensive and already have a bounded nearest
 - **FR-003:** Pharmacy weekly-timetable fetches MUST use bounded concurrency. A malformed or
   unavailable timetable MUST still produce the existing unknown/inferred status rules; it must not
   be guessed open or closed.
-- **FR-004:** Hospital requests MUST keep their existing nearest-`limit` detail-fetch bound before
-  `open_now` filtering. This is an intentional HIRA quota and latency trade-off, not an exhaustive
-  hospital-open search.
+- **FR-004:** For hospital requests with `open_now=false`, the service MUST inspect details only for
+  the nearest requested `limit` candidates. With `open_now=true`, it MUST inspect a distance-ranked,
+  fixed maximum of 100 eligible candidates before returning the nearest requested `limit` whose
+  operation is known to be open. Detail calls MUST remain bounded-concurrent.
 - **FR-005:** The API/spec documentation MUST distinguish returned-result `limit` from the bounded
-  pharmacy candidate set and describe the hospital asymmetry.
+  candidate set for both facility types.
 
 ## User scenarios
 
@@ -54,11 +56,13 @@ fan-out, but are substantially more expensive and already have a bounded nearest
 - **When** more than ten location rows are available
 - **Then** at most ten weekly-timetable calls are made and at most ten pins are returned.
 
-### Hospital detail budget remains bounded (P1)
+### Farther open hospital is discoverable within the safety cap (P1)
 
-- **Given** a dense HIRA radius and `limit=10`
-- **When** a user requests hospitals, including with `open_now=true`
-- **Then** at most ten eligible hospital detail calls are made before filtering.
+- **Given** the nearest requested hospital candidates are closed and a farther eligible candidate
+  within the first 100 is open
+- **When** a user requests hospitals with `open_now=true`
+- **Then** that farther hospital is eligible for the returned nearest-open results, and no more than
+  100 detail calls are made.
 
 ## Success criteria
 
@@ -67,8 +71,8 @@ fan-out, but are substantially more expensive and already have a bounded nearest
 - **SC-002:** A regression test proves pharmacy `open_now=false` does not fetch more timetables than
   its requested `limit`.
 - **SC-003:** A regression test proves pharmacy timetable concurrency is bounded.
-- **SC-004:** Existing hospital limit-before-detail tests remain green and the documented contract
-  explicitly names the non-exhaustive `open_now=true` hospital behavior.
+- **SC-004:** A regression test proves an open hospital beyond the first requested `limit` can be
+  returned by `open_now=true`, while the detail fan-out never exceeds 100 candidates.
 - **SC-005:** `cd backend && ./gradlew test` passes.
 
 ## Open questions
