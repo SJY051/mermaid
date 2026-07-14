@@ -6,6 +6,7 @@ import {
   loadPreferences,
   loadSavedFacilities,
   savePreferences,
+  setManualLocation,
   saveChatSession,
   saveSavedFacilities,
   type ChatSession,
@@ -92,6 +93,7 @@ describe('allergies are remembered only when the user said so', () => {
     rememberAllergies: false,
     allergies: ['ibuprofen', 'aspirin'],
     defaultRadiusM: 500,
+    manualLocation: null,
   }
 
   it('refuses to persist allergies when the toggle is off', () => {
@@ -119,6 +121,20 @@ describe('allergies are remembered only when the user said so', () => {
 
   it('defaults to not remembering', () => {
     expect(loadPreferences().rememberAllergies).toBe(false)
+  })
+})
+
+describe('manual location is a persistent user preference', () => {
+  it('survives a reload and clearing removes it', () => {
+    const manualLocation = { lat: 35.1796, lng: 129.0756, label: 'Chosen map spot' }
+
+    setManualLocation(manualLocation)
+    expect(loadPreferences().manualLocation).toEqual(manualLocation)
+    expect(loadPreferences().manualLocation).toEqual(manualLocation)
+
+    setManualLocation(null)
+    expect(loadPreferences().manualLocation).toBeNull()
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('35.1796')
   })
 })
 

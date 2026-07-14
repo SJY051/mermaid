@@ -105,7 +105,9 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
               </span>
               {operationLabel(facility)}
             </span>
-            <span className="text-secondary">{Math.round(facility.distanceMeters)} m away</span>
+            <span className="text-secondary">
+              {Math.round(facility.distanceMeters)} m from map centre
+            </span>
           </div>
 
           <div>

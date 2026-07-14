@@ -11,8 +11,14 @@ export interface FacilityMapProps {
   additionalFixtureData?: boolean
   /** Rendered above the map. The assistant's own words about why it opened. */
   caption?: string
-  /** Shown when the centre is a fallback rather than the user's position. */
+  /** Shown when the centre is not the device position. */
   notice?: string
+  /** Available only when the device did not provide the centre. */
+  manualLocation?: {
+    canClear: boolean
+    onUseSpot: (center: { lat: number; lng: number }) => void
+    onClear: () => void
+  }
 }
 
 /** `null` means "we could not tell", and it must never be drawn as "Closed" (spec §2-13). */
@@ -104,7 +110,7 @@ function markerButtonContent(facility: Facility, index: number, idPrefix: string
     `${glyph}</span>` +
     `<span id="${nameId}" lang="ko" style="${visuallyHidden}">${escapeHtml(facility.nameKo)}</span>` +
     `<span id="${detailId}" style="${visuallyHidden}">${kindLabel}, ${statusLabel}, ` +
-    `${Math.round(facility.distanceMeters)} metres away. Open details.</span>` +
+    `${Math.round(facility.distanceMeters)} metres from the map centre. Open details.</span>` +
     `</button>`
   )
 }
@@ -130,12 +136,14 @@ export function FacilityMap({
   additionalFixtureData = false,
   caption,
   notice,
+  manualLocation,
 }: FacilityMapProps) {
   const { containerRef, map, ready, error } = useNaverMap({ center, zoom })
   const markerIdPrefix = useId().replaceAll(':', '')
   const markersRef = useRef<naver.maps.Marker[]>([])
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null)
   const [markerError, setMarkerError] = useState<Error | null>(null)
+  const [choosingLocation, setChoosingLocation] = useState(false)
 
   const visibleError = error ?? markerError
   const hasFixtureData =
@@ -217,6 +225,30 @@ export function FacilityMap({
         </p>
       )}
 
+      {manualLocation && (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+            onClick={() => setChoosingLocation(true)}
+          >
+            Set your location
+          </button>
+          {manualLocation.canClear && (
+            <button
+              type="button"
+              className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+              onClick={() => {
+                setChoosingLocation(false)
+                manualLocation.onClear()
+              }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
       <div
         role="group"
         aria-label="Map marker legend"
@@ -263,6 +295,31 @@ export function FacilityMap({
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />
 
+        {choosingLocation && !visibleError && (
+          <>
+            <div
+              aria-label="Chosen map centre"
+              role="img"
+              className="pointer-events-none absolute left-1/2 top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-primary bg-surface/90 text-2xl font-light text-primary shadow"
+            >
+              <span aria-hidden="true">+</span>
+            </div>
+            <button
+              type="button"
+              disabled={!ready || !map}
+              className="absolute bottom-3 left-1/2 min-h-11 -translate-x-1/2 rounded bg-primary px-4 text-sm font-medium text-surface shadow disabled:opacity-50"
+              onClick={() => {
+                if (!map) return
+                const chosen = map.getCenter() as naver.maps.LatLng
+                manualLocation?.onUseSpot({ lat: chosen.lat(), lng: chosen.lng() })
+                setChoosingLocation(false)
+              }}
+            >
+              Use this spot
+            </button>
+          </>
+        )}
+
         {!ready && !visibleError && (
           <div
             data-testid="map-loading"
@@ -301,7 +358,7 @@ export function FacilityMap({
                 <span className="flex shrink-0 items-center gap-1">
                   <span aria-hidden="true" className="font-bold">{operationGlyph(facility)}</span>
                   {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
-                  {Math.round(facility.distanceMeters)}m
+                  {Math.round(facility.distanceMeters)}m from map centre
                 </span>
               </button>
             </li>

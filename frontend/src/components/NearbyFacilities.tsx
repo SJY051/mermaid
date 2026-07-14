@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { FacilityMap } from './FacilityMap'
-import { fetchFacilities, resolveLocation, type ResolvedLocation } from '../lib/facilities'
+import {
+  fetchFacilities,
+  locationNotice,
+  resolveLocation,
+  SEOUL_CITY_HALL,
+  type ResolvedLocation,
+} from '../lib/facilities'
+import { setManualLocation } from '../lib/storage'
 import type { Facility, FacilityType } from '../lib/types'
 
 export interface NearbyFacilitiesProps {
@@ -29,19 +36,33 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
 
   useEffect(() => {
     let cancelled = false
-    const controller = new AbortController()
 
     resolveLocation()
       .then((resolved) => {
-        if (cancelled) return
-        setLocation(resolved)
-        return fetchFacilities(
-          { lat: resolved.lat, lng: resolved.lng, radiusM, openNow, type },
-          controller.signal,
-        )
+        if (!cancelled) setLocation(resolved)
       })
+      .catch((e: Error) => {
+        if (!cancelled && e.name !== 'AbortError') setError(e.message)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!location) return
+    let cancelled = false
+    const controller = new AbortController()
+
+    setFacilities([])
+    setError(null)
+    fetchFacilities(
+      { lat: location.lat, lng: location.lng, radiusM, openNow, type },
+      controller.signal,
+    )
       .then((found) => {
-        if (!cancelled && found) setFacilities(found)
+        if (!cancelled) setFacilities(found)
       })
       .catch((e: Error) => {
         if (!cancelled && e.name !== 'AbortError') setError(e.message)
@@ -51,7 +72,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       cancelled = true
       controller.abort()
     }
-  }, [type, radiusM, openNow])
+  }, [location, type, radiusM, openNow])
 
   if (!location) {
     return <p className="text-sm text-secondary">Finding your location…</p>
@@ -60,16 +81,31 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
   const plural = type === 'pharmacy' ? 'pharmacies' : 'hospitals'
   const caption = `${plural} within ${radiusM}m${openNow ? ', open now' : ''}`
 
+  function useManualLocation(center: { lat: number; lng: number }) {
+    setManualLocation({ ...center, label: 'Chosen map spot' })
+    setLocation({ ...center, source: 'manual' })
+  }
+
+  function clearManualLocation() {
+    setManualLocation(null)
+    setLocation({ ...SEOUL_CITY_HALL, source: 'fallback' })
+  }
+
   return (
     <div className="space-y-2">
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
         facilities={facilities}
         caption={caption}
-        notice={
-          location.fromDevice
+        notice={locationNotice(location)}
+        manualLocation={
+          location.source === 'device'
             ? undefined
-            : 'Centred on Seoul City Hall — we could not read your location, so these are not near you.'
+            : {
+                canClear: location.source === 'manual',
+                onUseSpot: useManualLocation,
+                onClear: clearManualLocation,
+              }
         }
       />
 
