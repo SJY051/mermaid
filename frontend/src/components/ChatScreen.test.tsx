@@ -529,38 +529,69 @@ describe('allergen picker (spec 005 FR-014)', () => {
     expect(screen.queryByRole('button', { name: /^ask$/i })).not.toBeInTheDocument()
   })
 
-  it('reload restores verified selections, unverified chips, and the uncovered-declaration lock', async () => {
+  it('reload keeps the unverifiable-allergy lock set by dismiss', async () => {
+    // The lock is only ever set by "My allergy isn't listed" (dismiss). It must survive a reload:
+    // a restored conversation whose lock was dropped could resume retrieval on an incomplete list.
     serveAllergenOptions()
-    streamChatMock
-      .mockReturnValueOnce(completedStream(clarificationAnswer))
-      .mockReturnValueOnce(completedStream(clarificationAnswer))
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
     const first = renderChat()
-    const user = await ask('I am allergic to ibuprofen')
-    const initial = await screen.findByRole('dialog', { name: /tell us your allergy/i })
-    await user.click(within(initial).getByRole('checkbox', { name: 'Ibuprofen' }))
-    await user.type(within(initial).getByRole('combobox', { name: 'Allergy name' }), 'Yellow dye')
-    await user.click(within(initial).getByRole('button', { name: 'Add allergy' }))
-    await user.click(within(initial).getByRole('button', { name: 'Use selected allergies' }))
-
-    await user.type(screen.getByRole('textbox'), 'I am also allergic to something else')
-    await user.click(screen.getByRole('button', { name: /ask/i }))
-    const pending = await screen.findByRole('dialog', { name: /tell us your allergy/i })
-    await user.click(within(pending).getByRole('button', { name: 'Remove Yellow dye' }))
-    await user.click(within(pending).getByRole('button', { name: 'Use selected allergies' }))
-
-    expect(loadChatSession()).toEqual(
-      expect.objectContaining({
-        allergies: ['ibuprofen'],
-        unverifiedAllergens: ['Yellow dye'],
-        unverifiableAllergy: true,
-      }),
-    )
+    const user = await ask('I am allergic to something not in the list')
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    await user.click(within(picker).getByRole('button', { name: 'Cancel' }))
+    expect(loadChatSession().unverifiableAllergy).toBe(true)
 
     first.unmount()
     renderChat()
-
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.getByText(/isn.t in our list/i)).toBeInTheDocument()
+  })
+
+  it('re-stating an already-covered allergy confirms without locking (P1)', async () => {
+    // ibuprofen is already selected; a new question repeats the allergy, so the backend reopens
+    // the clarification (current turn declares). The picker is prefilled; confirming adds no NEW
+    // key, but it must proceed on the existing list — restating a known allergy must not end
+    // drug lookup (that would block care for anyone who mentions their allergy again).
+    sessionStorage.setItem(
+      'mermaid.chatSession.v1',
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          sessionId: 's1',
+          messages: [],
+          allergies: ['ibuprofen'],
+          unverifiedAllergens: [],
+          unverifiableAllergy: false,
+        },
+      }),
+    )
+    serveAllergenOptions()
+    streamChatMock.mockReturnValue(completedStream(clarificationAnswer))
+    renderChat()
+    const user = userEvent.setup()
+
+    // Restated allergy → clarification → prefilled picker.
+    await user.type(screen.getByRole('textbox'), 'I am allergic to ibuprofen, what can I take?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+    expect(within(picker).getByRole('checkbox', { name: 'Ibuprofen' })).toBeChecked()
+
+    // Confirm with no change — must NOT lock.
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+    expect(loadChatSession().unverifiableAllergy).toBe(false)
+    expect(screen.queryByText(/isn.t in our list/i)).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+  })
+
+  it('renders the answer-level warning so a name-only allergy check is visible (P1)', async () => {
+    // The server appends its unverified-allergen caveat to answer.warnings. If the UI only renders
+    // per-drug-card warnings, the caveat is invisible when no card name-matches, and a name-only
+    // check reads as a full one (§2-2).
+    const caveat = 'The named allergens were checked by name only; a pharmacist must confirm.'
+    const answered = JSON.stringify({ ...JSON.parse(validAnswer), warnings: [caveat] })
+    streamChatMock.mockReturnValue(completedStream(answered))
+    renderChat()
+    await ask('What can I take for a headache?')
+    expect(await screen.findByText(caveat)).toBeInTheDocument()
   })
 
   it('restores unverified chips across a reload and sends them on the next request (P0)', async () => {

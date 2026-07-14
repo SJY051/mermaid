@@ -95,6 +95,20 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
 
       <p className="whitespace-pre-wrap text-primary">{answer.summary}</p>
 
+      {/* Answer-level warnings — the server-authored unverified-allergen caveat lands here (§2-2,
+          FR-017). It must be visible even when no drug card carries a per-card warning, or a
+          name-only allergy check reads as a full one. role=status so a screen reader hears it. */}
+      {answer.warnings.length > 0 && (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded border border-[#e0a800] bg-surface p-3 text-sm text-primary"
+        >
+          {answer.warnings.map((warning, index) => (
+            <p key={index}>{warning}</p>
+          ))}
+        </div>
+      )}
+
       {/* TODO(team): proper medication cards with dosage pictograms — DEV-308 */}
       {answer.drugs.map((drug) => (
         <Card key={drug.id}>
@@ -195,13 +209,11 @@ export function ChatScreen() {
   }
 
   function confirmSelectedAllergies(keys: string[], unverified: string[]) {
-    const coversDeclaration =
-      keys.some((key) => !allergies.includes(key)) ||
-      unverified.some((allergen) => !unverifiedAllergens.includes(allergen))
-    if (clarificationNeedsSelection && !coversDeclaration) {
-      dismissAllergenPicker()
-      return
-    }
+    // Confirming is the user asserting "this list — selections plus unverified chips — is my
+    // allergies". It covers the declaration whether or not it added a NEW entry: re-stating an
+    // already-selected allergy (ibuprofen selected, then "…and I'm allergic to ibuprofen") must
+    // proceed on the existing list, not lock the conversation. Only "My allergy isn't listed"
+    // (dismiss) declares something the list cannot express and ends lookup.
     confirmAllergies(keys, unverified)
     // Confirming answers the current clarification: close the picker until a LATER one arrives.
     // The composer takes the picker's place again on the next render — its reappearance is the
