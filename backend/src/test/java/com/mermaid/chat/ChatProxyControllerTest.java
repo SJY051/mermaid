@@ -9,6 +9,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.DrugContextRetriever.GroundedDrug;
@@ -120,6 +121,12 @@ class ChatProxyControllerTest {
         return req;
     }
 
+    private JsonNode requestWithUnverifiedAllergen(String userText, String allergen) {
+        ObjectNode request = (ObjectNode) request(userText);
+        request.putObject("mermaid").putArray("unverified_allergens").add(allergen);
+        return request;
+    }
+
     @SuppressWarnings("unchecked")
     private MermAidAnswer answerOf(Object response) throws Exception {
         JsonNode body = ((ResponseEntity<JsonNode>) response).getBody();
@@ -145,6 +152,25 @@ class ChatProxyControllerTest {
         assertThat(answer.answerId()).isEqualTo("allergy-clarification");
         assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
         assertThat(answer.drugs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("FR-017: the server appends the unverified-allergen caveat to every final answer")
+    void unverifiedAllergensAlwaysAppendServerCaveat() throws Exception {
+        String replyWithModelWarning = modelAnswer("[]", "[]")
+                .replace("\"warnings\":[]", "\"warnings\":[\"Model warning\"]");
+
+        MermAidAnswer answer = answerOf(controller(replyWithModelWarning, emptyContext())
+                .completions(requestWithUnverifiedAllergen("can I take this?", "Yellow dye")));
+
+        assertThat(answer.warnings())
+                .containsExactly("Model warning", ChatProxyController.UNVERIFIED_ALLERGEN_CAVEAT);
+        assertThat(String.join(" ", answer.warnings())).doesNotContain("safe");
+
+        MermAidAnswer emergency = answerOf(controller(replyWithModelWarning, emptyContext())
+                .completions(requestWithUnverifiedAllergen(
+                        "I have crushing chest pain and cannot breathe", "Yellow dye")));
+        assertThat(emergency.warnings()).contains(ChatProxyController.UNVERIFIED_ALLERGEN_CAVEAT);
     }
 
     private static String drugCard(String productNameKo, String sourceRefId) {

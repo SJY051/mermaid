@@ -24,6 +24,7 @@ const session: ChatSession = {
   sessionId: 's1',
   messages: [{ id: 'm1', role: 'user', content: 'I have a rash on my chest', createdAt: '2026-07-10T12:00:00Z' }],
   allergies: ['ibuprofen'],
+  unverifiedAllergens: ['yellow dye'],
   unverifiableAllergy: false,
 }
 
@@ -48,6 +49,7 @@ describe('a consultation transcript never touches localStorage', () => {
       .join('\n')
     expect(everythingPersisted).not.toContain('rash')
     expect(everythingPersisted).not.toContain('ibuprofen')
+    expect(everythingPersisted).not.toContain('yellow dye')
   })
 
   it('round-trips and clears', () => {

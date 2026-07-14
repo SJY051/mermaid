@@ -47,10 +47,13 @@ describe('the openai client points somewhere a browser can actually reach', () =
 })
 
 describe('the mermAid request extension', () => {
-  it('puts excluded ingredients in the top-level mermaid request field', async () => {
+  it('puts verified and unverified allergens in the top-level mermaid request field', async () => {
     const messages = [{ role: 'user', content: 'What can I take?' }] as const
     const extension = {
-      mermaid: { exclude_ingredients: ['ibuprofen', 'acetylsalicylic-acid'] },
+      mermaid: {
+        exclude_ingredients: ['ibuprofen', 'acetylsalicylic-acid'],
+        unverified_allergens: ['Yellow dye'],
+      },
     }
     const create = vi.spyOn(openai.chat.completions, 'create').mockResolvedValue({
       async *[Symbol.asyncIterator]() {
@@ -67,7 +70,10 @@ describe('the mermAid request extension', () => {
         model: 'mermaid-default',
         messages,
         stream: true,
-        mermaid: { exclude_ingredients: ['ibuprofen', 'acetylsalicylic-acid'] },
+        mermaid: {
+          exclude_ingredients: ['ibuprofen', 'acetylsalicylic-acid'],
+          unverified_allergens: ['Yellow dye'],
+        },
       },
       { signal: undefined },
     )

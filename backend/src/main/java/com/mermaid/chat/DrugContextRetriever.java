@@ -3,6 +3,7 @@ package com.mermaid.chat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
 import com.mermaid.drug.DrugService;
@@ -11,9 +12,11 @@ import com.mermaid.drug.DrugService.RetrievedContext;
 import com.mermaid.drug.IngredientNormalizer;
 import com.mermaid.drug.domain.Drug;
 import com.mermaid.drug.domain.DurWarning;
+import com.mermaid.profile.domain.MatchConfidence;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,14 +75,15 @@ public class DrugContextRetriever {
      *     requests; that boundary belongs to the first-party send-every-turn obligation, not to
      *     this scan. Server-owned pending-allergy state is out of scope on purpose: transcripts
      *     stay off the server (§2-5).
-     * @param exclusions the structured {@code mermaid.exclude_ingredients} field: the raw terms,
-     *     plus whether the parser had to drop any (bounds). By contract the client sends the
-     *     COMPLETE list; it is the only channel that may authorize retrieval under a declared
-     *     allergy — so a list we do not hold in full authorizes nothing.
+     * @param exclusions the two structured allergen fields, plus whether the parser had to drop any
+     *     entry. Verified terms alone enter the avoided set; unverified names only annotate retrieved
+     *     products. By contract the client sends both complete lists, so a list we do not hold in
+     *     full authorizes nothing.
      */
     public DrugContext retrieve(
             String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
         Set<String> excludedIngredients = exclusions.terms();
+        Set<String> unverifiedAllergens = exclusions.unverifiedTerms();
         // The allergy gate runs BEFORE the extractor, like EmergencyTriage runs before the model:
         // a turn that fails closed must not depend on — or pay for — a model call.
         //
@@ -93,7 +97,10 @@ public class DrugContextRetriever {
         boolean currentTurnDeclares = AllergyDeclaration.presentIn(userText);
         boolean anyTurnDeclares = currentTurnDeclares || AllergyDeclaration.presentIn(allUserText);
         boolean allergyDeclared =
-                anyTurnDeclares || !excludedIngredients.isEmpty() || exclusions.incomplete();
+                anyTurnDeclares
+                        || !excludedIngredients.isEmpty()
+                        || !unverifiedAllergens.isEmpty()
+                        || exclusions.incomplete();
 
         Set<String> avoidedKeys = new HashSet<>();
         List<String> unresolved = new ArrayList<>();
@@ -116,7 +123,8 @@ public class DrugContextRetriever {
         //    list is absent or has any entry no signed row resolves (FR-004/FR-013).
         if (currentTurnDeclares
                 || exclusions.incomplete()
-                || (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty()))) {
+                || !unresolved.isEmpty()
+                || (anyTurnDeclares && avoidedKeys.isEmpty() && unverifiedAllergens.isEmpty())) {
             log.info(
                     "Allergy declared (currentTurn={}, structuredIncomplete={}, resolved={},"
                             + " unresolved={}) — returning server clarification",
@@ -143,6 +151,8 @@ public class DrugContextRetriever {
         long extractedAt = System.nanoTime();
 
         RetrievedContext retrieved = drugService.retrieve(query, avoidedKeys);
+        List<Drug> checkedDrugs = applyUnverifiedWarnings(retrieved.drugs(), unverifiedAllergens);
+        retrieved = new RetrievedContext(checkedDrugs, retrieved.allowedProductNames(), retrieved.sources());
         // Cold, the retrieval is roughly thirty sequential calls to 식약처. Warm, Redis answers.
         // Both numbers belong in the log; the gap between them is the case for parallelising.
         log.info("RAG pass 1: terms={}/{} → {} drug(s). extract {}ms, retrieve {}ms",
@@ -151,6 +161,56 @@ public class DrugContextRetriever {
 
         return new DrugContext(
                 render(retrieved, allergyDeclared), groundedDrugs(retrieved.drugs()), retrieved.sources());
+    }
+
+    private List<Drug> applyUnverifiedWarnings(List<Drug> drugs, Set<String> unverifiedAllergens) {
+        if (unverifiedAllergens.isEmpty()) {
+            return drugs;
+        }
+        return drugs.stream().map(drug -> applyUnverifiedWarning(drug, unverifiedAllergens)).toList();
+    }
+
+    private Drug applyUnverifiedWarning(Drug drug, Set<String> unverifiedAllergens) {
+        if (drug.allergyCheck().status() == AllergyCheck.Status.BLOCKED) {
+            return drug;
+        }
+
+        Set<String> matchedIngredients = new LinkedHashSet<>();
+        Set<String> matchedNames = new LinkedHashSet<>();
+        for (String ingredient : drug.ingredientsEn()) {
+            for (String unverified : unverifiedAllergens) {
+                String unverifiedKey = normalizer.canonicalize(unverified);
+                if (normalizer.compare(ingredient, unverifiedKey) != MatchConfidence.UNKNOWN) {
+                    matchedIngredients.add(ingredient);
+                    matchedNames.add(unverified);
+                }
+            }
+        }
+        if (matchedIngredients.isEmpty()) {
+            return drug;
+        }
+
+        AllergyCheck warning = new AllergyCheck(
+                AllergyCheck.Status.WARNING,
+                List.copyOf(matchedIngredients),
+                "Name match only: "
+                        + String.join(", ", matchedIngredients)
+                        + " matched the unverified allergen name "
+                        + String.join(", ", matchedNames)
+                        + ". A pharmacist must confirm this match.");
+        return new Drug(
+                drug.id(),
+                drug.itemSeq(),
+                drug.nameKo(),
+                drug.nameEn(),
+                drug.manufacturerKo(),
+                drug.ingredientsEn(),
+                drug.mainIngredientKo(),
+                drug.prescriptionStatus(),
+                drug.narrative(),
+                drug.durWarnings(),
+                warning,
+                drug.source());
     }
 
     private Map<String, GroundedDrug> groundedDrugs(List<Drug> drugs) {

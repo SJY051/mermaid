@@ -8,9 +8,11 @@ import com.mermaid.chat.AnswerValidator.ViolationCode;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -38,6 +40,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class ChatProxyController {
 
     private static final long STREAM_TIMEOUT_MS = 120_000L;
+    static final String UNVERIFIED_ALLERGEN_CAVEAT =
+            "The named allergens were checked by name only; a pharmacist must confirm.";
 
     private final ChatProxyService chatProxyService;
     private final DrugContextRetriever drugContextRetriever;
@@ -68,7 +72,9 @@ public class ChatProxyController {
         var redFlag = emergencyTriage.screen(ChatProxyService.userMessagesForSafety(request));
         if (redFlag.isPresent()) {
             log.warn("Emergency triage fired: {} — answering without calling the model", redFlag.get());
-            return respond(emergencyTriage.emergencyAnswer(redFlag.get()), stream);
+            return respond(withUnverifiedAllergenCaveat(
+                    emergencyTriage.emergencyAnswer(redFlag.get()),
+                    MermaidRequestExtension.excludedIngredients(request).unverifiedTerms()), stream);
         }
 
         return respond(answer(request), stream);
@@ -132,12 +138,20 @@ public class ChatProxyController {
      * retrieved nothing, and useless.
      */
     private MermAidAnswer answer(JsonNode request) {
+        MermaidRequestExtension.StructuredExclusions exclusions =
+                MermaidRequestExtension.excludedIngredients(request);
+        return withUnverifiedAllergenCaveat(
+                answer(request, exclusions), exclusions.unverifiedTerms());
+    }
+
+    private MermAidAnswer answer(
+            JsonNode request, MermaidRequestExtension.StructuredExclusions exclusions) {
         String userText = ChatProxyService.lastUserMessage(request);
         DrugContext context =
                 drugContextRetriever.retrieve(
                         userText,
                         ChatProxyService.userMessagesForSafety(request),
-                        MermaidRequestExtension.excludedIngredients(request));
+                        exclusions);
         if (context.directAnswer().isPresent()) {
             return context.directAnswer().orElseThrow();
         }
@@ -187,6 +201,34 @@ public class ChatProxyController {
                             + "Please describe your symptoms again, or visit a pharmacy.");
         }
         return coerced;
+    }
+
+    private static MermAidAnswer withUnverifiedAllergenCaveat(
+            MermAidAnswer answer, Set<String> unverifiedAllergens) {
+        if (unverifiedAllergens.isEmpty()) {
+            return answer;
+        }
+        List<String> warnings = new ArrayList<>();
+        if (answer.warnings() != null) {
+            warnings.addAll(answer.warnings());
+        }
+        if (!warnings.contains(UNVERIFIED_ALLERGEN_CAVEAT)) {
+            warnings.add(UNVERIFIED_ALLERGEN_CAVEAT);
+        }
+        return new MermAidAnswer(
+                answer.schemaVersion(),
+                answer.answerId(),
+                answer.language(),
+                answer.dataStatus(),
+                answer.urgency(),
+                answer.summary(),
+                answer.clarifyingQuestions(),
+                answer.guidance(),
+                answer.drugs(),
+                answer.uiActions(),
+                answer.sourceRefs(),
+                List.copyOf(warnings),
+                answer.disclaimer());
     }
 
     private static Map<ViolationCode, Integer> violationCounts(List<ViolationCode> violations) {

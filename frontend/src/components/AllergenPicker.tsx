@@ -9,7 +9,8 @@ interface AllergenOption {
 
 interface AllergenPickerProps {
   initialSelectedKeys: string[]
-  onConfirm: (keys: string[]) => void
+  initialUnverifiedAllergens: string[]
+  onConfirm: (keys: string[], unverified: string[]) => void
   onDismiss: () => void
 }
 
@@ -21,11 +22,14 @@ function isAllergenOption(value: unknown): value is AllergenOption {
 
 export function AllergenPicker({
   initialSelectedKeys,
+  initialUnverifiedAllergens,
   onConfirm,
   onDismiss,
 }: AllergenPickerProps) {
   const [options, setOptions] = useState<AllergenOption[] | null>(null)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set(initialSelectedKeys))
+  const [unverifiedAllergens, setUnverifiedAllergens] = useState(initialUnverifiedAllergens)
+  const [typedAllergen, setTypedAllergen] = useState('')
 
   useEffect(() => {
     let active = true
@@ -58,6 +62,7 @@ export function AllergenPicker({
   }, [])
 
   if (!options?.length) return null
+  const availableOptions = options
 
   function setSelected(key: string, checked: boolean) {
     setSelectedKeys((current) => {
@@ -66,6 +71,25 @@ export function AllergenPicker({
       else next.delete(key)
       return next
     })
+  }
+
+  function addTypedAllergen() {
+    const typed = typedAllergen.trim()
+    if (!typed) return
+
+    const folded = typed.toLocaleLowerCase()
+    const resolved = availableOptions.find(
+      (option) =>
+        option.key.toLocaleLowerCase() === folded || option.label.toLocaleLowerCase() === folded,
+    )
+    if (resolved) {
+      setSelected(resolved.key, true)
+    } else {
+      setUnverifiedAllergens((current) =>
+        current.some((item) => item.toLocaleLowerCase() === folded) ? current : [...current, typed],
+      )
+    }
+    setTypedAllergen('')
   }
 
   return (
@@ -85,7 +109,7 @@ export function AllergenPicker({
         </div>
 
         <div className="flex flex-col gap-2">
-          {options.map((option) => (
+          {availableOptions.map((option) => (
             <CheckboxInput
               key={option.key}
               label={option.label}
@@ -96,18 +120,84 @@ export function AllergenPicker({
           ))}
         </div>
 
+        <div className="flex flex-col gap-2">
+          <label htmlFor="unlisted-allergen" className="text-sm font-medium text-primary">
+            Allergy name
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              id="unlisted-allergen"
+              list="allergen-options"
+              className="min-h-11 flex-1 rounded border border-primary bg-surface px-3 text-primary"
+              value={typedAllergen}
+              onChange={(event) => setTypedAllergen(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  addTypedAllergen()
+                }
+              }}
+            />
+            <datalist id="allergen-options">
+              {availableOptions.map((option) => (
+                <option key={option.key} value={option.label} />
+              ))}
+            </datalist>
+            <Button
+              label="Add allergy"
+              variant="secondary"
+              isDisabled={!typedAllergen.trim()}
+              onClick={addTypedAllergen}
+            />
+          </div>
+          <p className="text-xs text-secondary">
+            Names outside this list can produce name-match warnings only; a pharmacist can fully
+            check them.
+          </p>
+        </div>
+
+        {unverifiedAllergens.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label="Unverified allergies">
+            {unverifiedAllergens.map((allergen) => (
+              <span
+                key={allergen.toLocaleLowerCase()}
+                className="inline-flex items-center gap-2 rounded border border-primary bg-surface px-3 py-2 text-sm text-primary"
+              >
+                <span>
+                  {allergen} — name-match warnings only — a pharmacist can fully check this one
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${allergen}`}
+                  className="min-h-8 min-w-8 rounded border border-primary"
+                  onClick={() =>
+                    setUnverifiedAllergens((current) =>
+                      current.filter((item) => item !== allergen),
+                    )
+                  }
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <Button
             label="Use selected allergies"
             variant="primary"
-            isDisabled={selectedKeys.size === 0}
+            isDisabled={selectedKeys.size === 0 && unverifiedAllergens.length === 0}
             onClick={() =>
               onConfirm(
-                options.flatMap((option) => (selectedKeys.has(option.key) ? [option.key] : [])),
+                availableOptions.flatMap((option) =>
+                  selectedKeys.has(option.key) ? [option.key] : [],
+                ),
+                unverifiedAllergens,
               )
             }
           />
-          <Button label="My allergy isn't listed" variant="secondary" onClick={onDismiss} />
+          <Button label="Cancel" variant="secondary" onClick={onDismiss} />
         </div>
       </div>
     </section>

@@ -141,6 +141,7 @@ export function ChatScreen() {
     sendError,
     latestAnswer,
     allergies,
+    unverifiedAllergens,
     unverifiableAllergy,
     send,
     confirmAllergies,
@@ -164,7 +165,7 @@ export function ChatScreen() {
     latestAnswer?.answerId === 'allergy-clarification' &&
     latestAnswer !== handledClarification
   const pickerOpen = editingAllergies || clarificationNeedsSelection
-  const composerPlaceholder = allergies.length
+  const composerPlaceholder = allergies.length || unverifiedAllergens.length
     ? 'Ask your question again — answers will avoid your selected ingredients.'
     : "I have a sore throat and a fever, and it's 11pm."
 
@@ -193,8 +194,15 @@ export function ChatScreen() {
     setEditingAllergies(false)
   }
 
-  function confirmSelectedAllergies(keys: string[]) {
-    confirmAllergies(keys)
+  function confirmSelectedAllergies(keys: string[], unverified: string[]) {
+    const coversDeclaration =
+      keys.some((key) => !allergies.includes(key)) ||
+      unverified.some((allergen) => !unverifiedAllergens.includes(allergen))
+    if (clarificationNeedsSelection && !coversDeclaration) {
+      dismissAllergenPicker()
+      return
+    }
+    confirmAllergies(keys, unverified)
     // Confirming answers the current clarification: close the picker until a LATER one arrives.
     // The composer takes the picker's place again on the next render — its reappearance is the
     // cue to ask again, so no explicit focus call (which would race that remount) is needed.
@@ -203,13 +211,13 @@ export function ChatScreen() {
   }
 
   function dismissAllergenPicker() {
-    // "My allergy isn't listed" — the one allergen the user needs is not one we can bind, so no
-    // medicine in this conversation can be checked against it. End lookup rather than proceed on
-    // an incomplete list (the 3rd-P0 fix: a stale/partial list must not read as a complete one).
-    // The lock is persisted in the session so a reload cannot lift it (the 5th-P0 fix).
     setHandledClarification(latestAnswer)
     setEditingAllergies(false)
-    declareUnverifiableAllergy()
+    if (clarificationNeedsSelection) {
+      // Closing a clarification without adding an item leaves the new declaration uncovered.
+      // Persist the lock so reload cannot silently resume on the older, incomplete lists.
+      declareUnverifiableAllergy()
+    }
   }
 
   // Drug lookup ended for this conversation: an allergy we cannot verify was declared.
@@ -233,6 +241,7 @@ export function ChatScreen() {
     <div className="px-3 pb-2">
       <AllergenPicker
         initialSelectedKeys={allergies}
+        initialUnverifiedAllergens={unverifiedAllergens}
         onConfirm={confirmSelectedAllergies}
         onDismiss={dismissAllergenPicker}
       />
@@ -241,7 +250,7 @@ export function ChatScreen() {
 
   const composerPanel = (
     <div className="flex flex-col gap-2 pb-2">
-      {allergies.length > 0 && (
+      {(allergies.length > 0 || unverifiedAllergens.length > 0) && (
         <div className="flex justify-end px-3">
           <Button
             label="Edit allergy list"

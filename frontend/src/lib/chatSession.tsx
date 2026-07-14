@@ -27,10 +27,11 @@ interface ChatSessionContextValue {
   emergencyActive: boolean
   latestAnswer: MermAidAnswer | null
   allergies: string[]
+  unverifiedAllergens: string[]
   /** Drug lookup is ended for this conversation: an allergy we cannot bind was declared. */
   unverifiableAllergy: boolean
   send: (text: string) => Promise<void>
-  confirmAllergies: (keys: string[]) => void
+  confirmAllergies: (keys: string[], unverified: string[]) => void
   declareUnverifiableAllergy: () => void
   newConversation: () => void
 }
@@ -81,8 +82,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       : [],
   )
   const [initialUnverifiable] = useState(() => initialSession.unverifiableAllergy === true)
+  const [initialUnverifiedAllergens] = useState(() =>
+    Array.isArray(initialSession.unverifiedAllergens)
+      ? initialSession.unverifiedAllergens.filter(
+          (allergen): allergen is string => typeof allergen === 'string',
+        )
+      : [],
+  )
   const [turns, setTurns] = useState<ChatTurn[]>(restored.turns)
   const [allergies, setAllergies] = useState(initialAllergies)
+  const [unverifiedAllergens, setUnverifiedAllergens] = useState(initialUnverifiedAllergens)
   const [unverifiableAllergy, setUnverifiableAllergyState] = useState(initialUnverifiable)
   const [streaming, setStreaming] = useState(false)
   const [elapsedS, setElapsedS] = useState(0)
@@ -91,6 +100,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     ...initialSession,
     messages: restored.messages,
     allergies: initialAllergies,
+    unverifiedAllergens: initialUnverifiedAllergens,
     unverifiableAllergy: initialUnverifiable,
   })
   const conversationRef = useRef(0)
@@ -147,13 +157,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       try {
         let latest = ''
-        const requestExtension = sessionRef.current.allergies.length
-          ? {
-              mermaid: {
-                exclude_ingredients: [...sessionRef.current.allergies],
-              },
-            }
-          : undefined
+        const requestExtension =
+          sessionRef.current.allergies.length || sessionRef.current.unverifiedAllergens.length
+            ? {
+                mermaid: {
+                  ...(sessionRef.current.allergies.length
+                    ? { exclude_ingredients: [...sessionRef.current.allergies] }
+                    : {}),
+                  ...(sessionRef.current.unverifiedAllergens.length
+                    ? { unverified_allergens: [...sessionRef.current.unverifiedAllergens] }
+                    : {}),
+                },
+              }
+            : undefined
         const response = requestExtension
           ? streamChat(messages, undefined, requestExtension)
           : streamChat(messages)
@@ -203,10 +219,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   )
 
   const confirmAllergies = useCallback(
-    (keys: string[]) => {
+    (keys: string[], unverified: string[]) => {
       const confirmed = [...keys]
-      sessionRef.current = { ...sessionRef.current, allergies: confirmed }
+      const unverifiedNames = [...unverified]
+      sessionRef.current = {
+        ...sessionRef.current,
+        allergies: confirmed,
+        unverifiedAllergens: unverifiedNames,
+      }
       setAllergies(confirmed)
+      setUnverifiedAllergens(unverifiedNames)
       persistSession()
     },
     [persistSession],
@@ -223,9 +245,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const newConversation = useCallback(() => {
     conversationRef.current += 1
     turnsRef.current = []
-    sessionRef.current = { sessionId: '', messages: [], allergies: [], unverifiableAllergy: false }
+    sessionRef.current = {
+      sessionId: '',
+      messages: [],
+      allergies: [],
+      unverifiedAllergens: [],
+      unverifiableAllergy: false,
+    }
     setTurns([])
     setAllergies([])
+    setUnverifiedAllergens([])
     setUnverifiableAllergyState(false)
     setStreaming(false)
     clearChatSession()
@@ -245,6 +274,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         emergencyActive,
         latestAnswer,
         allergies,
+        unverifiedAllergens,
         unverifiableAllergy,
         send,
         confirmAllergies,
