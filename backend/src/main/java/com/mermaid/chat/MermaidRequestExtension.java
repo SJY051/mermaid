@@ -51,11 +51,29 @@ final class MermaidRequestExtension {
         static final StructuredExclusions NONE = new StructuredExclusions(Set.of(), false);
     }
 
-    /** Raw, unnormalised ingredient strings as the user typed them. Never null. */
+    /**
+     * Raw, unnormalised ingredient strings as the user typed them. Never null.
+     *
+     * <p>Every level of the path follows one rule: absent (or an explicit JSON {@code null}, the
+     * idiom for "none") is a complete empty list, but a level that is PRESENT in the wrong shape —
+     * a string or object where the extension or the array should be — is the same
+     * serialization-loss case as a non-textual entry. It may be a mangled list carrying an
+     * allergen we cannot see, so it flags {@code incomplete} and the gate clarifies.
+     */
     static StructuredExclusions excludedIngredients(JsonNode clientRequest) {
-        JsonNode node = clientRequest.path(FIELD).path(EXCLUDE_INGREDIENTS);
-        if (!node.isArray()) {
+        JsonNode extension = clientRequest.path(FIELD);
+        if (extension.isMissingNode() || extension.isNull()) {
             return StructuredExclusions.NONE;
+        }
+        if (!extension.isObject()) {
+            return new StructuredExclusions(Set.of(), true);
+        }
+        JsonNode node = extension.path(EXCLUDE_INGREDIENTS);
+        if (node.isMissingNode() || node.isNull()) {
+            return StructuredExclusions.NONE;
+        }
+        if (!node.isArray()) {
+            return new StructuredExclusions(Set.of(), true);
         }
         Set<String> terms = new LinkedHashSet<>();
         boolean incomplete = false;

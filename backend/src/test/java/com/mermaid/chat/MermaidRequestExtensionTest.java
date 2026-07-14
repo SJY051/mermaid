@@ -104,4 +104,36 @@ class MermaidRequestExtensionTest {
         assertThat(parsed.terms()).isEmpty();
         assertThat(parsed.incomplete()).isFalse();
     }
+
+    @Test
+    @DisplayName("a present field in the wrong shape flags incomplete — at every level")
+    void wrongShapeAtAnyLevelFlagsIncomplete() {
+        // "exclude_ingredients": "Ibuprofen" — a mangled list whose one allergen we cannot read
+        // as a list. Returning NONE here would let "can I take 부루펜?" retrieve unguarded.
+        ObjectNode stringField = mapper.createObjectNode();
+        stringField.putObject("mermaid").put("exclude_ingredients", "Ibuprofen");
+        assertThat(MermaidRequestExtension.excludedIngredients(stringField).incomplete()).isTrue();
+
+        // "exclude_ingredients": {"name": "Ibuprofen"} — same loss, object shape.
+        ObjectNode objectField = mapper.createObjectNode();
+        objectField.putObject("mermaid").putObject("exclude_ingredients").put("name", "Ibuprofen");
+        assertThat(MermaidRequestExtension.excludedIngredients(objectField).incomplete()).isTrue();
+
+        // "mermaid": "exclude ibuprofen" — the whole extension mangled; it may hold a list.
+        ObjectNode mangledExtension = mapper.createObjectNode();
+        mangledExtension.put("mermaid", "exclude ibuprofen");
+        assertThat(MermaidRequestExtension.excludedIngredients(mangledExtension).incomplete())
+                .isTrue();
+    }
+
+    @Test
+    @DisplayName("an explicit JSON null is the idiom for 'none', not a mangled list")
+    void explicitNullMeansNone() {
+        ObjectNode nullField = mapper.createObjectNode();
+        nullField.putObject("mermaid").putNull("exclude_ingredients");
+        StructuredExclusions parsed = MermaidRequestExtension.excludedIngredients(nullField);
+
+        assertThat(parsed.terms()).isEmpty();
+        assertThat(parsed.incomplete()).isFalse();
+    }
 }
