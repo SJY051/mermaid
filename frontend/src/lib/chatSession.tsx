@@ -171,6 +171,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     unverifiedAllergens: initialUnverifiedAllergens,
     unverifiableAllergy: initialUnverifiable,
     pendingQuestion: initialPending,
+    allergiesConfirmedAt:
+      typeof initialSession.allergiesConfirmedAt === 'string'
+        ? initialSession.allergiesConfirmedAt
+        : '',
   })
   const conversationRef = useRef(0)
 
@@ -254,21 +258,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         (turn): OpenAI.ChatCompletionMessageParam => ({ role: 'user', content: turn.question }),
       )
 
+      // Questions that were asked and never answered — and that no allergy confirmation has been
+      // through since. The clarification is what turns a declaration into a structured list, so a
+      // declaration whose turn FAILED never reached the picker: "I am also allergic to aspirin",
+      // lost to a network error, would ride in the history while the request carried the list built
+      // for an earlier declaration, and the server — seeing a complete, resolved list — would
+      // retrieve. We cannot tell which sentences declare an allergy (that judgement is the server's,
+      // and it is the whole point of the redesign); we can only report the fact that these ones were
+      // never answered. The confirmation is the cut-off: once the person has confirmed their list,
+      // the picker HAS seen everything they said before it, and reporting those turns forever would
+      // put the clarification in front of them on every question for the rest of the conversation.
+      const confirmedAt = sessionRef.current.allergiesConfirmedAt ?? ''
+      const unansweredQuestions = nextTurns
+        .filter((turn) => turn.id !== turnId)
+        .filter((turn) => (turn.error != null || turn.unanswered === true) && !turn.answer)
+        .filter((turn) => turn.createdAt > confirmedAt)
+        .map((turn) => turn.question)
+
       try {
         let latest = ''
+        const mermaidFields = {
+          ...(sessionRef.current.allergies.length
+            ? { exclude_ingredients: [...sessionRef.current.allergies] }
+            : {}),
+          ...(sessionRef.current.unverifiedAllergens.length
+            ? { unverified_allergens: [...sessionRef.current.unverifiedAllergens] }
+            : {}),
+          ...(unansweredQuestions.length ? { unanswered_questions: unansweredQuestions } : {}),
+        }
         const requestExtension =
-          sessionRef.current.allergies.length || sessionRef.current.unverifiedAllergens.length
-            ? {
-                mermaid: {
-                  ...(sessionRef.current.allergies.length
-                    ? { exclude_ingredients: [...sessionRef.current.allergies] }
-                    : {}),
-                  ...(sessionRef.current.unverifiedAllergens.length
-                    ? { unverified_allergens: [...sessionRef.current.unverifiedAllergens] }
-                    : {}),
-                },
-              }
-            : undefined
+          Object.keys(mermaidFields).length > 0 ? { mermaid: mermaidFields } : undefined
         const response = requestExtension
           ? streamChat(messages, undefined, requestExtension)
           : streamChat(messages)
@@ -324,6 +343,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         ...sessionRef.current,
         allergies: confirmed,
         unverifiedAllergens: unverifiedNames,
+        // The cut-off for `unanswered_questions`. Everything said before this moment has been in
+        // front of the person in the picker, pre-filled, and they have told us what to avoid. Without
+        // it, a failed declaration would keep asking for a clarification it has already received.
+        allergiesConfirmedAt: new Date().toISOString(),
       }
       setAllergies(confirmed)
       setUnverifiedAllergens(unverifiedNames)
@@ -350,6 +373,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       unverifiedAllergens: [],
       unverifiableAllergy: false,
       pendingQuestion: '',
+      allergiesConfirmedAt: '',
     }
     setTurns([])
     setAllergies([])

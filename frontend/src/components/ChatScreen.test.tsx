@@ -496,6 +496,64 @@ describe('when the request fails', () => {
     expect(screen.queryByText(/will not fix this one/i)).not.toBeInTheDocument()
   })
 
+  it('reports a question that never got an answer, so the server can gate on it (P0)', async () => {
+    // The list already says ibuprofen. The person then declares a SECOND allergy and that request
+    // fails — so the clarification never came back, the picker never opened, and aspirin is in no
+    // structured list. The sentence rides in the history, and the server, seeing a complete resolved
+    // list, would retrieve and could hand them an aspirin product marked no_match_found (§2-2).
+    // The client cannot tell which sentences declare an allergy — that judgement is the server's —
+    // so it reports the fact it does know: this question was never answered.
+    serveAllergenOptions()
+    const first = pendingStream()
+    streamChatMock.mockReturnValueOnce(first.stream())
+    renderChat()
+    const user = await ask('I am also allergic to aspirin')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'what can I take for a headache?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    const extension = streamChatMock.mock.calls[1][2] as { mermaid: Record<string, unknown> }
+    expect(extension.mermaid.unanswered_questions).toEqual(['I am also allergic to aspirin'])
+  })
+
+  it('stops reporting an unanswered question once the allergy list is confirmed (P0)', async () => {
+    // Fail-closed must terminate. The failed sentence never gets an answer — it cannot — so without
+    // a cut-off the server would return the clarification on every question for the rest of the
+    // conversation. Confirming the picker IS the answer: the person saw their list, pre-filled, and
+    // said what to avoid. Everything said before that moment has been in front of them.
+    serveAllergenOptions()
+    const first = pendingStream()
+    streamChatMock
+      .mockReturnValueOnce(first.stream())
+      .mockReturnValueOnce(completedStream(clarificationAnswer))
+    renderChat()
+    const user = await ask('I am also allergic to aspirin')
+    first.fail(new Error('boom'))
+    await screen.findByTestId('chat-error')
+
+    // The next question draws the clarification, and the picker opens.
+    await user.clear(screen.getByRole('textbox'))
+    await user.type(screen.getByRole('textbox'), 'what can I take?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    const picker = await screen.findByRole('dialog', { name: /tell us your allergy/i })
+
+    streamChatMock.mockReturnValueOnce(completedStream(validAnswer))
+    await user.click(within(picker).getByRole('checkbox', { name: 'Aspirin (acetylsalicylic acid)' }))
+    await user.click(within(picker).getByRole('button', { name: 'Use selected allergies' }))
+    await user.type(screen.getByRole('textbox'), 'what can I take?')
+    await user.click(screen.getByRole('button', { name: /ask/i }))
+    await screen.findByText('Drink water and rest.')
+
+    const extension = streamChatMock.mock.calls.at(-1)![2] as { mermaid: Record<string, unknown> }
+    expect(extension.mermaid.exclude_ingredients).toEqual(['acetylsalicylic-acid'])
+    expect(extension.mermaid.unanswered_questions).toBeUndefined()
+  })
+
   it('keeps a failed question in storage after a later turn succeeds (P1)', async () => {
     // The record used to be an append of answered turns only. So a failed "I am allergic to
     // ibuprofen", kept in memory when the user edited it into a different question, was never

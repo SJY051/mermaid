@@ -27,6 +27,7 @@ const session: ChatSession = {
   unverifiedAllergens: ['yellow dye'],
   unverifiableAllergy: false,
   pendingQuestion: 'my throat is swelling',
+  allergiesConfirmedAt: '',
 }
 
 /**

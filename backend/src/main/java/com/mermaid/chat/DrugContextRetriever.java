@@ -96,8 +96,21 @@ public class DrugContextRetriever {
         // question, and only the client-complete structured list may proceed (spec 005, 2026-07-14).
         boolean currentTurnDeclares = AllergyDeclaration.presentIn(userText);
         boolean anyTurnDeclares = currentTurnDeclares || AllergyDeclaration.presentIn(allUserText);
+        // A question the client says never got an answer, and that declares an allergy, is the one
+        // declaration a structured list cannot be assumed to cover. The clarification is what turns a
+        // declaration into a list — so a declaration whose turn FAILED never reached the picker, and
+        // the list the client is sending was built for some earlier one. "I am also allergic to
+        // aspirin", lost to a network error, would otherwise sit quietly in the history while the
+        // request carried exclude_ingredients: ["ibuprofen"], and the gate — seeing a resolved,
+        // complete list — would let retrieval through and hand the person an aspirin product marked
+        // no_match_found. The client cannot decide this (it does not know what declares an allergy)
+        // and the server cannot see it (every question looks answered on the wire), so the client
+        // reports the fact and the server makes the judgement.
+        boolean unansweredDeclares =
+                exclusions.unansweredQuestions().stream().anyMatch(AllergyDeclaration::presentIn);
         boolean allergyDeclared =
                 anyTurnDeclares
+                        || unansweredDeclares
                         || !excludedIngredients.isEmpty()
                         || !unverifiedAllergens.isEmpty()
                         || exclusions.incomplete();
@@ -122,13 +135,18 @@ public class DrugContextRetriever {
         //  - an allergy is in play (this turn, an earlier turn, or the field) and the structured
         //    list is absent or has any entry no signed row resolves (FR-004/FR-013).
         if (currentTurnDeclares
+                || unansweredDeclares
                 || exclusions.incomplete()
                 || !unresolved.isEmpty()
                 || (anyTurnDeclares && avoidedKeys.isEmpty() && unverifiedAllergens.isEmpty())) {
             log.info(
-                    "Allergy declared (currentTurn={}, structuredIncomplete={}, resolved={},"
-                            + " unresolved={}) — returning server clarification",
-                    currentTurnDeclares, exclusions.incomplete(), avoidedKeys.size(), unresolved.size());
+                    "Allergy declared (currentTurn={}, unansweredDeclares={}, structuredIncomplete={},"
+                            + " resolved={}, unresolved={}) — returning server clarification",
+                    currentTurnDeclares,
+                    unansweredDeclares,
+                    exclusions.incomplete(),
+                    avoidedKeys.size(),
+                    unresolved.size());
             return DrugContext.allergyClarification();
         }
 

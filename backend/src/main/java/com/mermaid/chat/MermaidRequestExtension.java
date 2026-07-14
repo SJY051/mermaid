@@ -36,8 +36,11 @@ final class MermaidRequestExtension {
 
     private static final String EXCLUDE_INGREDIENTS = "exclude_ingredients";
     private static final String UNVERIFIED_ALLERGENS = "unverified_allergens";
+    private static final String UNANSWERED_QUESTIONS = "unanswered_questions";
     private static final int MAX_ENTRIES = 10;
     private static final int MAX_TERM_LENGTH = 100;
+    /** A question, not an ingredient name — it gets a sentence's worth of room. */
+    private static final int MAX_QUESTION_LENGTH = 2000;
 
     private MermaidRequestExtension() {}
 
@@ -50,8 +53,13 @@ final class MermaidRequestExtension {
      * show a product containing the dropped allergen as {@code no_match_found}. The gate treats an
      * incomplete list exactly like an unresolved entry: it clarifies (spec 005 FR-004).
      */
-    record StructuredExclusions(Set<String> terms, Set<String> unverifiedTerms, boolean incomplete) {
-        static final StructuredExclusions NONE = new StructuredExclusions(Set.of(), Set.of(), false);
+    record StructuredExclusions(
+            Set<String> terms,
+            Set<String> unverifiedTerms,
+            Set<String> unansweredQuestions,
+            boolean incomplete) {
+        static final StructuredExclusions NONE =
+                new StructuredExclusions(Set.of(), Set.of(), Set.of(), false);
     }
 
     private record ParsedList(Set<String> terms, boolean incomplete) {}
@@ -71,17 +79,19 @@ final class MermaidRequestExtension {
             return StructuredExclusions.NONE;
         }
         if (!extension.isObject()) {
-            return new StructuredExclusions(Set.of(), Set.of(), true);
+            return new StructuredExclusions(Set.of(), Set.of(), Set.of(), true);
         }
-        ParsedList exclusions = parseList(extension, EXCLUDE_INGREDIENTS);
-        ParsedList unverified = parseList(extension, UNVERIFIED_ALLERGENS);
+        ParsedList exclusions = parseList(extension, EXCLUDE_INGREDIENTS, MAX_TERM_LENGTH);
+        ParsedList unverified = parseList(extension, UNVERIFIED_ALLERGENS, MAX_TERM_LENGTH);
+        ParsedList unanswered = parseList(extension, UNANSWERED_QUESTIONS, MAX_QUESTION_LENGTH);
         return new StructuredExclusions(
                 exclusions.terms(),
                 unverified.terms(),
-                exclusions.incomplete() || unverified.incomplete());
+                unanswered.terms(),
+                exclusions.incomplete() || unverified.incomplete() || unanswered.incomplete());
     }
 
-    private static ParsedList parseList(JsonNode extension, String field) {
+    private static ParsedList parseList(JsonNode extension, String field, int maxLength) {
         JsonNode node = extension.path(field);
         if (node.isMissingNode() || node.isNull()) {
             return new ParsedList(Set.of(), false);
@@ -103,7 +113,7 @@ final class MermaidRequestExtension {
             if (raw.isEmpty()) {
                 continue; // a blank string carries no allergen; dropping it loses nothing
             }
-            if (raw.length() > MAX_TERM_LENGTH || terms.size() >= MAX_ENTRIES) {
+            if (raw.length() > maxLength || terms.size() >= MAX_ENTRIES) {
                 // A real entry we cannot keep. The bounds stay (an unbounded list is one upstream
                 // search per entry), but dropping silently would launder the loss — flag it.
                 incomplete = true;

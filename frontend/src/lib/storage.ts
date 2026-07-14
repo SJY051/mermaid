@@ -85,6 +85,17 @@ export interface ChatSession {
    * with the next send. Cleared the moment an answer arrives.
    */
   pendingQuestion: string
+  /**
+   * When the person last confirmed their allergy list, or `''` if they never have.
+   *
+   * <p>The cut-off for `unanswered_questions` (spec 005 FR-013). A question that failed never got
+   * its clarification, so a declaration inside it never reached the picker — the server has to be
+   * told, or it will trust a list that was built for an earlier declaration. But once the picker HAS
+   * been confirmed, everything said before it was in front of the person, pre-filled, and they told
+   * us what to avoid. Without a cut-off, one failed sentence would demand a clarification it has
+   * already received, on every question, for the rest of the conversation.
+   */
+  allergiesConfirmedAt: string
 }
 
 const EMPTY_SESSION: ChatSession = {
@@ -94,6 +105,7 @@ const EMPTY_SESSION: ChatSession = {
   unverifiedAllergens: [],
   unverifiableAllergy: false,
   pendingQuestion: '',
+  allergiesConfirmedAt: '',
 }
 
 export function loadChatSession(): ChatSession {
