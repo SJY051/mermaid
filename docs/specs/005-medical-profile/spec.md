@@ -105,8 +105,10 @@ if it were unproblematic.
 ### Fail-closed on unresolved allergy
 - **FR-004**: When an allergy is declared (current turn, any prior user turn per
   FR-013, or a non-empty `exclude_ingredients`) and the structured avoided list is
-  absent or has **any** entry that does not resolve per FR-002, the system MUST NOT
-  return a retrieval-backed answer for that turn. It MUST return the clarifying
+  absent, has **any** entry that does not resolve per FR-002, or was **truncated by
+  the parser's bounds** (an entry dropped for count or length means the held list is
+  not the user's list — the same completeness principle as FR-001), the system MUST
+  NOT return a retrieval-backed answer for that turn. It MUST return the clarifying
   question (FR-010), and MUST continue to suppress the model's own drug suggestions
   (SA-08).
 - **FR-005**: Retrieval proceeds under a declared allergy ONLY when a non-empty
@@ -119,7 +121,10 @@ if it were unproblematic.
   clarifying question ("ibuprofen") carries no allergy keyword and proceeds unguarded —
   the person is shown the very ingredient they just declared. A client-forged or
   trimmed history can only push the outcome toward clarification (fail-closed
-  direction); it can never unlock retrieval.
+  direction); it can never unlock retrieval. **The first-party client MUST therefore
+  send every user turn of the session in each request** (`chatSession.send`), or the
+  scan has nothing to see — the server-side scan and the client-side transport are one
+  requirement, not two.
 - **FR-014 (structured-reply affordance)**: The frontend MUST treat the clarification
   answer (`answerId "allergy-clarification"`) as the signal to collect allergens
   **structurally**: render an ingredient input and send the collected list as

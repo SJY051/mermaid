@@ -64,11 +64,14 @@ public class DrugContextRetriever {
      *     let that turn retrieve unguarded and show the person the very ingredient they just declared
      *     (spec 005 FR-013). A client-forged history can only push the outcome toward the
      *     clarification, never unlock retrieval.
-     * @param excludedIngredients raw ingredient strings the user must avoid, from the structured
-     *     {@code mermaid.exclude_ingredients} field. By contract the client sends the COMPLETE list;
-     *     it is the only channel that may authorize retrieval under a declared allergy.
+     * @param exclusions the structured {@code mermaid.exclude_ingredients} field: the raw terms,
+     *     plus whether the parser had to drop any (bounds). By contract the client sends the
+     *     COMPLETE list; it is the only channel that may authorize retrieval under a declared
+     *     allergy — so a list we do not hold in full authorizes nothing.
      */
-    public DrugContext retrieve(String userText, String allUserText, Set<String> excludedIngredients) {
+    public DrugContext retrieve(
+            String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
+        Set<String> excludedIngredients = exclusions.terms();
         // The allergy gate runs BEFORE the extractor, like EmergencyTriage runs before the model:
         // a turn that fails closed must not depend on — or pay for — a model call.
         //
@@ -81,7 +84,8 @@ public class DrugContextRetriever {
         // question, and only the client-complete structured list may proceed (spec 005, 2026-07-14).
         boolean currentTurnDeclares = AllergyDeclaration.presentIn(userText);
         boolean anyTurnDeclares = currentTurnDeclares || AllergyDeclaration.presentIn(allUserText);
-        boolean allergyDeclared = anyTurnDeclares || !excludedIngredients.isEmpty();
+        boolean allergyDeclared =
+                anyTurnDeclares || !excludedIngredients.isEmpty() || exclusions.incomplete();
 
         Set<String> avoidedKeys = new HashSet<>();
         List<String> unresolved = new ArrayList<>();
@@ -97,14 +101,18 @@ public class DrugContextRetriever {
         // Fail closed to the clarification when:
         //  - this turn declares an allergy in free text (FR-001): the new prose may name an allergen
         //    the structured list does not carry, and we cannot tell, or
+        //  - the parser had to drop a structured entry (bounds): the avoided set we computed is not
+        //    the user's complete list, and a product containing the dropped allergen could come
+        //    back no_match_found — the same completeness principle as FR-001, or
         //  - an allergy is in play (this turn, an earlier turn, or the field) and the structured
         //    list is absent or has any entry no signed row resolves (FR-004/FR-013).
         if (currentTurnDeclares
+                || exclusions.incomplete()
                 || (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty()))) {
             log.info(
-                    "Allergy declared (currentTurn={}, resolved={}, unresolved={})"
-                            + " — returning server clarification",
-                    currentTurnDeclares, avoidedKeys.size(), unresolved.size());
+                    "Allergy declared (currentTurn={}, structuredIncomplete={}, resolved={},"
+                            + " unresolved={}) — returning server clarification",
+                    currentTurnDeclares, exclusions.incomplete(), avoidedKeys.size(), unresolved.size());
             return DrugContext.allergyClarification();
         }
 

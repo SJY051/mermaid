@@ -148,7 +148,7 @@ class ProxyInjectionTest {
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
             public DrugContext retrieve(
-                    String userText, String allUserText, Set<String> excludedIngredients) {
+                    String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
                 throw new AssertionError("retrieval must not run for an emergency");
             }
         };
@@ -170,7 +170,7 @@ class ProxyInjectionTest {
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
             public DrugContext retrieve(
-                    String userText, String allUserText, Set<String> excludedIngredients) {
+                    String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
                 return context;
             }
         };

@@ -38,19 +38,40 @@ final class MermaidRequestExtension {
 
     private MermaidRequestExtension() {}
 
+    /**
+     * The structured avoided list, plus whether we hold ALL of it.
+     *
+     * <p>{@code incomplete} is the truncation signal the gate needs: this field's contract is "the
+     * complete list of ingredients this session must avoid", so an entry the bounds forced us to
+     * drop means the avoided set the gate computes is NOT the user's list — retrieval on it could
+     * show a product containing the dropped allergen as {@code no_match_found}. The gate treats an
+     * incomplete list exactly like an unresolved entry: it clarifies (spec 005 FR-004).
+     */
+    record StructuredExclusions(Set<String> terms, boolean incomplete) {
+        static final StructuredExclusions NONE = new StructuredExclusions(Set.of(), false);
+    }
+
     /** Raw, unnormalised ingredient strings as the user typed them. Never null. */
-    static Set<String> excludedIngredients(JsonNode clientRequest) {
+    static StructuredExclusions excludedIngredients(JsonNode clientRequest) {
         JsonNode node = clientRequest.path(FIELD).path(EXCLUDE_INGREDIENTS);
         if (!node.isArray()) {
-            return Set.of();
+            return StructuredExclusions.NONE;
         }
         Set<String> terms = new LinkedHashSet<>();
+        boolean incomplete = false;
         for (JsonNode entry : node) {
             String raw = entry.asText("").trim();
-            if (!raw.isEmpty() && raw.length() <= MAX_TERM_LENGTH && terms.size() < MAX_EXCLUDED) {
-                terms.add(raw);
+            if (raw.isEmpty()) {
+                continue; // an empty entry carries no allergen; dropping it loses nothing
             }
+            if (raw.length() > MAX_TERM_LENGTH || terms.size() >= MAX_EXCLUDED) {
+                // A real entry we cannot keep. The bounds stay (an unbounded list is one upstream
+                // search per entry), but dropping silently would launder the loss — flag it.
+                incomplete = true;
+                continue;
+            }
+            terms.add(raw);
         }
-        return terms;
+        return new StructuredExclusions(terms, incomplete);
     }
 }

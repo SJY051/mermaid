@@ -114,7 +114,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setTurns(nextTurns)
       setStreaming(true)
 
-      const messages: OpenAI.ChatCompletionMessageParam[] = [{ role: 'user', content: text }]
+      // Every user turn of this conversation rides along, newest last. The server's allergy scan
+      // runs over ALL user messages in the request (spec 005 FR-013): the bare reply to the
+      // allergy clarifying question ("ibuprofen") carries no allergy keyword, so a request that
+      // carried only the newest turn would let that turn retrieve unguarded — and show the person
+      // the very ingredient they just declared. Turns that ended in a transport error are included
+      // on purpose: the person still said it, and over-including only errs toward the safe side.
+      const messages: OpenAI.ChatCompletionMessageParam[] = [
+        ...previousTurns.map(
+          (turn): OpenAI.ChatCompletionMessageParam => ({ role: 'user', content: turn.question }),
+        ),
+        { role: 'user', content: text },
+      ]
 
       try {
         let latest = ''

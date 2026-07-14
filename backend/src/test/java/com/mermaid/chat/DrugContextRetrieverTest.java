@@ -62,6 +62,11 @@ class DrugContextRetrieverTest {
         return new DrugContextRetriever(extractor, drugService, new IngredientNormalizer(), mapper);
     }
 
+    /** A complete structured list, as a well-behaved client sends it. */
+    private static MermaidRequestExtension.StructuredExclusions exclusions(String... terms) {
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), false);
+    }
+
     private JsonNode contextJson(DrugContext context) throws Exception {
         String message = context.systemMessage();
         return mapper.readTree(message.substring(message.indexOf('[')));
@@ -104,7 +109,7 @@ class DrugContextRetrieverTest {
         @Test
         @DisplayName("the model is told, in words, that it may name no medicine")
         void saysSoExplicitly() {
-            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hello", "hello", Set.of());
+            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hello", "hello", exclusions());
 
             assertThat(context.systemMessage())
                     .contains("nothing was retrieved")
@@ -116,7 +121,7 @@ class DrugContextRetrieverTest {
         @Test
         @DisplayName("an empty context still ends in a valid, empty JSON array")
         void stillValidJson() throws Exception {
-            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hi", "hi", Set.of());
+            DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hi", "hi", exclusions());
 
             assertThat(contextJson(context)).isEmpty();
         }
@@ -139,7 +144,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context =
                     new DrugContextRetriever(extractor, neverCalled, new IngredientNormalizer(), mapper)
-                            .retrieve("where is the nearest pharmacy?", "where is the nearest pharmacy?", Set.of());
+                            .retrieve("where is the nearest pharmacy?", "where is the nearest pharmacy?", exclusions());
 
             assertThat(context.allowedProductNames()).isEmpty();
         }
@@ -153,7 +158,7 @@ class DrugContextRetrieverTest {
             RetrievedContext retrieved =
                     new RetrievedContext(List.of(TYLENOL), Set.of(TYLENOL.nameKo()), List.of(TYLENOL_SOURCE));
             return retriever(new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
-                    .retrieve("I have a headache", "I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", exclusions());
         }
 
         @Test
@@ -188,7 +193,7 @@ class DrugContextRetrieverTest {
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Acetaminophen", "Ibuprofen"), List.of()),
                             retrieved)
-                    .retrieve("I have a headache", "I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", exclusions());
 
             assertThat(context.groundedDrugs().get(TYLENOL.nameKo()).sourceRefId())
                     .isEqualTo(TYLENOL_SOURCE.id());
@@ -214,7 +219,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
-                    .retrieve("I have a headache", "I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", exclusions());
 
             assertThat(context.groundedDrugs()).doesNotContainKey(drug.nameKo());
             assertThat(context.allowedProductNames()).isEmpty();
@@ -236,7 +241,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Acetaminophen"), List.of()), retrieved)
-                    .retrieve("I have a headache", "I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", exclusions());
 
             // A real retrieved product must not be dropped just because it has no English
             // ingredients, or INV6 refuses a card we actually fetched (#60). Its grounded set is
@@ -307,7 +312,7 @@ class DrugContextRetrieverTest {
             DrugContext context = retriever(
                             new RetrievalQuery(List.of("Ibuprofen"), List.of()),
                             new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(TYLENOL_SOURCE)))
-                    .retrieve("I have a headache", "I have a headache", Set.of());
+                    .retrieve("I have a headache", "I have a headache", exclusions());
             String message = context.systemMessage();
             return mapper.readTree(message.substring(message.indexOf('['))).get(0);
         }
@@ -358,7 +363,7 @@ class DrugContextRetrieverTest {
             String message = retriever(
                             new RetrievalQuery(List.of("Ibuprofen"), List.of()),
                             new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(TYLENOL_SOURCE)))
-                    .retrieve("headache", "headache", Set.of())
+                    .retrieve("headache", "headache", exclusions())
                     .systemMessage();
 
             assertThat(message)
@@ -411,7 +416,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context =
                     new DrugContextRetriever(neverCalled(), drugService, new IngredientNormalizer(), mapper)
-                            .retrieve(turn, turn, Set.of());
+                            .retrieve(turn, turn, exclusions());
 
             MermAidAnswer answer = context.directAnswer().orElseThrow();
             assertThat(drugService.seen).as("fail-closed must happen before retrieval").isNull();
@@ -433,7 +438,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context =
                     new DrugContextRetriever(neverCalled(), drugService, new IngredientNormalizer(), mapper)
-                            .retrieve(turn, turn, Set.of("Ibuprofen"));
+                            .retrieve(turn, turn, exclusions("Ibuprofen"));
 
             assertThat(context.directAnswer()).isPresent();
             assertThat(drugService.seen).isNull();
@@ -451,7 +456,7 @@ class DrugContextRetrieverTest {
 
             DrugContext context =
                     new DrugContextRetriever(neverCalled(), drugService, new IngredientNormalizer(), mapper)
-                            .retrieve("ibuprofen", allTurns, Set.of());
+                            .retrieve("ibuprofen", allTurns, exclusions());
 
             assertThat(context.directAnswer()).as("history scan must keep the allergy context").isPresent();
             assertThat(drugService.seen).isNull();
@@ -467,7 +472,7 @@ class DrugContextRetrieverTest {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
             gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")), drugService)
-                    .retrieve("can I take 부루펜?", DECLARED_EARLIER, Set.of("Ibuprofen"));
+                    .retrieve("can I take 부루펜?", DECLARED_EARLIER, exclusions("Ibuprofen"));
 
             assertThat(drugService.seen).isNotNull();
             assertThat(drugService.seen.ingredientsEn()).isEmpty();
@@ -481,7 +486,7 @@ class DrugContextRetrieverTest {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
             gated(PROPOSED, drugService)
-                    .retrieve("I have a headache", "I have a headache", Set.of("Ibuprofen"));
+                    .retrieve("I have a headache", "I have a headache", exclusions("Ibuprofen"));
 
             assertThat(drugService.seen)
                     .as("suppression leaves no query, so retrieval is never asked")
@@ -497,7 +502,7 @@ class DrugContextRetrieverTest {
             CapturingDrugService unsigned = new CapturingDrugService(RetrievedContext.EMPTY);
 
             DrugContext context = gated(RetrievalQuery.EMPTY, unsigned)
-                    .retrieve("I have a headache", "I have a headache", Set.of("paracetamol"));
+                    .retrieve("I have a headache", "I have a headache", exclusions("paracetamol"));
 
             MermAidAnswer answer = context.directAnswer().orElseThrow();
             assertThat(unsigned.seen).as("fail-closed must happen before retrieval").isNull();
@@ -509,10 +514,30 @@ class DrugContextRetrieverTest {
             // ANY unresolved entry means an incomplete avoided set (#59 follow-up P0).
             CapturingDrugService mixed = new CapturingDrugService(RetrievedContext.EMPTY);
             DrugContext mixedContext = gated(RetrievalQuery.EMPTY, mixed)
-                    .retrieve("I have a headache", "I have a headache", Set.of("aspirin", "paracetamol"));
+                    .retrieve("I have a headache", "I have a headache", exclusions("aspirin", "paracetamol"));
 
             assertThat(mixedContext.directAnswer()).isPresent();
             assertThat(mixed.seen).isNull();
+        }
+
+        @Test
+        @DisplayName("a truncated structured list authorizes nothing (#62 P0, fifth finding)")
+        void truncatedStructuredListFailsClosed() {
+            // The parser bounds exclude_ingredients (ten entries, 100 chars each — an unbounded
+            // list is one upstream search per entry). A client that sends an eleventh allergen
+            // gets it silently dropped: not in avoidedKeys, not in unresolved. Every resolving
+            // entry we kept would then authorize retrieval on an avoided set that is NOT the
+            // user's list, and a product with the dropped allergen could show no_match_found.
+            // A list we do not hold in full must clarify, like every other incomplete channel.
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            var truncated = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("ibuprofen"), true);
+
+            DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
+                    .retrieve("I have a headache", "I have a headache", truncated);
+
+            assertThat(context.directAnswer()).as("incomplete list must clarify").isPresent();
+            assertThat(drugService.seen).isNull();
         }
 
         @Test
@@ -520,7 +545,7 @@ class DrugContextRetrieverTest {
         void noAllergyNoGate() {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
-            gated(PROPOSED, drugService).retrieve("I have a headache", "I have a headache", Set.of());
+            gated(PROPOSED, drugService).retrieve("I have a headache", "I have a headache", exclusions());
 
             assertThat(drugService.seen.ingredientsEn()).containsExactly("Acetaminophen", "Naproxen");
         }
@@ -532,7 +557,7 @@ class DrugContextRetrieverTest {
             // proposals are suppressed — leaving nothing to retrieve. The empty context must say
             // "we refused to choose", not "we found nothing".
             String message = gated(PROPOSED, new CapturingDrugService(RetrievedContext.EMPTY))
-                    .retrieve("my head hurts", DECLARED_EARLIER, Set.of("Ibuprofen"))
+                    .retrieve("my head hurts", DECLARED_EARLIER, exclusions("Ibuprofen"))
                     .systemMessage();
 
             assertThat(message)
@@ -545,7 +570,7 @@ class DrugContextRetrieverTest {
         @DisplayName("without an allergy an empty context keeps its old wording")
         void plainEmptyIsUnchanged() {
             String message = gated(RetrievalQuery.EMPTY, new CapturingDrugService(RetrievedContext.EMPTY))
-                    .retrieve("hello", "hello", Set.of())
+                    .retrieve("hello", "hello", exclusions())
                     .systemMessage();
 
             assertThat(message)
@@ -571,7 +596,7 @@ class DrugContextRetrieverTest {
 
             String message = gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")),
                                     new CapturingDrugService(retrieved))
-                    .retrieve("can I take 부루펜?", DECLARED_EARLIER, Set.of("Ibuprofen"))
+                    .retrieve("can I take 부루펜?", DECLARED_EARLIER, exclusions("Ibuprofen"))
                     .systemMessage();
 
             assertThat(message)
