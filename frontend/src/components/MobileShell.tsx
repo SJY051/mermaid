@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { ChatProvider, useChatSession } from '../lib/chatSession'
+import { FavoritesProvider } from '../lib/favorites'
 import { ChatScreen } from './ChatScreen'
 import { DisclaimerStrip } from './DisclaimerStrip'
 import { MapScreen } from './MapScreen'
@@ -17,7 +18,9 @@ export type TabId = 'chat' | 'map' | 'saved' | 'settings'
 export function MobileShell() {
   return (
     <ChatProvider>
-      <MobileShellContent />
+      <FavoritesProvider>
+        <MobileShellContent />
+      </FavoritesProvider>
     </ChatProvider>
   )
 }
@@ -39,7 +42,7 @@ function MobileShellContent() {
           <MapScreen active={activeTab === 'map'} />
         </section>
         <section aria-label="Saved screen" hidden={activeTab !== 'saved'}>
-          <SavedScreen />
+          <SavedScreen active={activeTab === 'saved'} />
         </section>
         <section aria-label="Settings screen" hidden={activeTab !== 'settings'}>
           <SettingsScreen />

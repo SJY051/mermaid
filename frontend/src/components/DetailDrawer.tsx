@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { useFavorites } from '../lib/favorites'
 import type { Facility } from '../lib/types'
 
 export interface DetailDrawerProps {
@@ -45,6 +46,19 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   const titleId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const address = facility.addressEn ?? facility.addressKo
+  const { favorites, savingFacilityId, saveFacility } = useFavorites()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const saved = favorites.some((favorite) => favorite.facilityId === facility.id)
+  const saving = savingFacilityId === facility.id
+
+  async function save() {
+    setSaveError(null)
+    try {
+      await saveFacility(facility)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save this place.')
+    }
+  }
 
   useEffect(() => {
     closeButtonRef.current?.focus()
@@ -127,6 +141,16 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
               Call {facility.phone}
             </a>
           )}
+
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2 font-medium text-inverse disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => void save()}
+            disabled={saved || saving}
+          >
+            {saved ? 'Saved' : saving ? 'Saving…' : 'Save place'}
+          </button>
+          {saveError && <p role="alert" className="text-sm text-secondary">{saveError}</p>}
 
           {facility.operation.notice && (
             <p className="rounded-lg bg-muted p-3 text-primary">{facility.operation.notice}</p>

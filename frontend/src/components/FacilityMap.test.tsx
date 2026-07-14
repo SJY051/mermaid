@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FacilityMap } from './FacilityMap'
+import { FavoritesProvider } from '../lib/favorites'
 import { AUTH_FAILURE_MESSAGE } from '../hooks/useNaverMap'
 import type { Facility } from '../lib/types'
 
@@ -280,7 +281,11 @@ describe('facility details (UI-03, DEV-207)', () => {
   it('opens the detail drawer when a facility in the accessible list is selected', async () => {
     const user = userEvent.setup()
     installNaverStub()
-    render(<FacilityMap center={centre} facilities={[facility()]} />)
+    render(
+      <FavoritesProvider>
+        <FacilityMap center={centre} facilities={[facility()]} />
+      </FavoritesProvider>,
+    )
 
     const list = await screen.findByTestId('facility-list')
     await user.click(within(list).getByRole('button', { name: /Pharmacy · Open now · 140m/ }))
@@ -303,7 +308,7 @@ describe('facility details (UI-03, DEV-207)', () => {
         notice: '',
       },
     })
-    render(<FacilityMap center={centre} facilities={[unknownHospital]} />)
+    render(<FavoritesProvider><FacilityMap center={centre} facilities={[unknownHospital]} /></FavoritesProvider>)
 
     const map = screen.getByTestId('naver-map')
     const pin = await waitFor(() => {
@@ -331,13 +336,13 @@ describe('facility details (UI-03, DEV-207)', () => {
     const user = userEvent.setup()
     installNaverStub()
     render(
-      <FacilityMap
+      <FavoritesProvider><FacilityMap
         center={centre}
         facilities={[
           facility({ nameKo: '청실약국' }),
           facility({ id: 'facility:nmc:2', nameKo: '명약국' }),
         ]}
-      />,
+      /></FavoritesProvider>,
     )
 
     const map = screen.getByTestId('naver-map')
