@@ -90,7 +90,16 @@ mermaid:
     # Pass 1a returns two short arrays. Giving it the same budget as a full answer means a queued
     # provider can burn three minutes before we even start retrieving. On timeout the drug context is
     # empty, so the answer names no medicine and says to visit a pharmacy — degraded, never wrong.
-    extraction-timeout: ${LLM_EXTRACTION_TIMEOUT:30s}
+    #
+    # Sixty, not thirty. Thirty was set from the size of the reply, and the provider does not charge
+    # by size: measured 2026-07-14 in a browser, the SAME extraction took 24.4s when it worked, while
+    # the answer call in the same turn took 100s. A budget of 30 sat directly on top of the observed
+    # latency, so extraction failed whenever the provider was having a slow minute — and a failed
+    # extraction is not a small degradation. It is the whole feature: no search terms, no government
+    # lookup, an empty context, and a person asking about a headache told we could not verify an
+    # answer. When it fits, the same question returns three verified products. Raising the ceiling
+    # costs a slow turn slightly more wall-clock; leaving it costs the medicines.
+    extraction-timeout: ${LLM_EXTRACTION_TIMEOUT:60s}
     # Models measured to accept `response_format: {type: json_schema, strict: true}` with our full
     # answer schema — $defs, $ref, const, enums and nullable type unions (2026-07-10, opencode zen).
     #
