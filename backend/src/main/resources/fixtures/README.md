@@ -59,7 +59,7 @@
 
 **6. 목록 조회에 `item_seq` 파라미터가 없습니다.** 넣어도 조용히 무시하고 전체 43,064건을 반환합니다. `ITEM_SEQ`로 단건을 잡으려면 상세 조회(`getDrugPrdtPrmsnDtlInq06` — **06**입니다. `…Inq07`은 404)를 쓰세요.
 
-**7. `ITEM_SEQ`가 마스터 조인 키입니다.** e약은요의 `itemSeq`, 허가정보의 `ITEM_SEQ`, DUR의 `ITEM_SEQ`가 같은 값(`202005623`)입니다. 실물로 확인했습니다.
+**7. `ITEM_SEQ`가 non-empty 의약품 레코드의 마스터 조인 키입니다.** e약은요의 `itemSeq`, 허가정보의 `ITEM_SEQ`, DUR의 `ITEM_SEQ`는 행이 있을 때 같은 품목을 식별합니다. DUR zero-row 응답에는 `ITEM_SEQ`가 없으므로 요청한 `(itemSeq, kind)`가 캡처의 정체성을 보존합니다.
 
 **8. DUR `INGR_CODE`(`D000762`)는 허가정보의 `[M######]`와 조인되지 않습니다.** 성분 레벨로 엮으려면 DUR의 `MAIN_INGR`(역시 `[M######]`)을 쓰세요.
 

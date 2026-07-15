@@ -151,6 +151,10 @@ class DrugHybridFallbackTest {
             assertThat(exact.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
             assertThat(exact.retrievedAt()).isEqualTo(FETCHED_AT);
             assertSourceUnavailable(() ->
+                    dur.byKindBatch("197100097", DurWarning.Kind.COMBINATION));
+            assertSourceUnavailable(() ->
+                    dur.byKindBatch("200000913", DurWarning.Kind.AGE));
+            assertSourceUnavailable(() ->
                     dur.byKindBatch("999999999", DurWarning.Kind.AGE));
         }
 
@@ -204,7 +208,11 @@ class DrugHybridFallbackTest {
         void boundDurFixtureRejectsAnyRowForAnotherProduct() {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode mismatched = new FixtureLoader(mapper).load("dur_age.json").deepCopy();
-            ((ObjectNode) mismatched.at("/body/items/0")).put("ITEM_SEQ", "200000913");
+            ArrayNode items = (ArrayNode) mismatched.at("/body/items");
+            ObjectNode laterRow = ((ObjectNode) items.get(0)).deepCopy();
+            laterRow.put("ITEM_SEQ", "200000913");
+            items.add(laterRow);
+            ((ObjectNode) mismatched.at("/body")).put("numOfRows", 2);
             FixtureLoader fixtures = new FixtureLoader(mapper) {
                 @Override
                 public JsonNode load(String name) {

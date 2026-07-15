@@ -25,8 +25,9 @@ import org.junit.jupiter.api.Test;
 /**
  * The three-API merge, driven by the responses the MFDS services really returned on 2026-07-10.
  *
- * <p>Product {@code 202005623} (어린이타이레놀산160밀리그램) appears in all three fixtures with the same
- * {@code ITEM_SEQ}, which is the whole basis of the join.
+ * <p>Non-empty records from all three services join on {@code ITEM_SEQ}. Product {@code 202005623}
+ * (어린이타이레놀산160밀리그램) has zero DUR rows, so those captures preserve their identity through
+ * the requested {@code (itemSeq, kind)} instead of a row-level ID.
  */
 class DrugServiceFixtureTest {
 
