@@ -123,6 +123,32 @@ in a safety state animates — an emergency banner that slides is a banner that 
 **`prefers-reduced-motion` is respected.** Someone who has asked their device for less motion is
 often someone for whom motion is a symptom.
 
+### FR-005 — The icons the wireframe places, in the places it places them
+
+FR-003 said "icons come from one set". That closed the icons the app already had — it did not add the
+ones the wireframe shows in places the app never had any. Worker A (#81) correctly replaced what
+existed; a browser then showed the gap the replacement could not close.
+
+The wireframe, read screen by screen, places an icon in three slots the app leaves empty:
+
+| slot | wireframe | app |
+|---|---|---|
+| **bottom tab bar** | an icon above each of Chat / Map / Saved / Settings | text labels only |
+| **emergency 119 action** | a phone glyph on the call link (`📞 Call 119`) | text only |
+| **top-right header** | a small icon slot on every screen | only Chat's menu is present |
+
+All added glyphs come from Lucide (FR-003's set). The tab icons are `MessageCircle` / `MapPin` /
+`Bookmark` / `Settings`; the 119 link takes `Phone`. Every one is **decorative and `aria-hidden`** —
+the label or the link text remains the accessible name, and an emergency action's prominence, colour,
+href, and reachability may not change (§2-4).
+
+The top-right slot on Map / Saved / Settings is **deliberately not filled**: its action is undefined,
+and inventing one is a feature and a possible §2 risk, not appearance. The distinction this FR draws
+is the one the worker got right and the brief got wrong — **add the icon the wireframe shows; never
+add an icon it does not.**
+
+Worker brief: [`docs/specs/worker-briefs/A1-icons-wireframe-parity.md`](worker-briefs/A1-icons-wireframe-parity.md).
+
 ## User scenarios
 
 ### Someone opens the app on a laptop at the demo (P1)
