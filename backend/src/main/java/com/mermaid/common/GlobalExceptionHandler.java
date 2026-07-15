@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -86,6 +87,22 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> invalid(Exception e) {
         log.warn("invalid request: {}", e.getMessage());
         return body(ErrorCode.INVALID_REQUEST, firstFieldError(e), Map.of());
+    }
+
+    /**
+     * A request body that Jackson could not parse.
+     *
+     * <p>The exception and its causes can retain user-authored body fragments. Chat bodies contain
+     * symptoms, so this path records only a stable event name; the request id already in MDC is the
+     * correlation key.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> malformedBody() {
+        log.warn("invalid request body");
+        return body(
+                ErrorCode.INVALID_REQUEST,
+                userMessageFor(ErrorCode.INVALID_REQUEST),
+                Map.of());
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)

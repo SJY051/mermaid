@@ -1,21 +1,30 @@
 package com.mermaid.common;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.classic.spi.ThrowableProxyUtil;
+import ch.qos.logback.core.read.ListAppender;
 import com.mermaid.facility.domain.Facility;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
@@ -167,6 +176,82 @@ class ErrorContractTest {
                 .andExpect(jsonPath("$.error.message").value(not(org.hamcrest.Matchers.containsString("com.mermaid"))))
                 .andExpect(jsonPath("$.stackTrace").doesNotExist())
                 .andExpect(jsonPath("$.trace").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("a malformed JSON body uses the existing safe invalid-request contract")
+    void malformedBodyIsInvalidRequest() throws Exception {
+        mvc.perform(
+                        post("/api/v1/chat/completions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .content("{\"messages\":[{\"content\":PRIVATE_HEALTH_SENTINEL}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.message").value("That request was not valid."))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(header().exists(RequestIdFilter.HEADER))
+                .andExpect(jsonPath("$.error.request_id").isNotEmpty());
+    }
+
+    @Test
+    @DisplayName("a malformed JSON body never reaches logs or a throwable proxy")
+    void malformedBodyLogIsValueFree() throws Exception {
+        String sentinel = "PRIVATE_HEALTH_SENTINEL";
+        String requestId = "malformed-body-log-proof";
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MvcResult result =
+                    mvc.perform(
+                                    post("/api/v1/chat/completions")
+                                            .header(RequestIdFilter.HEADER, requestId)
+                                            .contentType(MediaType.APPLICATION_JSON)
+                                            .content("{\"messages\":[{\"content\":" + sentinel + "}]}"))
+                            .andReturn();
+
+            assertThat(result.getResponse().getContentAsString()).doesNotContain(sentinel);
+            String renderedLogs =
+                    appender.list.stream()
+                            .map(event ->
+                                    event.getFormattedMessage()
+                                            + (event.getThrowableProxy() == null
+                                                    ? ""
+                                                    : ThrowableProxyUtil.asString(event.getThrowableProxy())))
+                            .reduce("", (left, right) -> left + "\n" + right);
+            assertThat(renderedLogs).doesNotContain(sentinel);
+            assertThat(appender.list)
+                    .filteredOn(event -> event.getLoggerName().equals(GlobalExceptionHandler.class.getName()))
+                    .singleElement()
+                    .satisfies(event -> {
+                        assertThat(event.getFormattedMessage()).isEqualTo("invalid request body");
+                        assertThat(event.getThrowableProxy()).isNull();
+                        assertThat(event.getMDCPropertyMap())
+                                .containsEntry(RequestIdFilter.MDC_KEY, requestId);
+                    });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("a well-formed emergency JSON body still reaches the controller")
+    void wellFormedBodyStillWorks() throws Exception {
+        mvc.perform(
+                        post("/api/v1/chat/completions")
+                                .contentType(MediaType.APPLICATION_JSON)
+                                .accept(MediaType.APPLICATION_JSON)
+                                .content(
+                                        """
+                                        {"messages":[{"role":"user","content":"crushing chest pain"}]}
+                                        """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.choices[0].message.role").value("assistant"))
+                .andExpect(
+                        jsonPath("$.choices[0].message.content")
+                                .value(org.hamcrest.Matchers.containsString("\"level\":\"emergency\"")));
     }
 
     @Test
