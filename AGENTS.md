@@ -100,6 +100,8 @@ The hook only runs when `core.hooksPath` points at `.githooks`, and that setting
 
 **Every day:** `docker compose up -d`, then backend and frontend as in §0. Vite proxies `/api` to Spring, so the browser sees a single origin and CORS never enters the picture.
 
+**Stop a disposable worktree's server before removing the worktree.** `bootRun` loads classes and resources directly from that worktree's mutable `backend/build` tree; deleting it under a live JVM leaves already-loaded classes running while later lazy loads fail. The checked-in Claude launcher therefore uses `bin/run-backend.sh`, which runs a complete boot JAR outside the worktree and owns that Java child. Keep ordinary foreground `./gradlew bootRun` for interactive development, but never let that process outlive its source worktree.
+
 **Develop offline:** `DATA_MODE=fixture ./gradlew bootRun` serves real captured responses without touching the network. The pharmacy API allows **1,000 calls per day** — four people refreshing a map can spend that before lunch, so fixture mode is the default working style. Note that fixture mode **ignores query parameters**; test filtering logic with `hybrid` or unit tests.
 
 **Check API access:** `./bin/check-api-access.py` — all 8 endpoints must print `[OK]`.

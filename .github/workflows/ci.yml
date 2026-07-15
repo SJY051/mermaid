@@ -30,6 +30,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
+      - name: Test backend runtime lifecycle
+        run: bash bin/run-backend.test.sh
+
       # The `test` profile uses in-memory H2 and no Redis, so CI needs no services
       # and no secrets. See backend/src/main/resources/application.yml.
       - name: Run tests
