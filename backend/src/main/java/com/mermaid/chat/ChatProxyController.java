@@ -208,15 +208,14 @@ public class ChatProxyController {
                     "I could not verify that answer against official data, so I will not show it. "
                             + "Please describe your symptoms again, or visit a pharmacy.");
         }
-        MermAidAnswer coerced = ground(parsed, context);
-
-        if (coerced.urgency() != null
-                && coerced.urgency().level() == MermAidAnswer.Urgency.Level.EMERGENCY) {
+        if (parsed.urgency() != null
+                && parsed.urgency().level() == MermAidAnswer.Urgency.Level.EMERGENCY) {
             // The model's urgency is only an escalation signal. Replacing the whole answer keeps
-            // model-authored prose, medicines and UI actions out of a safety state while preserving
-            // the escalation with the server's canonical 119 response.
+            // model-authored prose, medicines and UI actions out of a safety state. This must happen
+            // before grounding: an incomplete model card is untrusted and may not even have a key.
             return emergencyTriage.emergencyAnswer("MODEL_ESCALATION");
         }
+        MermAidAnswer coerced = ground(parsed, context);
 
         List<ViolationCode> violations = answerValidator.validate(coerced, context.groundedDrugs());
         if (!violations.isEmpty()) {

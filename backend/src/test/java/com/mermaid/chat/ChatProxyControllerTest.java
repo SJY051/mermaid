@@ -955,6 +955,17 @@ class ChatProxyControllerTest {
 
             assertServerCanonicalModelEmergency(answer);
         }
+
+        @Test
+        @DisplayName("an incomplete model emergency is canonicalized before drug grounding")
+        void incompleteModelEmergencyCannotFailBeforeCanonicalization() throws Exception {
+            MermAidAnswer answer = answerOf(controller(
+                            hostileModelEmergency("[{}]"),
+                            contextWith(TYLENOL))
+                    .completions(request("I have a headache")));
+
+            assertServerCanonicalModelEmergency(answer);
+        }
     }
 
     @Test
