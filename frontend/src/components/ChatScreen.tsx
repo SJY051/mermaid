@@ -10,7 +10,7 @@ import {
 } from '@astryxdesign/core/Chat'
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
-import { CircleAlert, Ellipsis } from 'lucide-react'
+import { CircleAlert, Ellipsis, Send } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
 import type { MermAidAnswer } from '../lib/types'
 import { AllergenPicker } from './AllergenPicker'
@@ -424,10 +424,13 @@ export function ChatScreen({ showDisclaimer = true }: { showDisclaimer?: boolean
         <button
           type="button"
           aria-label={streaming ? 'Working…' : 'Ask'}
-          className="chat-composer-send h-9 w-9 shrink-0 rounded-full bg-primary focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+          className="chat-composer-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-surface focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
           disabled={submitBlocked}
           onClick={() => void submit(input)}
-        />
+        >
+          {/* Decorative: the button's accessible name is the aria-label ("Ask" / "Working…"). */}
+          <Send aria-hidden="true" size={18} />
+        </button>
       </div>
     </div>
   )
