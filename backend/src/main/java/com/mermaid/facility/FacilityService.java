@@ -298,7 +298,9 @@ public class FacilityService {
         Instant operationRetrievedAt = now.toInstant();
 
         PharmacyApiClient.PharmacyBatch batch =
-                pharmacyApiClient.findNear(lat, lng, radiusMeters);
+                openNow
+                        ? pharmacyApiClient.findNearForOpenNow(lat, lng, radiusMeters)
+                        : pharmacyApiClient.findNear(lat, lng, radiusMeters);
         int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
         List<PharmacyApiClient.RawPharmacy> candidates =
                 batch.pharmacies().stream()

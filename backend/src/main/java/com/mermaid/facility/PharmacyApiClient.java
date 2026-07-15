@@ -162,24 +162,13 @@ public class PharmacyApiClient {
                             Math.addExact(radiusMeters, GRID_MARGIN_METERS));
             log.debug("pharmacy_lookup_completed provider=HIRA count={}", primary.pharmacies().size());
             return primary;
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             // No exception text: WebClient failures may include a URI containing ServiceKey.
             log.warn("pharmacy_lookup_failed provider=HIRA action=TRY_NMC_FALLBACK");
         }
 
         try {
-            JsonNode raw =
-                    publicApiWebClient
-                            .get()
-                            .uri(uriFor(lat, lng))
-                            .retrieve()
-                            .bodyToMono(JsonNode.class)
-                            .block();
-            List<RawPharmacy> nmcPharmacies = parseNmc(raw);
-            requireNmcLocationQuality(nmcPharmacies, lat, lng, radiusMeters);
-            PharmacyBatch fallback =
-                    new PharmacyBatch(
-                            nmcPharmacies, SourceRef.DataMode.LIVE, PharmacyProvider.NMC);
+            PharmacyBatch fallback = nmcBatch(lat, lng, radiusMeters);
             log.debug(
                     "pharmacy_lookup_completed provider=NMC fallback=true count={}",
                     fallback.pharmacies().size());
@@ -193,6 +182,57 @@ public class PharmacyApiClient {
             // No cause and no coordinates: neither secrets nor precise caller location reaches logs.
             throw new PublicApiException("Both pharmacy directory providers failed");
         }
+    }
+
+    /**
+     * Compatibility path for {@code open_now=true} searches.
+     *
+     * <p>The HIRA pharmacy directory publishes no weekly schedule and its {@code ykiho} cannot be
+     * used as NMC's {@code HPID}. Keep NMC as this query's source until a separately reviewed hours
+     * adapter can replace it; otherwise every HIRA row without hospital-detail hours becomes unknown
+     * and is silently removed by the open-now filter.
+     */
+    @Cacheable(
+            value = "pharmaciesNearOpenNow.v1",
+            key =
+                    "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000) + ':' + #radiusMeters")
+    public PharmacyBatch findNearForOpenNow(double lat, double lng, int radiusMeters) {
+        if (dataMode.isFixtureOnly()) {
+            return fixtureBatch();
+        }
+        if (!properties.isConfigured()) {
+            log.warn("DATA_GO_KR_SERVICE_KEY is not set — falling back to fixture data");
+            return fixtureBatch();
+        }
+
+        try {
+            PharmacyBatch batch = nmcBatch(lat, lng, radiusMeters);
+            log.debug(
+                    "pharmacy_lookup_completed provider=NMC open_now=true count={}",
+                    batch.pharmacies().size());
+            return batch;
+        } catch (Exception ignored) {
+            if (dataMode.allowsFallback()) {
+                // No exception text: WebClient failures may include a URI containing serviceKey.
+                log.warn("pharmacy_lookup_failed provider=NMC open_now=true action=USE_FIXTURE");
+                return fixtureBatch();
+            }
+            throw new PublicApiException("NMC open-now pharmacy directory failed");
+        }
+    }
+
+    private PharmacyBatch nmcBatch(double lat, double lng, int radiusMeters) {
+        JsonNode raw =
+                publicApiWebClient
+                        .get()
+                        .uri(uriFor(lat, lng))
+                        .retrieve()
+                        .bodyToMono(JsonNode.class)
+                        .block();
+        List<RawPharmacy> nmcPharmacies = parseNmc(raw);
+        requireNmcLocationQuality(nmcPharmacies, lat, lng, radiusMeters);
+        return new PharmacyBatch(
+                nmcPharmacies, SourceRef.DataMode.LIVE, PharmacyProvider.NMC);
     }
 
     private PharmacyBatch fixtureBatch() {

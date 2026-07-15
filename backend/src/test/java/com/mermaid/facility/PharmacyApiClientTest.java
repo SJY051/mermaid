@@ -233,6 +233,58 @@ class PharmacyApiClientTest {
     }
 
     @Test
+    @DisplayName("uses the NMC directory for open-now searches without calling HIRA")
+    void usesNmcDirectoryForOpenNowWithoutCallingHira() {
+        List<URI> requests = new CopyOnWriteArrayList<>();
+        WebClient webClient =
+                WebClient.builder()
+                        .exchangeFunction(
+                                request -> {
+                                    requests.add(request.url());
+                                    if ("hira.example".equals(request.url().getHost())) {
+                                        return Mono.just(
+                                                ClientResponse.create(HttpStatus.OK)
+                                                        .header(
+                                                                HttpHeaders.CONTENT_TYPE,
+                                                                MediaType.APPLICATION_XML_VALUE)
+                                                        .body(
+                                                                """
+                                                                <response><header><resultCode>00</resultCode></header>
+                                                                  <body><items><item><ykiho>HIRA-YKIHO</ykiho>
+                                                                    <yadmNm>청실약국</yadmNm><XPos>126.978</XPos><YPos>37.5664</YPos>
+                                                                  </item></items><totalCount>1</totalCount></body></response>
+                                                                """)
+                                                        .build());
+                                    }
+                                    return Mono.just(
+                                            ClientResponse.create(HttpStatus.OK)
+                                                    .header(
+                                                            HttpHeaders.CONTENT_TYPE,
+                                                            MediaType.APPLICATION_JSON_VALUE)
+                                                    .body(
+                                                            """
+                                                            {"response":{"header":{"resultCode":"00"},"body":{"items":{"item":{
+                                                              "hpid":"C1110693","dutyName":"청실약국","dutyAddr":"서울 중구",
+                                                              "latitude":37.5664,"longitude":126.978,"distance":0.14
+                                                            }},"totalCount":1}}}
+                                                            """)
+                                                    .build());
+                                })
+                        .build();
+        PharmacyApiClient client = liveClient(webClient, DataModeProperties.DataMode.LIVE);
+
+        PharmacyApiClient.PharmacyBatch batch =
+                client.findNearForOpenNow(37.5663, 126.9779, 1000);
+
+        assertThat(requests).extracting(URI::getHost).containsExactly("nmc.example");
+        assertThat(batch.provider()).isEqualTo(PharmacyApiClient.PharmacyProvider.NMC);
+        assertThat(batch.pharmacies())
+                .singleElement()
+                .extracting(PharmacyApiClient.RawPharmacy::hpid)
+                .isEqualTo("C1110693");
+    }
+
+    @Test
     @DisplayName("rejects far NMC coordinates even when the upstream distance claims they are near")
     void rejectsOutOfRadiusNmcFallbackRows() {
         WebClient webClient =
@@ -349,6 +401,16 @@ class PharmacyApiClientTest {
             assertThat(appender.list)
                     .extracting(ILoggingEvent::getFormattedMessage)
                     .allSatisfy(message -> assertThat(message).doesNotContain(secret, "ServiceKey"));
+            appender.list.clear();
+
+            assertThatThrownBy(() -> client.findNearForOpenNow(37.5663, 126.9779, 1000))
+                    .isInstanceOf(PublicApiException.class)
+                    .hasMessage("NMC open-now pharmacy directory failed")
+                    .hasNoCause()
+                    .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .allSatisfy(message -> assertThat(message).doesNotContain(secret, "serviceKey"));
         } finally {
             logger.detachAppender(appender);
         }

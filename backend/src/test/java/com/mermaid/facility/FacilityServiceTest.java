@@ -189,6 +189,34 @@ class FacilityServiceTest {
         assertThat(detail.source().retrievedAt()).isEqualTo(HIRA_DIRECTORY_RETRIEVED_AT);
     }
 
+    @Test
+    void openNowKeepsTheNmcHpidWeeklyHoursPathWhenHiraHasNoSchedule() {
+        var pharmacyClient = new ProviderAwareOpenNowPharmacyClient();
+        var detailClient = new EmptyHiraPharmacyDetailClient();
+        var service =
+                new FacilityService(
+                        pharmacyClient,
+                        new HospitalApiClient(null, null, null, null),
+                        detailClient,
+                        new EmergencyRoomApiClient(null, null, null, null),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        List<Facility> found =
+                service.findNearby(37.5663, 126.9779, 1000, true, FacilityType.PHARMACY, 1);
+
+        assertThat(found).singleElement().satisfies(pharmacy -> {
+            assertThat(pharmacy.id()).isEqualTo("facility:nmc:C1110693");
+            assertThat(pharmacy.operation().isOpenNow()).isTrue();
+            assertThat(pharmacy.operation().statusConfidence())
+                    .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+        });
+        assertThat(pharmacyClient.regularDirectoryRequests).hasValue(0);
+        assertThat(pharmacyClient.openNowDirectoryRequests).hasValue(1);
+        assertThat(pharmacyClient.weeklyHoursHpids).containsExactly("C1110693");
+        assertThat(detailClient.requests).hasValue(0);
+    }
+
     private static FacilityService pharmacyService(PharmacyApiClient client) {
         return new FacilityService(
                 client,
@@ -345,6 +373,11 @@ class FacilityServiceTest {
         }
 
         @Override
+        public PharmacyBatch findNearForOpenNow(double lat, double lng, int radiusMeters) {
+            return findNear(lat, lng, radiusMeters);
+        }
+
+        @Override
         public DutyTable weeklyHours(String hpid) {
             weeklyHoursRequests.incrementAndGet();
             return DutyTable.empty(SourceRef.DataMode.LIVE);
@@ -423,6 +456,69 @@ class FacilityServiceTest {
                     new HospitalDetail(
                             ykiho,
                             Map.of(5, List.of("0900", "1900")),
+                            Optional.empty(),
+                            false,
+                            false,
+                            null,
+                            null),
+                    SourceRef.DataMode.LIVE,
+                    FRIDAY_AFTERNOON.instant());
+        }
+    }
+
+    private static final class ProviderAwareOpenNowPharmacyClient extends PharmacyApiClient {
+
+        private final AtomicInteger regularDirectoryRequests = new AtomicInteger();
+        private final AtomicInteger openNowDirectoryRequests = new AtomicInteger();
+        private final List<String> weeklyHoursHpids = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        private ProviderAwareOpenNowPharmacyClient() {
+            super(null, null, null, null);
+        }
+
+        @Override
+        public PharmacyBatch findNear(double lat, double lng, int radiusMeters) {
+            regularDirectoryRequests.incrementAndGet();
+            return new PharmacyBatch(
+                    List.of(pharmacy("HIRA-YKIHO", 0.1, null, null)),
+                    SourceRef.DataMode.LIVE,
+                    PharmacyProvider.HIRA,
+                    HIRA_DIRECTORY_RETRIEVED_AT);
+        }
+
+        @Override
+        public PharmacyBatch findNearForOpenNow(double lat, double lng, int radiusMeters) {
+            openNowDirectoryRequests.incrementAndGet();
+            return new PharmacyBatch(
+                    List.of(pharmacy("C1110693", 0.1, null, null)),
+                    SourceRef.DataMode.LIVE,
+                    PharmacyProvider.NMC,
+                    HIRA_DIRECTORY_RETRIEVED_AT);
+        }
+
+        @Override
+        public DutyTable weeklyHours(String hpid) {
+            weeklyHoursHpids.add(hpid);
+            return new DutyTable(
+                    Map.of(5, List.of("0900", "1900")), SourceRef.DataMode.LIVE);
+        }
+    }
+
+    private static final class EmptyHiraPharmacyDetailClient extends HospitalDetailApiClient {
+
+        private final AtomicInteger requests = new AtomicInteger();
+
+        private EmptyHiraPharmacyDetailClient() {
+            super(null, null, null, null);
+        }
+
+        @Override
+        public HospitalDetailBatch findByYkiho(String ykiho) {
+            requests.incrementAndGet();
+            return new HospitalDetailBatch(
+                    new HospitalDetail(
+                            ykiho,
+                            Map.of(),
                             Optional.empty(),
                             false,
                             false,
