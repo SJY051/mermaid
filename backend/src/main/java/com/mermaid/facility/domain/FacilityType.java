@@ -11,7 +11,8 @@ import com.fasterxml.jackson.annotation.JsonValue;
  */
 public enum FacilityType {
     PHARMACY("pharmacy"),
-    HOSPITAL("hospital");
+    HOSPITAL("hospital"),
+    EMERGENCY_ROOM("emergency_room");
 
     private final String wire;
 

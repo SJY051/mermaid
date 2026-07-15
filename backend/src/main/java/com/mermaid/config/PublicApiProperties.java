@@ -12,6 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record PublicApiProperties(
         String serviceKey,
         String pharmacyBaseUrl,
+        String emergencyRoomBaseUrl,
         String hospitalBaseUrl,
         String hospitalDetailBaseUrl,
         String easyDrugBaseUrl,

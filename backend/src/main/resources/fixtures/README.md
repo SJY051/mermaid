@@ -1,12 +1,13 @@
 # 공공 API 실제 응답 샘플
 
-**2026-07-10에 실제 API를 호출해서 받은 응답입니다.** 추측이나 문서 예시가 아닙니다.
+**기존 fixture는 2026-07-10, `emergency_room.json`은 2026-07-15에 실제 API를 호출해서 받은 응답입니다.** 추측이나 문서 예시가 아닙니다.
 
 이것으로 파서를 개발하세요. **약국 API는 개발계정 하루 1,000회**뿐이라, 디버깅하며 호출하면 그날 개발이 끝납니다.
 
 | 파일 | 출처 | 무엇을 보여주나 |
 |---|---|---|
 | `pharmacy.json` | `ErmctInsttInfoInqireService/getParmacyLcinfoInqire` | 좌표 조회. **주간 시간표가 없습니다.** `startTime`/`endTime`, `distance`(km), `latitude`/`longitude` |
+| `emergency_room.json` | `ErmctInfoInqireService/getEgytLcinfoInqire` | 응급의료기관 좌표 조회. `distance`는 **km**이며, 이것만으로 응급실 운영 여부나 가용 병상을 알 수 없습니다. |
 | `pharmacy_basis.json` | `…/getParmacyBassInfoInqire` | HPID 단건. **여기에 `dutyTime1s`~`dutyTime6c`가 있습니다.** `wgs84Lat`/`wgs84Lon` |
 | `easydrug.json` | `DrbEasyDrugInfoService/getDrbEasyDrugList` | 안내문(`*Qesitm`). **성분 필드가 없습니다.** |
 | `permission.json` | `DrugPrdtPrmsnInfoService07/getDrugPrdtPrmsnInq07` | 목록. `ITEM_INGR_NAME`이 **영문** 성분명 |

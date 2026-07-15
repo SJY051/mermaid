@@ -24,6 +24,7 @@ class PharmacyApiClientTest {
                         "https://x",
                         "https://x",
                         "https://x",
+                        "https://x",
                         "https://x");
         return new PharmacyApiClient(
                 null,

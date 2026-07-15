@@ -28,6 +28,7 @@ class HospitalApiClientTest {
                 new PublicApiProperties(
                         "",
                         "https://x",
+                        "https://x",
                         "https://hira.example/hospInfoServicev2",
                         "https://x",
                         "https://x",
@@ -163,6 +164,7 @@ class HospitalApiClientTest {
                     null,
                     new PublicApiProperties(
                             "configured-key",
+                            "https://x",
                             "https://x",
                             "https://hira.example/hospInfoServicev2",
                             "https://x",

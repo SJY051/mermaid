@@ -38,6 +38,7 @@ public class FacilityService {
 
     private static final String PHARMACY_PROVIDER = "nmc"; // 국립중앙의료원
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
+    private static final String EMERGENCY_ROOM_PROVIDER = "nmc-emergency";
     private static final int METRES_PER_KM = 1000;
     private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
     /**
@@ -81,6 +82,7 @@ public class FacilityService {
     private final PharmacyApiClient pharmacyApiClient;
     private final HospitalApiClient hospitalApiClient;
     private final HospitalDetailApiClient hospitalDetailApiClient;
+    private final EmergencyRoomApiClient emergencyRoomApiClient;
     private final HolidayCalendar holidayCalendar;
     private final Clock clock;
 
@@ -95,6 +97,7 @@ public class FacilityService {
         return switch (type) {
             case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow, limit);
             case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow, limit);
+            case EMERGENCY_ROOM -> emergencyRooms(lat, lng, radiusMeters, openNow, limit);
         };
     }
 
@@ -366,4 +369,57 @@ public class FacilityService {
                 ? FacilityOperation.open(retrievedAt)
                 : FacilityOperation.closed(retrievedAt);
     }
+
+    private List<Facility> emergencyRooms(
+            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
+        Instant retrievedAt = clock.instant();
+        EmergencyRoomApiClient.EmergencyRoomBatch batch = emergencyRoomApiClient.findNear(lat, lng);
+
+        return batch.emergencyRooms().stream()
+                .map(raw -> toEmergencyRoom(raw, batch.origin(), lat, lng, retrievedAt))
+                .filter(f -> f.distanceMeters() <= radiusMeters)
+                // No NMC location record proves an emergency department is open. `true` would lie,
+                // so open_now includes only an explicitly confirmed open status.
+                .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
+                .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .limit(limit)
+                .toList();
+    }
+
+    private Facility toEmergencyRoom(
+            EmergencyRoomApiClient.RawEmergencyRoom raw,
+            SourceRef.DataMode origin,
+            double originLat,
+            double originLng,
+            Instant retrievedAt) {
+        return new Facility(
+                Facility.idOf(EMERGENCY_ROOM_PROVIDER, raw.hpid()),
+                FacilityType.EMERGENCY_ROOM,
+                raw.name(),
+                null,
+                raw.address(),
+                null,
+                raw.phone(),
+                raw.latitude(),
+                raw.longitude(),
+                emergencyDistanceMetres(raw, originLat, originLng),
+                FacilityOperation.unknown(retrievedAt),
+                new SourceRef(
+                        "src:" + EMERGENCY_ROOM_PROVIDER + ":" + raw.hpid(),
+                        "국립중앙의료원 응급의료기관 정보",
+                        raw.hpid(),
+                        retrievedAt,
+                        origin,
+                        "National Medical Center — emergency facility directory"),
+                null,
+                null);
+    }
+
+    private double emergencyDistanceMetres(
+            EmergencyRoomApiClient.RawEmergencyRoom raw, double originLat, double originLng) {
+        // A cached NMC list can belong to another point in this 100-m grid. Its provider distance is
+        // relative to that original point, so using it here would move radius boundaries and ordering.
+        return GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
+    }
+
 }

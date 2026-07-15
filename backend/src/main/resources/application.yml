@@ -127,6 +127,11 @@ mermaid:
     # NOTE: getParmacyLcinfoInqire has NO radius param. We clip by distance ourselves.
     pharmacy-base-url: https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService
 
+    # 국립중앙의료원 응급실 위치 조회 (data.go.kr 15000563). The API reports an origin-relative km
+    # distance, but our shared-grid cache recomputes each caller's distance from coordinates instead.
+    # It has no published emergency-department hours: never derive open_now here.
+    emergency-room-base-url: https://apis.data.go.kr/B552657/ErmctInfoInqireService
+
     # 건강보험심사평가원 병원정보서비스 — getHospBasisList(xPos/yPos/radius) is its ONLY operation,
     # and it is the only place a ykiho comes from. Approved 2026-07-10; see fixtures/hospital_list.json.
     #
