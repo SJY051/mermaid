@@ -30,6 +30,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@3f131e8634966bd73d06cc69884922b02e6faf92 # v6.2.0
 
+      - name: Test backend runtime lifecycle
+        run: bash bin/run-backend.test.sh
+
       # The `test` profile uses in-memory H2 and no Redis, so CI needs no services
       # and no secrets. See backend/src/main/resources/application.yml.
       - name: Run tests
@@ -65,6 +68,10 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Verify client environment boundary
+        working-directory: frontend
+        run: node scripts/verify-client-env-boundary.mjs
+
       - name: Lint
         working-directory: frontend
         run: pnpm lint
@@ -87,6 +94,9 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
+
+      - name: Verify pre-commit secret guard
+        run: ./bin/verify-precommit-secret-guard.sh
 
       # This repository is public. A leaked data.go.kr service key or LLM key is
       # scraped within minutes of being pushed.

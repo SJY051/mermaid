@@ -34,6 +34,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -189,6 +190,8 @@ class ChatProxyControllerTest {
 
     private MermAidAnswer streamedAnswerOf(ChatProxyController controller, JsonNode request)
             throws Exception {
+        ObjectNode streamedRequest = request.deepCopy();
+        streamedRequest.put("stream", true);
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
                 .setMessageConverters(
                         new org.springframework.http.converter.StringHttpMessageConverter(
@@ -200,7 +203,7 @@ class ChatProxyControllerTest {
         MvcResult started = mvc.perform(post("/api/v1/chat/completions")
                         .contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                         .accept(org.springframework.http.MediaType.TEXT_EVENT_STREAM)
-                        .content(mapper.writeValueAsBytes(request)))
+                        .content(mapper.writeValueAsBytes(streamedRequest)))
                 .andExpect(
                         org.springframework.test.web.servlet.result.MockMvcResultMatchers.request()
                                 .asyncStarted())
@@ -219,7 +222,6 @@ class ChatProxyControllerTest {
         return mapper.readValue(content, MermAidAnswer.class);
     }
 
-
     private static String modelAnswer(String drugsJson, String sourceRefsJson) {
         return """
             {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"live",
@@ -227,6 +229,40 @@ class ChatProxyControllerTest {
              "summary":"Here is what I found.","clarifyingQuestions":[],"guidance":[],
              "drugs":%s,"uiActions":[],"sourceRefs":%s,"warnings":[],"disclaimer":"d"}
             """.formatted(drugsJson, sourceRefsJson);
+    }
+
+    private static String hostileModelEmergency(String drugsJson) {
+        return """
+            {"schemaVersion":"1.0","answerId":"MODEL_ANSWER_ID_SENTINEL","language":"en",
+             "dataStatus":"live",
+             "urgency":{"level":"emergency","title":"MODEL_TITLE_SENTINEL",
+               "message":"MODEL_MESSAGE_SENTINEL","reasonCodes":["MODEL_REASON_SENTINEL"],
+               "actions":[{"type":"OPEN_FACILITY_MAP",
+                 "payload":{"types":["pharmacy"],"openNow":false,"radiusM":1000}}]},
+             "summary":"MODEL_SUMMARY_SENTINEL","clarifyingQuestions":["MODEL_QUESTION_SENTINEL"],
+             "guidance":[{"id":"g1","title":"MODEL_GUIDANCE_TITLE_SENTINEL",
+               "body":"MODEL_GUIDANCE_BODY_SENTINEL","evidence":"general_safety","sourceRefIds":[]}],
+             "drugs":%s,
+             "uiActions":[{"type":"OPEN_FACILITY_MAP",
+               "payload":{"types":["pharmacy"],"openNow":false,"radiusM":1000}}],
+             "sourceRefs":[],"warnings":["MODEL_WARNING_SENTINEL"],
+             "disclaimer":"MODEL_DISCLAIMER_SENTINEL"}
+            """.formatted(drugsJson);
+    }
+
+    private void assertServerCanonicalModelEmergency(MermAidAnswer answer) throws Exception {
+        assertThat(answer.answerId()).isEqualTo("triage-model_escalation");
+        assertThat(answer.urgency().level()).isEqualTo(MermAidAnswer.Urgency.Level.EMERGENCY);
+        assertThat(answer.urgency().reasonCodes()).containsExactly("MODEL_ESCALATION");
+        assertThat(answer.drugs()).isEmpty();
+        assertThat(answer.uiActions()).singleElement().isInstanceOf(UiAction.ShowEmergencyCall.class);
+        assertThat(answer.urgency().actions())
+                .singleElement()
+                .isInstanceOf(UiAction.ShowEmergencyCall.class);
+        UiAction.ShowEmergencyCall call = (UiAction.ShowEmergencyCall) answer.uiActions().get(0);
+        assertThat(call.payload().phone()).isEqualTo("119");
+        assertThat(answer.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
+        assertThat(mapper.writeValueAsString(answer)).doesNotContain("_SENTINEL");
     }
 
     @Test
@@ -1112,6 +1148,28 @@ class ChatProxyControllerTest {
             assertThat(answer.uiActions()).anyMatch(a -> a instanceof UiAction.ShowEmergencyCall);
             assertThat(upstream.sentRequest.get()).as("the model was never called").isNull();
         }
+
+        @Test
+        @DisplayName("a model emergency is replaced wholesale with the server's 119 answer")
+        void modelEmergencyIsCanonicalizedBeforeValidationFallback() throws Exception {
+            MermAidAnswer answer = answerOf(controller(
+                            hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
+                            emptyContext())
+                    .completions(request("I have a headache")));
+
+            assertServerCanonicalModelEmergency(answer);
+        }
+
+        @Test
+        @DisplayName("an incomplete model emergency is canonicalized before drug grounding")
+        void incompleteModelEmergencyCannotFailBeforeCanonicalization() throws Exception {
+            MermAidAnswer answer = answerOf(controller(
+                            hostileModelEmergency("[{}]"),
+                            emptyContext())
+                    .completions(request("I have a headache")));
+
+            assertServerCanonicalModelEmergency(answer);
+        }
     }
 
     @Test
@@ -1185,6 +1243,18 @@ class ChatProxyControllerTest {
                             .completions(req);
 
             assertThat(response).isInstanceOf(SseEmitter.class);
+        }
+
+        @Test
+        @DisplayName("a streamed model emergency carries the same server-authored 119 answer")
+        void streamedModelEmergencyIsCanonicalizedBeforeValidationFallback() throws Exception {
+            ChatProxyController controller = controller(
+                    hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
+                    emptyContext());
+
+            MermAidAnswer answer = streamedAnswerOf(controller, request("I have a headache"));
+
+            assertServerCanonicalModelEmergency(answer);
         }
 
         @Test

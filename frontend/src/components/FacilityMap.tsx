@@ -50,6 +50,14 @@ function operationStatus(facility: Facility): 'open' | 'closed' | 'unknown' {
   return 'unknown'
 }
 
+function distanceLabel(facility: Facility, longUnit = false): string {
+  if (facility.distanceMeters === null) return 'Distance unavailable'
+  const distance = Math.round(facility.distanceMeters)
+  return longUnit
+    ? `${distance} metres from the map centre`
+    : `${distance}m from map centre`
+}
+
 interface MarkerTokens {
   fill: string
   ring: string
@@ -151,7 +159,7 @@ function markerButtonContent(facility: Facility, index: number, idPrefix: string
     `${glyph}</span>` +
     `<span id="${nameId}" lang="ko" style="${visuallyHidden}">${escapeHtml(facility.nameKo)}</span>` +
     `<span id="${detailId}" style="${visuallyHidden}">${kindLabel}, ${statusLabel}, ` +
-    `${Math.round(facility.distanceMeters)} metres from the map centre. Open details.</span>` +
+    `${distanceLabel(facility, true)}. Open details.</span>` +
     `</button>`
   )
 }
@@ -491,7 +499,7 @@ export function FacilityMap({
                   </span>
                   <span className="min-w-0">
                     {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
-                    {Math.round(facility.distanceMeters)}m from map centre
+                    {distanceLabel(facility)}
                   </span>
                   <ChevronRight aria-hidden="true" className="shrink-0" size={16} />
                 </span>

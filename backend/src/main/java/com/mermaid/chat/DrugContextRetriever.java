@@ -164,8 +164,9 @@ public class DrugContextRetriever {
         // ingredients are dropped and only products the person named themselves are looked up.
         boolean suppressed = allergyDeclared && !extracted.ingredientsEn().isEmpty();
         if (suppressed) {
-            log.info("Allergy declared this turn — dropping {} model-proposed ingredient(s): {}",
-                    extracted.ingredientsEn().size(), extracted.ingredientsEn());
+            log.info(
+                    "drug_terms_suppressed reason=ALLERGY_DECLARED proposed_ingredient_count={}",
+                    extracted.ingredientsEn().size());
         }
         RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
 
@@ -185,8 +186,12 @@ public class DrugContextRetriever {
         retrieved = new RetrievedContext(checkedDrugs, retrieved.allowedProductNames(), retrieved.sources());
         // Cold, the retrieval is roughly thirty sequential calls to 식약처. Warm, Redis answers.
         // Both numbers belong in the log; the gap between them is the case for parallelising.
-        log.info("RAG pass 1: terms={}/{} → {} drug(s). extract {}ms, retrieve {}ms",
-                query.ingredientsEn(), query.productNamesKo(), retrieved.drugs().size(),
+        log.info(
+                "rag_pass1_complete ingredient_count={} product_name_count={} drug_count={}"
+                        + " extract_ms={} retrieve_ms={}",
+                query.ingredientsEn().size(),
+                query.productNamesKo().size(),
+                retrieved.drugs().size(),
                 millisBetween(startedAt, extractedAt), millisBetween(extractedAt, System.nanoTime()));
 
         return new DrugContext(

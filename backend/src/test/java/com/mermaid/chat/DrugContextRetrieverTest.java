@@ -4,12 +4,16 @@ import static org.assertj.core.api.Assertions.as;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.SearchTermExtractor.ExtractionResult;
 import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
+import com.mermaid.common.RequestIdFilter;
 import com.mermaid.common.SourceRef;
 import com.mermaid.drug.DrugService;
 import com.mermaid.drug.DrugService.RetrievalQuery;
@@ -24,6 +28,8 @@ import java.util.Set;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 /** What the model is shown, and what the validator is told to allow. */
 class DrugContextRetrieverTest {
@@ -107,6 +113,61 @@ class DrugContextRetrieverTest {
             }
         };
         return new DrugContextRetriever(extractor, drugService, new IngredientNormalizer(), mapper);
+    }
+
+    @Test
+    @DisplayName("health search terms are logged only as stage and counts")
+    void healthSearchTermsDoNotReachLogs() {
+        DrugContextRetriever retriever = retriever(
+                new RetrievalQuery(
+                        List.of("SECRET_INGREDIENT_QUERY_SENTINEL"),
+                        List.of("비밀제품_PRODUCT_QUERY_SENTINEL")),
+                RetrievedContext.EMPTY);
+        Logger logger = (Logger) LoggerFactory.getLogger(DrugContextRetriever.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        String previousRequestId = MDC.get(RequestIdFilter.MDC_KEY);
+        MDC.put(RequestIdFilter.MDC_KEY, "request-id-for-correlation");
+        try {
+            logger.addAppender(appender);
+            try {
+                retriever.retrieve("ordinary symptom text", "ordinary symptom text", exclusions("Ibuprofen"));
+            } finally {
+                logger.detachAppender(appender);
+                appender.stop();
+            }
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("drug_terms_suppressed")
+                            .contains("proposed_ingredient_count=1"))
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("rag_pass1_complete")
+                            .contains("ingredient_count=0")
+                            .contains("product_name_count=1")
+                            .contains("drug_count=0"));
+            assertThat(appender.list).allSatisfy(event -> {
+                assertThat(event.getFormattedMessage())
+                        .doesNotContain(
+                                "SECRET_INGREDIENT_QUERY_SENTINEL",
+                                "PRODUCT_QUERY_SENTINEL",
+                                "비밀제품");
+                assertThat(java.util.Arrays.deepToString(event.getArgumentArray()))
+                        .doesNotContain(
+                                "SECRET_INGREDIENT_QUERY_SENTINEL",
+                                "PRODUCT_QUERY_SENTINEL",
+                                "비밀제품");
+                assertThat(event.getThrowableProxy()).isNull();
+                assertThat(event.getMDCPropertyMap())
+                        .containsEntry(RequestIdFilter.MDC_KEY, "request-id-for-correlation");
+            });
+        } finally {
+            if (previousRequestId == null) {
+                MDC.remove(RequestIdFilter.MDC_KEY);
+            } else {
+                MDC.put(RequestIdFilter.MDC_KEY, previousRequestId);
+            }
+        }
     }
 
     @Nested

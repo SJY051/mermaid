@@ -237,6 +237,47 @@ class SearchTermExtractorTest {
         }
 
         @Test
+        @DisplayName("a product name invented by the model is unavailable after user binding")
+        void modelOnlyProductNameIsUnavailable() {
+            ChatProxyService productService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just(
+                            "{\"ingredients\":[],\"productNames\":[\"Tylenol\"]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(productService, mapper).extract("I have a fever");
+
+            assertThat(result.status())
+                    .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+            assertThat(result.query().isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a usable ingredient survives when an unauthorized product name is dropped")
+        void ingredientSurvivesDroppedModelOnlyProductName() {
+            ChatProxyService mixedService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just(
+                            "{\"ingredients\":[\"Acetaminophen\"],"
+                                    + "\"productNames\":[\"Tylenol\"]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(mixedService, mapper).extract("I have a fever");
+
+            assertThat(result.status()).isEqualTo(SearchTermExtractor.ExtractionStatus.USABLE);
+            assertThat(result.query().ingredientsEn()).containsExactly("Acetaminophen");
+            assertThat(result.query().productNamesKo()).isEmpty();
+        }
+
+        @Test
         @DisplayName("rejected-only terms are unavailable rather than a successful empty extraction")
         void rejectedOnlyOutputIsUnavailable() {
             ChatProxyService rejectedService = new ChatProxyService(null, null, null, null, mapper) {

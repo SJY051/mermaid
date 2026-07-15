@@ -5,6 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -20,8 +21,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * <p>Two rules, both about what the browser is told:
  *
  * <ol>
- *   <li><b>Never leak internals.</b> The exception's own message goes to the log; the client gets a
- *       code, a sentence written for a person, and the request id.
+ *   <li><b>Never leak internals.</b> A Jackson-unparseable request body uses only a stable log event
+ *       and the MDC request id. The client gets a code and a sentence written for a person.
  *   <li><b>Say whether retrying helps.</b> A government API that timed out is worth another try. A
  *       malformed query is not. {@code retryable} decides whether the UI offers a button.
  * </ol>
@@ -65,6 +66,14 @@ public class GlobalExceptionHandler {
         return body(ErrorCode.SOURCE_UNAVAILABLE, userMessageFor(ErrorCode.SOURCE_UNAVAILABLE), Map.of());
     }
 
+    @ExceptionHandler(FixtureIntegrityException.class)
+    public ResponseEntity<Map<String, Object>> fixtureIntegrity(FixtureIntegrityException e) {
+        // The reason is a bounded enum. Do not log the exception or fixture name: parser messages
+        // can contain captured payload values.
+        log.error("fixture_integrity_failure reason={}", e.reason());
+        return body(ErrorCode.INTERNAL_ERROR, userMessageFor(ErrorCode.INTERNAL_ERROR), Map.of());
+    }
+
     /**
      * Every shape a bad request can take.
      *
@@ -86,6 +95,22 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> invalid(Exception e) {
         log.warn("invalid request: {}", e.getMessage());
         return body(ErrorCode.INVALID_REQUEST, firstFieldError(e), Map.of());
+    }
+
+    /**
+     * A request body that Jackson could not parse.
+     *
+     * <p>The exception and its causes can retain user-authored body fragments. Chat bodies contain
+     * symptoms, so this path records only a stable event name; the request id already in MDC is the
+     * correlation key.
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> malformedBody() {
+        log.warn("invalid request body");
+        return body(
+                ErrorCode.INVALID_REQUEST,
+                userMessageFor(ErrorCode.INVALID_REQUEST),
+                Map.of());
     }
 
     @ExceptionHandler(UnsupportedOperationException.class)
