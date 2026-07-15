@@ -75,7 +75,7 @@ class FixtureIntegrityPropagationTest {
                         missingFixture("dur_usjnt.json"));
 
         assertThatThrownBy(
-                        () -> client.byKind("200008804", DurWarning.Kind.COMBINATION))
+                        () -> client.byKind("200000913", DurWarning.Kind.COMBINATION))
                 .isInstanceOf(FixtureIntegrityException.class);
     }
 
