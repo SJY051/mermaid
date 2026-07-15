@@ -1,0 +1,14 @@
+flowchart LR
+  C["Reviewed source + locked dependencies"] --> G["CI release gate\ncontent secret scan + tests"]
+  G --> B["Attested demo bundle\nrevision + tree + resources + config schema"]
+  B --> P["Demo supervisor\nport lease + process ownership"]
+  O["Older or mismatched classes"] --> X["Manifest verification rejects start"]
+  A["Browser-public env allowlist"] --> G
+  P --> V["Vite proxy / browser demo\nbuild_id + data_mode visible"]
+  V --> U["Demo user"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef safe fill:#dcfce7,stroke:#15803d,color:#111827
+  class C,O untrusted
+  class G,P,X,A control
+  class B,V safe

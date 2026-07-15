@@ -1,0 +1,18 @@
+flowchart LR
+  U["Raw user text + exclusions"] --> N["Safety event normalizer"]
+  N --> SM["Server-owned safety state machine"]
+  H["Clinically reviewed rules + copy"] --> SM
+  SM -->|EMERGENCY| A["Authoritative emergency output\ndrugs impossible"]
+  SM -->|ALLERGY_UNRESOLVED| Q["Authoritative clarification\nmodel suggestions impossible"]
+  SM -->|MEDICINE_ALLOWED| M["LLM explanation candidate"]
+  M --> C["State-aware output composer"]
+  SM --> C
+  A --> UI["Frontend renders typed state"]
+  Q --> UI
+  C --> UI
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef human fill:#fef3c7,stroke:#a16207,color:#111827
+  class U,M untrusted
+  class N,SM,C control
+  class H human

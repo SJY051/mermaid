@@ -1,0 +1,18 @@
+flowchart LR
+  U["Anonymous client\nroles + text"] --> N["Conversation normalizer\nall client history = untrusted"]
+  N --> S["Safety prescan"]
+  N --> P["Data-only prompt projection"]
+  G["Government records\nstrings + facts"] --> E["Evidence registry\nstable record IDs"]
+  E --> P
+  P --> L["LLM CandidateAnswer"]
+  L --> V["Answer release compiler\nsemantic + identity + section 2"]
+  E --> V
+  S --> V
+  V --> R["ReleasedAnswer\nserver-owned safety/provenance"]
+  R --> UI["ChatScreen / DrugCard"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef safe fill:#dcfce7,stroke:#15803d,color:#111827
+  class U,G,L untrusted
+  class N,S,E,V control
+  class R safe

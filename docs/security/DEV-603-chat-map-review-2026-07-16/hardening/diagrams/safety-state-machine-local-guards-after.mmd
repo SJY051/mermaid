@@ -1,0 +1,13 @@
+flowchart LR
+  U["Raw user text + exclusions"] --> E["Expanded EmergencyTriage\nnormalization + categories"]
+  E -->|match| A["Server emergency answer\ndrugs empty + canonical action"]
+  E -->|miss| D["Expanded allergy declaration\nlossless exclusions"]
+  D --> M["LLM answer / constrained actions"]
+  A --> UI["Frontend session + safety UI"]
+  M --> V["Validator checks state/action/card\ncombinations"]
+  V --> UI
+  UI --> X["Allergen picker preserves\nprior declarations"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class U,M untrusted
+  class E,D,V,X control

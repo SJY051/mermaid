@@ -1,0 +1,13 @@
+flowchart LR
+  Q["Query / product ID / coordinates"] --> A["Government adapter"]
+  A -->|live failure| F["Fixture or hybrid fallback"]
+  A --> R["Domain record"]
+  F --> R
+  R --> C["Redis cache\nquery-dependent keys"]
+  C --> S["Service restamps source/time"]
+  S --> G["Grounding by display fields"]
+  G --> UI["Card / map / model context"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class Q,A,F untrusted
+  class G control

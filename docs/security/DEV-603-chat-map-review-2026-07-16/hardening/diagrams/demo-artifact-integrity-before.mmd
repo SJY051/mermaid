@@ -1,0 +1,12 @@
+flowchart LR
+  C["Source + dependency + env changes"] --> H["Optional local hooks\nlexical deny rules"]
+  H --> B["Gradle / Vite build output"]
+  B --> P["Developer-started process\nshared fixed port"]
+  O["Older deleted worktree classes"] --> P
+  P --> V["Vite proxy / browser demo"]
+  S["Secret filename/name heuristics"] --> B
+  V --> U["Demo user"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class C,O untrusted
+  class H,S control

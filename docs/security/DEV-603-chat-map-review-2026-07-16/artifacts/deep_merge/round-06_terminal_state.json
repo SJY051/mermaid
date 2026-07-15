@@ -1,0 +1,22 @@
+{
+  "schema_version": "deep-security-round-06-terminal-state-v1",
+  "target": {
+    "commit": "654f906e00e81648d1482210b6a9171747dddd75",
+    "tree": "a14388f597c0c2a17e0dbcfc2d951a390c877214"
+  },
+  "completed_round": "round-06",
+  "state": "capped",
+  "reason": "capped_by_user_deadline_after_round_06",
+  "saturation_proven": false,
+  "canonical_candidate_count": 188,
+  "appended_canonical_count": 3,
+  "authority_manifest": {
+    "path": "artifacts/deep_merge/round-06_semantic_final_authority_manifest.json",
+    "sha256": "6d040b4494fd6e4c2581d98cfedbf8287650e7a70206b76ac0849bb8a10b5e88"
+  },
+  "phase_boundary": {
+    "centralized_validation_performed": false,
+    "centralized_attack_path_analysis_performed": false,
+    "centralized_validation_may_begin": true
+  }
+}
