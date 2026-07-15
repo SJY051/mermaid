@@ -1,0 +1,16 @@
+flowchart LR
+  Q["Facility query\nrequest budget"] --> S["Facility orchestrator"]
+  S --> L["List adapter\ndeadline + quota budget"]
+  S --> D["Detail/hour adapters\nbounded concurrency"]
+  L --> J["Validated facility facts"]
+  D --> J
+  J --> F["Facility result algebra\ncomplete / partial / verified-empty /\nunavailable / unsupported"]
+  F --> B["Typed API response\ntri-state hours retained"]
+  B --> UI["MapScreen / NearbyFacilities"]
+  UI --> N["State-exhaustive care copy"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef safe fill:#dcfce7,stroke:#15803d,color:#111827
+  class Q,L,D untrusted
+  class S,J,F control
+  class B,N safe

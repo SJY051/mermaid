@@ -1,0 +1,13 @@
+flowchart LR
+  U["Raw user text + exclusions"] --> E["EmergencyTriage regexes"]
+  E -->|match| A["Server emergency answer"]
+  E -->|miss| D["AllergyDeclaration + retriever"]
+  D --> M["LLM answer / answerId / actions"]
+  A --> UI["Frontend session + safety UI"]
+  M --> V["AnswerValidator"]
+  V --> UI
+  UI --> X["Allergen picker refresh\nand ambient actions"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class U,M untrusted
+  class E,D,V control

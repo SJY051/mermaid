@@ -1,0 +1,13 @@
+flowchart LR
+  U["Anonymous client\nroles + text"] --> C["ChatProxyController"]
+  C --> S["User-only safety prescan"]
+  C --> P["Prompt/context builder"]
+  G["Government records\nstrings + facts"] --> P
+  P --> L["LLM candidate answer"]
+  L --> V["Coercion + grounding +\nAnswerValidator"]
+  V --> R["Returned answer"]
+  R --> UI["ChatScreen / DrugCard"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class U,G,L untrusted
+  class S,V control

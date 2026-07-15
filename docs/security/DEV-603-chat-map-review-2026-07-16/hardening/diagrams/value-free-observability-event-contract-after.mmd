@@ -1,0 +1,16 @@
+flowchart LR
+  R["HTTP request\nhealth/location/profile values"] --> I["Correlation context\nrequest_id + build_id + data_mode"]
+  I --> P["Chat / drug / facility pipeline"]
+  P --> V["Value-free event API\nstage, outcome, counts, duration"]
+  P --> E["Generic client error\nrequest_id returned"]
+  P --> X["Sanitized exception classifier\nno body/query/user values"]
+  V --> O["Structured telemetry"]
+  X --> O
+  E --> O
+  O --> D["Operator diagnosis\nID-exact stage trail"]
+  classDef sensitive fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef safe fill:#dcfce7,stroke:#15803d,color:#111827
+  class R sensitive
+  class I,V,X control
+  class O safe

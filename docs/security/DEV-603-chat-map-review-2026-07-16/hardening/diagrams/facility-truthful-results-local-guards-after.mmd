@@ -1,0 +1,14 @@
+flowchart LR
+  Q["Facility query\nbounded radius + limit"] --> S["FacilityService bounded fan-out"]
+  S --> L["List adapter\ntimeout + envelope check"]
+  S --> D["Detail/hour adapters\npartial failure catch"]
+  L --> J["Validated rows + tri-state hours"]
+  D --> J
+  J --> F["Filter without dropping unknown"]
+  F --> B["HTTP rows, partial warning, or error"]
+  B --> UI["MapScreen / NearbyFacilities"]
+  UI --> N["Explicit loading / verified empty /\nunavailable / open / closed / unknown"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class Q,L,D untrusted
+  class S,J,F,N control

@@ -1,10 +1,15 @@
 package com.mermaid.facility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
@@ -12,6 +17,9 @@ import java.net.URI;
 import java.time.LocalTime;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 /** Tests for DEV-203b's HIRA hospital-detail adapter. */
 class HospitalDetailApiClientTest {
@@ -140,5 +148,63 @@ class HospitalDetailApiClientTest {
                 fixtureClient(response).findByYkiho(FIXTURE_YKIHO).detail();
 
         assertThat(detail.lunchBreak()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("provider failures never log or expose a URI-bearing service key")
+    void providerFailuresDropSecretBearingMessagesAndCauses() {
+        String secret = "never-log-this-hospital-detail-key";
+        WebClient webClient =
+                WebClient.builder()
+                        .exchangeFunction(
+                                request ->
+                                        Mono.error(
+                                                new IllegalStateException(
+                                                        request.url() + " upstream failed " + secret)))
+                        .build();
+        Logger logger = (Logger) LoggerFactory.getLogger(HospitalDetailApiClient.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            HospitalDetailApiClient.HospitalDetailBatch fallback =
+                    liveClient(webClient, secret, DataModeProperties.DataMode.HYBRID)
+                            .findByYkiho(FIXTURE_YKIHO);
+            assertThat(fallback.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .allSatisfy(message -> assertThat(message).doesNotContain(secret, "serviceKey"));
+            appender.list.clear();
+
+            assertThatThrownBy(
+                            () ->
+                                    liveClient(webClient, secret, DataModeProperties.DataMode.LIVE)
+                                            .findByYkiho(FIXTURE_YKIHO))
+                    .isInstanceOf(PublicApiException.class)
+                    .hasMessage("Hospital detail lookup failed for " + FIXTURE_YKIHO)
+                    .hasNoCause()
+                    .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
+            assertThat(appender.list).isEmpty();
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    private HospitalDetailApiClient liveClient(
+            WebClient webClient, String serviceKey, DataModeProperties.DataMode mode) {
+        return new HospitalDetailApiClient(
+                webClient,
+                new PublicApiProperties(
+                        serviceKey,
+                        "https://x",
+                        "https://x",
+                        "https://x",
+                        "https://hira.example/MadmDtlInfoService2.8",
+                        "https://x",
+                        "https://x",
+                        "https://x"),
+                new DataModeProperties(mode),
+                new FixtureLoader(new ObjectMapper()));
     }
 }

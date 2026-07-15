@@ -1,0 +1,13 @@
+flowchart LR
+  R["HTTP request\nhealth/location/profile values"] --> I["RequestIdFilter"]
+  I --> P["Chat / drug / facility pipeline"]
+  P --> L["Ad hoc text logs\nterms, coordinates, bearer IDs"]
+  P --> E["Generic client error\nrequest_id returned"]
+  P --> X["Throwable stack\nrequest_id absent in log pattern"]
+  L --> O["Operator diagnosis"]
+  X --> O
+  E -.-> O
+  classDef sensitive fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class R,L,X sensitive
+  class I control
