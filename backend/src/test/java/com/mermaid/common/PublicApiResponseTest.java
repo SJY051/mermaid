@@ -142,6 +142,23 @@ class PublicApiResponseTest {
 
             assertThat(r.items()).isEmpty();
             assertThat(r.totalCount()).isZero();
+            assertThat(r.hasConsistentItemCount()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a positive total without returned rows is structurally inconsistent")
+        void positiveCountWithoutRows() throws Exception {
+            JsonNode malformed =
+                    MAPPER.readTree(
+                            """
+                            {"header":{"resultCode":"00"},
+                             "body":{"totalCount":1}}
+                            """);
+
+            PublicApiResponse r = PublicApiResponse.of(malformed).requireOk();
+
+            assertThat(r.items()).isEmpty();
+            assertThat(r.hasConsistentItemCount()).isFalse();
         }
 
         @Test

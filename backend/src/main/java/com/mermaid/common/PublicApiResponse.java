@@ -76,6 +76,38 @@ public final class PublicApiResponse {
         return body.path("totalCount").asInt(0);
     }
 
+    /**
+     * Whether the declared result count can describe the rows carried by this page.
+     *
+     * <p>Zero-result responses may omit {@code items}. A positive total must carry at least one row,
+     * and a page cannot contain more rows than the declared total.
+     */
+    public boolean hasConsistentItemCount() {
+        if (!body.isObject()) {
+            return false;
+        }
+        JsonNode count = body.get("totalCount");
+        if (count == null || count.isNull()) {
+            return false;
+        }
+
+        long declared;
+        if (count.isIntegralNumber() && count.canConvertToLong()) {
+            declared = count.longValue();
+        } else if (count.isTextual() && count.textValue().matches("[0-9]+")) {
+            try {
+                declared = Long.parseLong(count.textValue());
+            } catch (NumberFormatException invalidCount) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+
+        int returned = items().size();
+        return declared >= returned && (declared == 0 || returned > 0);
+    }
+
     /** Package-visible for fixture integrity checks; a successful envelope must carry a body object. */
     boolean hasBody() {
         return body.isObject();
