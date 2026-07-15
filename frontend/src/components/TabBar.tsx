@@ -1,11 +1,18 @@
 import { HStack } from '@astryxdesign/core/HStack'
+import {
+  Bookmark,
+  MapPin,
+  MessageCircle,
+  Settings,
+  type LucideIcon,
+} from 'lucide-react'
 import type { TabId } from './MobileShell'
 
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'map', label: 'Map' },
-  { id: 'saved', label: 'Saved' },
-  { id: 'settings', label: 'Settings' },
+const TABS: { id: TabId; label: string; icon: LucideIcon }[] = [
+  { id: 'chat', label: 'Chat', icon: MessageCircle },
+  { id: 'map', label: 'Map', icon: MapPin },
+  { id: 'saved', label: 'Saved', icon: Bookmark },
+  { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
 /**
@@ -27,25 +34,31 @@ export function TabBar({
             activate on Enter or Space. */}
         {TABS.map((tab) => {
           const showBusy = tab.id === 'chat' && chatBusy
+          const activeTab = active === tab.id
+          const Icon = tab.icon
           return (
             <button
               key={tab.id}
               type="button"
               aria-label={showBusy ? 'Chat — answer in progress' : tab.label}
-              aria-current={active === tab.id ? 'page' : undefined}
-              className="flex-1 px-3 text-sm text-primary"
-              style={{ minHeight: 44 }}
+              aria-current={activeTab ? 'page' : undefined}
+              className={`flex min-h-[53px] flex-1 flex-col items-center justify-center gap-[3px] px-3 text-sm ${
+                activeTab ? 'font-bold text-primary' : 'text-secondary'
+              }`}
               onClick={() => onSelect(tab.id)}
             >
-              {tab.label}
-              {/* The user who switched tabs mid-answer must be able to see the answer is still
-                  coming (spec §6 step 2). */}
-              {showBusy && (
-                <span
-                  aria-hidden="true"
-                  className="ml-1 inline-block h-2 w-2 rounded-full bg-current"
-                />
-              )}
+              <Icon aria-hidden="true" size={19} />
+              <span className="inline-flex items-center">
+                {tab.label}
+                {/* The user who switched tabs mid-answer must be able to see the answer is still
+                    coming (spec §6 step 2). */}
+                {showBusy && (
+                  <span
+                    aria-hidden="true"
+                    className="ml-1 inline-block h-2 w-2 rounded-full bg-current"
+                  />
+                )}
+              </span>
             </button>
           )
         })}
