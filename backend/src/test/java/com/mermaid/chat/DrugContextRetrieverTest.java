@@ -632,7 +632,10 @@ class DrugContextRetrieverTest {
             assertThat(drugService.seen.ingredientsEn()).isEmpty();
             assertThat(drugService.seen.productNamesKo()).containsExactly("부루펜");
             assertThat(drugService.avoidedKeys).containsExactly("ibuprofen");
-            assertThat(context.directAnswer()).contains(AllergySuppressedAnswer.answer());
+            assertThat(context.directAnswer())
+                    .as("an official zero-result is not a query suppressed before retrieval")
+                    .isEmpty();
+            assertThat(context.systemMessage()).contains("nothing was retrieved");
         }
 
         @Test

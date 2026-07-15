@@ -170,7 +170,7 @@ public class DrugContextRetriever {
         RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
 
         if (query.isEmpty()) {
-            if (allergyDeclared) {
+            if (suppressed) {
                 log.info(
                         "Allergy declared and no user-named product remains — returning server suppression answer");
                 return DrugContext.allergySuppressed();
@@ -188,12 +188,6 @@ public class DrugContextRetriever {
         log.info("RAG pass 1: terms={}/{} → {} drug(s). extract {}ms, retrieve {}ms",
                 query.ingredientsEn(), query.productNamesKo(), retrieved.drugs().size(),
                 millisBetween(startedAt, extractedAt), millisBetween(extractedAt, System.nanoTime()));
-
-        if (allergyDeclared && retrieved.drugs().isEmpty()) {
-            log.info(
-                    "Allergy declared and no official product was retrieved — returning server suppression answer");
-            return DrugContext.allergySuppressed();
-        }
 
         return new DrugContext(
                 render(retrieved, allergyDeclared), groundedDrugs(retrieved.drugs()), retrieved.sources());
