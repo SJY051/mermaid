@@ -71,8 +71,9 @@ tags: [wbs, backlog, team]
 > 불립니다. 그 콜백이 유일한 신호이고, 스크립트를 붙이기 **전에** 등록해야 합니다.
 >
 > ⚠ **`VITE_` 접두사가 붙은 값은 브라우저 번들에 문자열로 박힙니다.** Client Secret이 거기 들어가 있었고
-> `dist/assets/index-*.js`에 컴파일됐습니다(폐기함). 이제 `vite.config.ts`가 `VITE_*SECRET*` 류 이름을 보면
-> **빌드를 거부**합니다. Client ID는 `VITE_NAVER_MAP_CLIENT_ID`, Secret은 `NAVER_MAP_CLIENT_SECRET`(접두사 없음).
+> `dist/assets/index-*.js`에 컴파일됐습니다(폐기함). 이제 `vite.config.ts`는 검토된 공개
+> `VITE_NAVER_MAP_CLIENT_ID`만 허용하고 나머지 `VITE_*` 이름은 모두 **빌드를 거부**합니다.
+> Secret은 `NAVER_MAP_CLIENT_SECRET`(접두사 없음)입니다.
 
 > ✅ **DEV-403 (2-패스 RAG) 완료.** `SearchTermExtractor` → `DrugService.retrieve()` → `DrugContextRetriever` →
 > `ChatProxyController#answer`. 설계 근거와 실측 함정은 스펙 §2-2에 전부 적어뒀습니다.

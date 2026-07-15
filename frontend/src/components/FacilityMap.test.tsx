@@ -264,6 +264,20 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
 
     expect(await screen.findByTestId('facility-list')).toHaveTextContent('140m from map centre')
   })
+
+  it('does not present an unavailable list or marker distance as zero metres', async () => {
+    installNaverStub()
+    render(<FacilityMap center={centre} facilities={[facility({ distanceMeters: null })]} />)
+
+    const list = await screen.findByTestId('facility-list')
+    expect(list).toHaveTextContent('Distance unavailable')
+    expect(list).not.toHaveTextContent('0m from map centre')
+
+    const marker = await screen.findByRole('button', {
+      name: '가나약국 Pharmacy, Open now, Distance unavailable. Open details.',
+    })
+    expect(marker).not.toHaveAccessibleName(/0 metres from the map centre/)
+  })
 })
 
 describe('fixture provenance is visible wherever the shared map is used (spec §2-9)', () => {
