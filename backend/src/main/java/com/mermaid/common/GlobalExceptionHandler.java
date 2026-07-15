@@ -93,7 +93,9 @@ public class GlobalExceptionHandler {
         MethodArgumentTypeMismatchException.class
     })
     public ResponseEntity<Map<String, Object>> invalid(Exception e) {
-        log.warn("invalid request: {}", e.getMessage());
+        // Validation exceptions retain rejected values in their messages and arguments. Keep only a
+        // bounded reason; the request id in MDC is the correlation key.
+        log.warn("invalid_request reason=" + validationReason(e));
         return body(ErrorCode.INVALID_REQUEST, firstFieldError(e), Map.of());
     }
 
@@ -180,6 +182,25 @@ public class GlobalExceptionHandler {
         return field == null
                 ? "That request was not valid."
                 : "Parameter '" + field + "' is out of range or malformed.";
+    }
+
+    private static String validationReason(Exception e) {
+        if (e instanceof MethodArgumentNotValidException) {
+            return "body_validation";
+        }
+        if (e instanceof ConstraintViolationException) {
+            return "constraint_violation";
+        }
+        if (e instanceof HandlerMethodValidationException) {
+            return "method_validation";
+        }
+        if (e instanceof MissingServletRequestParameterException) {
+            return "missing_parameter";
+        }
+        if (e instanceof MethodArgumentTypeMismatchException) {
+            return "type_mismatch";
+        }
+        return "invalid_request";
     }
 
     /** {@code nearby.lat} → {@code lat} */
