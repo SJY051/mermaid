@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
+import { CircleAlert, Phone } from 'lucide-react'
 import { ChatProvider, useChatSession } from '../lib/chatSession'
 import { FavoritesProvider } from '../lib/favorites'
 import { ChatScreen } from './ChatScreen'
@@ -28,6 +29,9 @@ export function MobileShell() {
 function MobileShellContent() {
   const [activeTab, setActiveTab] = useState<TabId>('chat')
   const { streaming, emergencyActive, latestAnswer } = useChatSession()
+  const screenClassName = `h-full overflow-y-auto ${
+    emergencyActive ? '' : 'appearance-section-enter'
+  }`
 
   return (
     // The app is a handheld at every size it is looked at (spec 007 FR-001). It is fluid from a
@@ -48,14 +52,14 @@ function MobileShellContent() {
         <div className="min-h-0 flex-1">
         {/* Keep every screen mounted so each tab retains its own scroll and interaction state. */}
         <section
-          className="h-full overflow-y-auto"
+          className={screenClassName}
           aria-label="Chat screen"
           hidden={activeTab !== 'chat'}
         >
           <ChatScreen />
         </section>
         <section
-          className="h-full overflow-y-auto"
+          className={screenClassName}
           aria-label="Map screen"
           hidden={activeTab !== 'map'}
         >
@@ -67,14 +71,14 @@ function MobileShellContent() {
             becomes active, and mounting it eagerly would send that request before anyone opened the
             tab. Both sides of this merge were right about their own half. */}
         <section
-          className="h-full overflow-y-auto"
+          className={screenClassName}
           aria-label="Saved screen"
           hidden={activeTab !== 'saved'}
         >
           <SavedScreen active={activeTab === 'saved'} />
         </section>
         <section
-          className="h-full overflow-y-auto"
+          className={screenClassName}
           aria-label="Settings screen"
           hidden={activeTab !== 'settings'}
         >
@@ -88,11 +92,16 @@ function MobileShellContent() {
           <Banner
             status="error"
             data-testid="shell-emergency-alert"
+            icon={<CircleAlert aria-hidden="true" size={20} />}
             title={latestAnswer.urgency.title}
             description={
               <div className="flex flex-col gap-1">
                 <span>{latestAnswer.urgency.message}</span>
-                <a className="font-semibold text-primary underline" href="tel:119">
+                <a
+                  className="inline-flex items-center gap-1 font-semibold text-primary underline"
+                  href="tel:119"
+                >
+                  <Phone aria-hidden="true" size={16} />
                   Call 119
                 </a>
               </div>

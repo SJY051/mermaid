@@ -32,14 +32,14 @@ export function AllergyBadge({ check }: { check: AllergyCheck }) {
         <div
           role="alert"
           data-allergy-state="blocked"
-          className="flex flex-col gap-1 rounded-lg border-2 border-[#c62828] bg-[#fdf1f1] p-3 text-sm"
+          className="flex flex-col gap-1 rounded-lg border-2 border-red-ring bg-red-subtle p-3 text-sm"
         >
-          <strong className="text-[#8f1d1d]">
+          <strong className="text-red-vivid">
             {matchedIngredients
               ? `Contains ${matchedIngredients} — an allergy you listed`
               : 'Contains an ingredient that matches an allergy you listed'}
           </strong>
-          <p className="text-[#2a2d33]">
+          <p className="text-primary">
             Don&apos;t take this one. A pharmacist can help you find the right option — no
             substitute is suggested here, on purpose.
           </p>
@@ -56,7 +56,7 @@ export function AllergyBadge({ check }: { check: AllergyCheck }) {
         <div
           role="status"
           data-allergy-state="warning"
-          className="flex flex-col gap-1 rounded-lg border-2 border-[#e0a800] bg-[#fbf3d9] p-3 text-sm text-[#2a2d33]"
+          className="flex flex-col gap-1 rounded-lg border-2 border-yellow-ring bg-yellow-subtle p-3 text-sm text-yellow-vivid"
         >
           <p>
             <strong>
@@ -73,7 +73,7 @@ export function AllergyBadge({ check }: { check: AllergyCheck }) {
         <div
           role="status"
           data-allergy-state="unknown"
-          className="flex flex-col gap-1 rounded-lg border-2 border-[#e0a800] bg-[#fbf3d9] p-3 text-sm text-[#2a2d33]"
+          className="flex flex-col gap-1 rounded-lg border-2 border-yellow-ring bg-yellow-subtle p-3 text-sm text-yellow-vivid"
         >
           <p>
             <strong>Ingredients could not be checked.</strong> The ingredient list did not load, so

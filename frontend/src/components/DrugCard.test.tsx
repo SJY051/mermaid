@@ -110,7 +110,7 @@ describe('DrugCard', () => {
   })
 
   it.each<[AllergyStatus, string, string]>([
-    ['blocked', 'Contains Ibuprofen', 'border-[#c62828]'],
+    ['blocked', 'Contains Ibuprofen', 'border-red-ring'],
     ['warning', 'Possible ingredient match', ''],
     ['unknown', 'Ingredients could not be checked', ''],
     ['no_match_found', 'This is not a guarantee', ''],

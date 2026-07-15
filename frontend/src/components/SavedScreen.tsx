@@ -119,7 +119,7 @@ export function SavedScreen({ active }: SavedScreenProps) {
                   />
                 </label>
                 <div className="flex gap-2">
-                  <button type="submit" disabled={submitting} className="min-h-11 rounded bg-primary px-3 font-medium text-inverse">Save changes</button>
+                  <button type="submit" disabled={submitting} className="min-h-11 rounded bg-primary px-3 font-medium text-surface">Save changes</button>
                   <button type="button" disabled={submitting} onClick={() => setEditing(null)} className="min-h-11 rounded border border-primary px-3 text-primary">Cancel</button>
                 </div>
               </form>
