@@ -76,7 +76,22 @@ public class FacilityService {
      * reach that 0.07 s warm path.
      */
     private static final int MAX_OPEN_NOW_CANDIDATES = 100;
-    private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;
+    /**
+     * How many HIRA detail calls may be in flight at once. This is the dominant cost of an
+     * {@code open_now=true} hospital load — 100 per-ykiho lookups, each ~1.4 s against HIRA's slow
+     * detail server (the pharmacy timetable endpoint answers the same shape in ~40 ms).
+     *
+     * <p>16, not 4. Four was inherited from {@code DrugService}, whose MFDS DUR endpoint throttles at
+     * four; HIRA does not — it scales almost linearly. Measured against the live detail endpoint,
+     * 100 calls: concurrency 4 ≈ 2.4 req/s, 8 ≈ 5.8, 16 ≈ 11.4, 32 ≈ 25 (2026-07-14). End to end, a
+     * cold {@code open_now=true} Seoul City Hall load went from a ~57 s median (worst 86 s) to ~17 s
+     * (worst 25 s) — measured in-app, both settings alternated in one window to defeat HIRA's drift.
+     *
+     * <p>Stopped at 16 rather than 32 on manners, not measurement: 32 concurrent sockets to a
+     * government API sustained is unproven, and 16 already buys 3.4x. It does not make the cold path
+     * fast — 17 s is still a frozen screen — so the loading state and the list cache still matter.
+     */
+    private static final int HOSPITAL_DETAIL_CONCURRENCY = 16;
     /** HIRA 종별코드 for 요양병원 (long-term-care hospitals) — the stable code, not the label. */
     private static final String NURSING_HOSPITAL_CODE = "28";
     /** The public API's maximum number of returned map pins. */

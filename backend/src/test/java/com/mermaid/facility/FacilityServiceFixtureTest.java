@@ -391,14 +391,17 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("hospital detail fan-out uses the bounded concurrency of four")
-    void hospitalDetailFetchesAreBoundedAtFour() {
+    @DisplayName("hospital detail fan-out is bounded at sixteen in flight")
+    void hospitalDetailFetchesAreBoundedAtSixteen() {
         var props =
                 new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
+        // 20 rows, all within radius, so the fan-out could run 20 at once if it were unbounded — the
+        // latch below proves it plateaus at exactly 16, which fails if the bound reverts to 4 (the
+        // latch never reaches 0) or is lifted (the max climbs to 20).
         List<HospitalApiClient.RawHospital> hospitals =
-                IntStream.range(0, 8)
+                IntStream.range(0, 20)
                         .mapToObj(
                                 i ->
                                         new HospitalApiClient.RawHospital(
@@ -421,16 +424,16 @@ class FacilityServiceFixtureTest {
                 };
         var active = new AtomicInteger();
         var maximum = new AtomicInteger();
-        var firstFour = new CountDownLatch(4);
+        var firstSixteen = new CountDownLatch(16);
         var detailClient =
                 new HospitalDetailApiClient(null, props, dataMode, loader) {
                     @Override
                     public HospitalDetailBatch findByYkiho(String ykiho) {
                         int inFlight = active.incrementAndGet();
                         maximum.accumulateAndGet(inFlight, Math::max);
-                        firstFour.countDown();
+                        firstSixteen.countDown();
                         try {
-                            firstFour.await(1, TimeUnit.SECONDS);
+                            firstSixteen.await(1, TimeUnit.SECONDS);
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             throw new AssertionError(e);
@@ -453,8 +456,8 @@ class FacilityServiceFixtureTest {
 
         List<Facility> found = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
 
-        assertThat(found).hasSize(8);
-        assertThat(maximum).hasValue(4);
+        assertThat(found).hasSize(20);
+        assertThat(maximum).hasValue(16);
     }
 
     @Test
