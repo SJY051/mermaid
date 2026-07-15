@@ -60,6 +60,8 @@ management:
 logging:
   level:
     com.mermaid: DEBUG
+  pattern:
+    level: "%5p [requestId=%X{requestId:-}]"
 
 # ---------------------------------------------------------------
 # mermAid-specific configuration. Bound to typed @ConfigurationProperties

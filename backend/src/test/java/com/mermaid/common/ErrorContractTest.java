@@ -15,9 +15,13 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.classic.spi.ThrowableProxyUtil;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.facility.domain.Facility;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,6 +29,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
@@ -38,15 +43,23 @@ import org.springframework.web.context.WebApplicationContext;
 @ActiveProfiles("test")
 class ErrorContractTest {
 
+    private static final String CANONICAL_UUID_PATTERN =
+            "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$";
+
     private MockMvc mvc;
+    private ObjectMapper objectMapper;
 
     /**
      * {@code webAppContextSetup(ctx).build()} alone skips servlet filters, so {@code X-Request-Id}
      * would be absent here while present in production. Register the filter explicitly.
      */
     @Autowired
-    ErrorContractTest init(WebApplicationContext ctx, RequestIdFilter requestIdFilter) {
+    ErrorContractTest init(
+            WebApplicationContext ctx,
+            RequestIdFilter requestIdFilter,
+            ObjectMapper objectMapper) {
         this.mvc = MockMvcBuilders.webAppContextSetup(ctx).addFilters(requestIdFilter).build();
+        this.objectMapper = objectMapper;
         return this;
     }
 
@@ -157,15 +170,30 @@ class ErrorContractTest {
     }
 
     @Test
-    @DisplayName("a supplied X-Request-Id is honoured so a trace survives the hop")
-    void honoursSuppliedRequestId() throws Exception {
-        mvc.perform(
-                        get("/api/v1/facilities")
-                                .param("lat", "999")
-                                .param("lng", "126.97")
-                                .header(RequestIdFilter.HEADER, "trace-me-123"))
-                .andExpect(header().string(RequestIdFilter.HEADER, "trace-me-123"))
-                .andExpect(jsonPath("$.error.request_id").value("trace-me-123"));
+    @DisplayName("a canonical upstream UUID correlates the response and the actual log event")
+    void honoursCanonicalUpstreamRequestId() throws Exception {
+        String upstreamRequestId = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+
+        RequestCorrelation correlation = captureInvalidRequest(upstreamRequestId);
+
+        assertThat(correlation.responseRequestId()).isEqualTo(upstreamRequestId);
+    }
+
+    @ParameterizedTest(name = "non-opaque request ID is replaced: {index}")
+    @ValueSource(
+            strings = {
+                "ibuprofen-gives-me-hives",
+                "trace-me-123 [requestId=forged]"
+            })
+    @DisplayName("health text and log-shaping request IDs are replaced before response or logging")
+    void replacesNonOpaqueRequestIds(String suppliedRequestId) throws Exception {
+        RequestCorrelation correlation = captureInvalidRequest(suppliedRequestId);
+
+        assertThat(correlation.responseRequestId())
+                .matches(CANONICAL_UUID_PATTERN)
+                .isNotEqualTo(suppliedRequestId);
+        assertThat(correlation.responseBody()).doesNotContain(suppliedRequestId);
+        assertThat(correlation.eventMdc()).doesNotContainValue(suppliedRequestId);
     }
 
     @Test
@@ -197,7 +225,7 @@ class ErrorContractTest {
     @DisplayName("a malformed JSON body never reaches logs or a throwable proxy")
     void malformedBodyLogIsValueFree() throws Exception {
         String sentinel = "PRIVATE_HEALTH_SENTINEL";
-        String requestId = "malformed-body-log-proof";
+        String requestId = "22222222-2222-4222-8222-222222222222";
         Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
@@ -267,4 +295,49 @@ class ErrorContractTest {
                 .andExpect(jsonPath("$[0].id").value(org.hamcrest.Matchers.startsWith("facility:nmc:")))
                 .andExpect(jsonPath("$[0].source.dataMode").value("fixture"));
     }
+
+    private RequestCorrelation captureInvalidRequest(String suppliedRequestId) throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                event.prepareForDeferredProcessing();
+                super.append(event);
+            }
+        };
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MockHttpServletRequestBuilder request =
+                    get("/api/v1/facilities").param("lat", "999").param("lng", "126.97");
+            request.header(RequestIdFilter.HEADER, suppliedRequestId);
+
+            MvcResult result =
+                    mvc.perform(request).andExpect(status().isBadRequest()).andReturn();
+            assertThat(appender.list).hasSize(1);
+
+            String responseRequestId = result.getResponse().getHeader(RequestIdFilter.HEADER);
+            String bodyRequestId =
+                    objectMapper
+                            .readTree(result.getResponse().getContentAsByteArray())
+                            .path("error")
+                            .path("request_id")
+                            .asText();
+            Map<String, String> eventMdc = appender.list.getFirst().getMDCPropertyMap();
+
+            assertThat(responseRequestId).isNotNull().isEqualTo(bodyRequestId);
+            assertThat(eventMdc).containsEntry("requestId", responseRequestId);
+            return new RequestCorrelation(
+                    responseRequestId,
+                    result.getResponse().getContentAsString(),
+                    eventMdc);
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+            assertThat(RequestIdFilter.current()).isEqualTo("no-request");
+        }
+    }
+
+    private record RequestCorrelation(
+            String responseRequestId, String responseBody, Map<String, String> eventMdc) {}
 }
