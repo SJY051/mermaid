@@ -20,6 +20,9 @@ import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
+import com.mermaid.drug.DrugService;
+import com.mermaid.drug.DrugService.RetrievalQuery;
+import com.mermaid.drug.DrugService.RetrievedContext;
 import com.mermaid.drug.IngredientNormalizer;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -262,6 +265,52 @@ class ChatProxyControllerTest {
         assertThat(answer.clarifyingQuestions()).containsExactly(AllergyClarification.QUESTION);
         assertThat(answer.drugs()).isEmpty();
         assertThat(harness.upstream().calls).as("allergy direct answer runs first").hasValue(0);
+    }
+
+    @Test
+    @DisplayName("a single-l allergy typo reaches the server clarification without provider or drug calls")
+    void misspelledAllergyFailsClosedAcrossTheControllerBoundary() throws Exception {
+        AtomicInteger extractionCalls = new AtomicInteger();
+        SearchTermExtractor extractor = new SearchTermExtractor(null, mapper) {
+            @Override
+            public SearchTermExtractor.ExtractionResult extract(String userText) {
+                extractionCalls.incrementAndGet();
+                return SearchTermExtractor.ExtractionResult.usable(
+                        new RetrievalQuery(List.of("Acetaminophen"), List.of()));
+            }
+        };
+        AtomicInteger drugCalls = new AtomicInteger();
+        DrugService drugService = new DrugService(null, null, null, null, null, null, null) {
+            @Override
+            public RetrievedContext retrieve(RetrievalQuery query, Set<String> avoidedKeys) {
+                drugCalls.incrementAndGet();
+                return RetrievedContext.EMPTY;
+            }
+        };
+        DrugContextRetriever retriever =
+                new DrugContextRetriever(extractor, drugService, new IngredientNormalizer(), mapper);
+        FakeUpstream upstream = new FakeUpstream(modelAnswer("[]", "[]"));
+        IngredientNormalizer normalizer = new IngredientNormalizer();
+        AnswerValidator validator = new AnswerValidator(normalizer);
+        ChatProxyController controller = new ChatProxyController(
+                upstream,
+                retriever,
+                new StructuredOutputFallback(mapper),
+                validator,
+                new ServerAuthoredAnswerBuilder(normalizer, validator),
+                new EmergencyTriage(),
+                normalizer,
+                mapper);
+
+        MermAidAnswer answer = answerOf(controller.completions(
+                request("I have a headache but I am alergic to aspirin. What should I do?")));
+
+        assertThat(answer).isEqualTo(AllergyClarification.answer());
+        assertThat(answer.drugs()).isEmpty();
+        assertThat(answer.sourceRefs()).isEmpty();
+        assertThat(extractionCalls).as("the extraction provider must not run").hasValue(0);
+        assertThat(drugCalls).as("official drug lookup must not run").hasValue(0);
+        assertThat(upstream.calls).as("the whole-answer provider must not run").hasValue(0);
     }
 
     @Nested

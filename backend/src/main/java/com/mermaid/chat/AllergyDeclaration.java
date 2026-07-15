@@ -37,7 +37,7 @@ final class AllergyDeclaration {
 
     private static final List<Pattern> PATTERNS =
             List.of(
-                    Pattern.compile("(?i)\\ballerg(?:y|ies|ic)\\b"),
+                    Pattern.compile("(?i)\\ball?erg(?:y|ies|ic)\\b"),
                     Pattern.compile("(?i)\\banaphyla(?:xis|ctic)\\b"),
                     Pattern.compile("(?i)\\bintoleran(?:t|ce)\\b"));
 
