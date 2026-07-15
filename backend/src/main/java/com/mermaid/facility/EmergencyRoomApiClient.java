@@ -57,7 +57,8 @@ public class EmergencyRoomApiClient {
             return new EmergencyRoomBatch(parse(fetch(centreLat, centreLng)), SourceRef.DataMode.LIVE);
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
-                log.warn("emergency-room lookup failed, falling back to fixture: {}", e.getMessage());
+                // The request URI contains the service key; exception text can echo it.
+                log.warn("emergency-room lookup failed, falling back to fixture");
                 return fixtureBatch();
             }
             throw new PublicApiException("Emergency-room lookup failed near " + lat + "," + lng, e);
