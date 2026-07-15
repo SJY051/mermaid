@@ -11,6 +11,7 @@ import {
 } from '@astryxdesign/core/Chat'
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
+import { CircleAlert, Ellipsis } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
 import type { MermAidAnswer } from '../lib/types'
 import { AllergenPicker } from './AllergenPicker'
@@ -24,7 +25,11 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   return (
     // aria-live so a screen reader hears that something is happening — a silent wait
     // hides the safety information that an answer is on its way (P1, Review guidelines).
-    <section data-testid="chat-progress" aria-live="polite" className="flex flex-col gap-2">
+    <section
+      data-testid="chat-progress"
+      aria-live="polite"
+      className="chat-waiting-indicator flex flex-col gap-2"
+    >
       <ProgressBar isIndeterminate variant="accent" label="Waiting for the answer" />
       <p className="text-sm text-primary">
         Checking your symptoms against verified government drug data and writing an answer.
@@ -79,7 +84,8 @@ function FailedAnswer({
   return (
     <section data-testid="chat-error" className="flex flex-col gap-3">
       <Banner
-        status="error"
+        status="warning"
+        icon={<CircleAlert aria-hidden="true" size={20} />}
         title="We could not get an answer."
         description={
           (sendError.retryable
@@ -138,6 +144,7 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
       {emergency && (
         <Banner
           status="error"
+          icon={<CircleAlert aria-hidden="true" size={20} />}
           title={answer.urgency.title}
           description={answer.urgency.message}
         />
@@ -151,7 +158,7 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
       {answer.warnings.length > 0 && (
         <div
           role="status"
-          className="flex flex-col gap-1 rounded border border-[#e0a800] bg-surface p-3 text-sm text-primary"
+          className="flex flex-col gap-1 rounded border border-yellow-ring bg-yellow-subtle p-3 text-sm text-yellow-vivid"
         >
           {answer.warnings.map((warning, index) => (
             <p key={index}>{warning}</p>
@@ -436,10 +443,10 @@ export function ChatScreen() {
             type="button"
             aria-label="Conversation menu"
             aria-expanded={menuOpen}
-            className="min-h-11 min-w-11 rounded border border-primary px-2 text-primary"
+            className="grid min-h-11 min-w-11 place-items-center rounded border border-primary px-2 text-primary"
             onClick={() => setMenuOpen((open) => !open)}
           >
-            •••
+            <Ellipsis aria-hidden="true" size={20} />
           </button>
           {menuOpen && (
             <div

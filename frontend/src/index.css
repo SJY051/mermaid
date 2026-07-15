@@ -49,3 +49,51 @@ body {
   background: var(--color-background-body);
   color: var(--color-text-primary);
 }
+
+/* The cold chat path is indeterminate and can exceed 100 seconds. Astryx supplies the moving
+ * fill; linear timing keeps it visibly alive without the stop-start pulse that looked stalled. */
+.chat-waiting-indicator .astryx-progressbar-fill {
+  animation-timing-function: linear !important;
+}
+
+@keyframes appearance-sheet-enter {
+  from {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes appearance-section-enter {
+  from {
+    transform: translateY(0.25rem);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.appearance-sheet-enter {
+  animation: appearance-sheet-enter var(--duration-medium) var(--ease-standard) both;
+}
+
+/* A safety surface is present immediately. It never waits for a tab transition to finish. */
+.appearance-section-enter:not([hidden]):not(:has([data-allergy-state])):not(:has([role='alert'])) {
+  animation: appearance-section-enter var(--duration-fast) var(--ease-standard) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #root,
+  #root *,
+  #root *::before,
+  #root *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

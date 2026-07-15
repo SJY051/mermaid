@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@astryxdesign/core/Button'
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
+import { X } from 'lucide-react'
 
 interface AllergenOption {
   key: string
@@ -192,14 +193,14 @@ export function AllergenPicker({
                 <button
                   type="button"
                   aria-label={`Remove ${allergen}`}
-                  className="min-h-8 min-w-8 rounded border border-primary"
+                  className="grid min-h-8 min-w-8 place-items-center rounded border border-primary"
                   onClick={() =>
                     setUnverifiedAllergens((current) =>
                       current.filter((item) => item !== allergen),
                     )
                   }
                 >
-                  ×
+                  <X aria-hidden="true" size={16} />
                 </button>
               </span>
             ))}

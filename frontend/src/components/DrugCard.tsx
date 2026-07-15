@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import { Badge } from '@astryxdesign/core/Badge'
 import { Card } from '@astryxdesign/core/Card'
+import { Check, CircleAlert } from 'lucide-react'
 import type {
   AllergyStatus,
   DrugCard as DrugCardData,
@@ -17,7 +18,7 @@ const PRESCRIPTION_LABELS: Record<PrescriptionStatus, string> = {
 }
 
 const ALLERGY_BORDER_CLASSES: Record<AllergyStatus, string> = {
-  blocked: 'border-2 border-[#c62828]',
+  blocked: 'border-2 border-red-ring',
   warning: '',
   unknown: '',
   no_match_found: '',
@@ -239,14 +240,12 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
               {drug.warnings.map((warning, index) => (
                 <li
                   key={index}
-                  className="flex gap-2 rounded-lg border border-[#e0a800] bg-[#fbf3d9] p-2 text-sm text-[#2a2d33]"
+                  className="flex gap-2 rounded-lg border border-yellow-ring bg-yellow-subtle p-2 text-sm text-yellow-vivid"
                 >
-                  <span
+                  <CircleAlert
                     aria-hidden="true"
-                    className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-[#8a6a00] text-xs font-bold text-[#6b5200]"
-                  >
-                    !
-                  </span>
+                    className="mt-0.5 h-4 w-4 shrink-0 text-yellow-vivid"
+                  />
                   <span className="whitespace-pre-wrap break-words">{warning}</span>
                 </li>
               ))}
@@ -269,7 +268,7 @@ export function DrugCard({ drug, source }: { drug: DrugCardData; source?: Source
               aria-label={`Verified source: ${source.provider}, retrieved ${datePart(source.retrievedAt)}`}
               className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary px-2 py-1 text-xs font-semibold text-primary"
             >
-              <span aria-hidden="true">✓</span>
+              <Check aria-hidden="true" size={14} />
               <span lang={containsKorean(source.provider) ? 'ko' : undefined}>
                 {source.provider}
               </span>{' '}

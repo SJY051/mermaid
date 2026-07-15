@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Phone } from 'lucide-react'
 import {
   fetchFacilities,
   fetchGeocode,
@@ -263,8 +264,10 @@ export function MapScreen({ active }: MapScreenProps) {
             key={filter.id}
             type="button"
             aria-pressed={typeFilter === filter.id}
-            className={`min-h-11 rounded border px-2 text-sm font-medium text-primary ${
-              typeFilter === filter.id ? 'border-primary bg-secondary' : 'border-primary bg-surface'
+            className={`min-h-11 rounded border px-2 text-sm font-medium ${
+              typeFilter === filter.id
+                ? 'border-primary bg-primary text-surface'
+                : 'border-primary bg-surface text-primary'
             }`}
             onClick={() => selectType(filter.id)}
           >
@@ -350,7 +353,11 @@ export function MapScreen({ active }: MapScreenProps) {
                   <span className="block text-sm text-primary">Hours unknown</span>
                 </span>
                 {facility.phone ? (
-                  <a className="shrink-0 text-sm text-primary underline" href={`tel:${facility.phone}`}>
+                  <a
+                    className="inline-flex shrink-0 items-center gap-1 text-sm text-primary underline"
+                    href={`tel:${facility.phone}`}
+                  >
+                    <Phone aria-hidden="true" size={14} />
                     {facility.phone}
                   </a>
                 ) : (
