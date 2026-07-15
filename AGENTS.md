@@ -37,7 +37,7 @@ An English speaker in Korea describes symptoms, without signing in, and gets:
 1. medicine information **verified against government data** (식약처, 심평원, 국립중앙의료원), explained in English, and
 2. a map of nearby pharmacies and hospitals that are open right now.
 
-The word that matters is **verified**. The service never repeats what an AI happens to know. The AI does exactly two jobs: decide *which ingredients to look up*, and *explain in English the facts the server retrieved*. This is the **two-pass RAG**:
+The word that matters is **verified**. The service never repeats what an AI happens to know. The AI decides *which ingredients to look up*; when official records are found, the server authors the medicine cards directly:
 
 ```
 Browser ──(openai JS SDK, baseURL=/api/v1)──▶ Spring proxy ──▶ LLM
@@ -47,9 +47,9 @@ Browser ──(openai JS SDK, baseURL=/api/v1)──▶ Spring proxy ──▶ L
 
 - **Pass 1a** — ask the LLM: "which *ingredients* should we look up for these symptoms?" → `["Acetaminophen", "Ibuprofen"]`
 - **Pass 1b** — the **server** queries the 식약처 APIs with those names.
-- **Pass 2** — give the LLM only the retrieved drugs: "explain these, and nothing else."
+- **Answer** — if records were found, the **server** maps their typed fields into canonical cards. The legacy whole-answer Pass 2 remains only for a truly empty context until the separately reviewed empty-state follow-up.
 
-**Pass 1a's output is a query, not a fact.** If the model names a product the government API did not return, the server rejects the whole answer (post-processing invariant 6).
+**Pass 1a's output is a query, not a fact.** The model cannot write a medicine card or its provenance on the non-empty path. See the staged decision record in [`docs/specs/006-semantic-output-gate/spec.md`](docs/specs/006-semantic-output-gate/spec.md).
 
 Read [`docs/specs/001-foundation/spec.md`](docs/specs/001-foundation/spec.md) before writing code — §2 (what changed from the original requirements and why) and §3 (verified external constraints) in particular.
 

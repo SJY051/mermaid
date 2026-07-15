@@ -64,6 +64,7 @@ public class ChatProxyController {
     private final DrugContextRetriever drugContextRetriever;
     private final StructuredOutputFallback fallback;
     private final AnswerValidator answerValidator;
+    private final ServerAuthoredAnswerBuilder serverAuthoredAnswerBuilder;
     private final EmergencyTriage emergencyTriage;
     private final com.mermaid.drug.IngredientNormalizer ingredientNormalizer;
     private final ObjectMapper objectMapper;
@@ -141,19 +142,14 @@ public class ChatProxyController {
     }
 
     /**
-     * The two-pass RAG flow (spec §2-2).
+     * Retrieves official records, then keeps their cards independent of whole-answer Pass 2.
      *
-     * <pre>
-     *   pass 1  DrugContextRetriever  → the only medicines that exist, as far as this turn is concerned
-     *   pass 2  the model             → summarises them, and nothing else
-     *           StructuredOutputFallback → makes the content parseable
-     *           ground()                 → replaces the model's provenance with the server's
-     *           AnswerValidator          → makes it true
-     * </pre>
-     *
-     * <p>Pass 1 is what gives invariant 6 its teeth. Before it existed, {@code retrievedProductNames}
-     * was empty and every answer naming a medicine was refused — correct for a system that had
-     * retrieved nothing, and useless.
+     * <p>A non-empty context becomes server-authored cards. Product identity, ingredients, dosage,
+     * warnings, allergy verdict, prescription status, and provenance come directly from the records;
+     * the two English enrichment fields stay unavailable. A truly empty context keeps the existing
+     * legacy model path, where the empty retrieval allowlist prevents any drug card from passing.
+     * Allergy direct answers run before both paths, and emergency triage runs before retrieval in
+     * {@link #completions(JsonNode)}.
      */
     private MermAidAnswer answer(JsonNode request) {
         MermaidRequestExtension.StructuredExclusions exclusions =
@@ -173,6 +169,12 @@ public class ChatProxyController {
         if (context.directAnswer().isPresent()) {
             return context.directAnswer().orElseThrow();
         }
+        if (!context.sources().isEmpty() || !context.groundedDrugs().isEmpty()) {
+            return serverAuthoredAnswerBuilder
+                    .build(context)
+                    .orElseGet(() -> fallback.safeAnswer(
+                            ServerAuthoredAnswerBuilder.INCONSISTENT_CONTEXT_SUMMARY));
+        }
 
         JsonNode upstream;
         long startedAt = System.nanoTime();
@@ -185,9 +187,8 @@ public class ChatProxyController {
             log.error("Upstream chat call failed after {}ms", elapsedMs(startedAt), e);
             return unreachable();
         }
-        // Pass 2 is the slowest thing this server does, and its cost scales with how much the model
-        // has to write — three grounded drug cards is several thousand characters. Log it, or the
-        // next person to hit the timeout will start by suspecting the public APIs.
+        // This is now the truly empty legacy path only. Keep its latency visible until the approved
+        // empty-state follow-up removes the final whole-answer call.
         log.info("RAG pass 2: model answered in {}ms ({} chars of context)",
                 elapsedMs(startedAt), context.systemMessage().length());
         if (upstream == null) {
@@ -241,7 +242,14 @@ public class ChatProxyController {
     }
 
     /**
-     * The name on the card is the ministry's name. Invariant 8, for the two fields left.
+     * Dormant legacy non-empty-card post-processing, retained for incremental cleanup.
+     *
+     * <p>The reachable legacy branch has a truly empty context, so its validator rejects every drug
+     * card before these transformations can affect output. The comments in this section document
+     * the former whole-answer card threat model; current non-empty cards are built by {@link
+     * ServerAuthoredAnswerBuilder} above.
+     *
+     * <p>The name on the legacy card is the ministry's name. Invariant 8, for the two fields left.
      *
      * <p>{@code productNameEn} was never validated by anything. A card could name the retrieved Korean
      * 타이레놀 with the right source and the right ingredients — and print <b>"Advil"</b> as its English
@@ -352,7 +360,7 @@ public class ChatProxyController {
     }
 
     /**
-     * Replaces the model's {@code sourceRefs} and {@code dataStatus} with the server's own.
+     * Dormant legacy grounding that replaces model provenance with the server's own.
      *
      * <p>Provenance is not the model's to author. It has no way of knowing whether a record came from
      * the live ministry API or from a fixture we replayed because the network was down, and a

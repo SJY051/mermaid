@@ -15,7 +15,7 @@ public record LlmProperties(
         String baseUrl,
         String apiKey,
         String model,
-        /** Pass 2 of the RAG flow: the model writes a whole grounded answer, thousands of characters. */
+        /** Truly empty legacy whole-answer timeout; non-empty official contexts bypass this call. */
         Duration timeout,
         /** Pass 1a: the model writes two short arrays. It has no business taking as long. */
         Duration extractionTimeout,
@@ -32,8 +32,8 @@ public record LlmProperties(
      * <p>An allowlist rather than a guess, because {@code model} is an environment variable and
      * support is not advertised anywhere: {@code glm-5.2} honours a strict schema, {@code
      * deepseek-v4-flash} answers 400 to the identical request, and {@code minimax-m3} answers 200 with
-     * {@code <think>} prose. A model absent from this list simply does not get the schema — the system
-     * prompt, {@code StructuredOutputFallback} and {@code AnswerValidator} still apply.
+     * {@code <think>} prose. This governs the still-reachable truly empty legacy answer; non-empty
+     * official contexts return server-authored cards before structured whole-answer generation.
      */
     public boolean supportsStructuredOutput() {
         return model != null

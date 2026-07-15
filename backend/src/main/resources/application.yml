@@ -89,11 +89,10 @@ mermaid:
     base-url: ${LLM_BASE_URL:https://opencode.ai/zen/go/v1}
     api-key: ${LLM_API_KEY:}
     model: ${LLM_MODEL:glm-5.2}
-    # Pass 2 of the RAG flow writes a whole MermAidAnswer over three grounded drugs. Measured against
-    # glm-5.2 on opencode zen, 2026-07-10: ~14s for a small context, past 60s for a real one, and the
-    # SAME warm request took 215s then 87s minutes apart. The provider's latency, not ours — but two
-    # serial calls per turn doubles our exposure to it. Sixty seconds sat exactly on the boundary, so
-    # the same question answered or 500'd depending on the cache.
+    # Legacy whole-answer timeout. Non-empty official contexts now return server-authored cards before
+    # this call; the value remains for the truly empty path until the separately reviewed empty-state
+    # follow-up. Historical 2026-07-10 measurements were ~14s for a small context, past 60s for a real
+    # one, with the same warm request taking 215s then 87s minutes apart.
     timeout: ${LLM_TIMEOUT:120s}
     # Pass 1a returns two short arrays. Giving it the same budget as a full answer means a queued
     # provider can burn three minutes before we even start retrieving. On timeout the drug context is
@@ -112,9 +111,8 @@ mermaid:
     # answer schema — $defs, $ref, const, enums and nullable type unions (2026-07-10, opencode zen).
     #
     # Support is not advertised and cannot be inferred from the model name, so this is an allowlist,
-    # not a guess. deepseek-v4-flash answers 400 to the identical request; minimax-m3 answers 200 and
-    # returns <think> prose anyway. A model absent from this list is still perfectly usable — it just
-    # gets the system prompt instead of a schema, and the server validates the answer either way.
+    # not a guess. It currently applies only to the truly empty legacy whole-answer path; non-empty
+    # cards never ask the model for this schema.
     #
     # If the provider rejects the schema anyway we retry once without it and log a warning. Add or
     # remove a model here rather than editing code.
