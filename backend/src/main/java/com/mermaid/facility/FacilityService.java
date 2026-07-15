@@ -55,24 +55,29 @@ public class FacilityService {
      * because latency is the binding constraint, not because HIRA is scarce: with 10x the headroom it
      * has no reason to be the more conservative of the two.
      *
-     * <p>Measured live at Seoul City Hall, radius 2,000 m, cold cache (2026-07-14):
-     *
-     * <pre>
-     *   hospital open_now=true  (100 candidates)  27.6 s
-     *   hospital open_now=false ( 10 candidates)  18.4 s
-     *   hospital list paging alone (limit=1)      20.7 s   &lt;-- dominates
-     *   pharmacy open_now=true  (100 candidates)   1.1 s
-     *   any of the above, warm cache              0.07 s
-     * </pre>
-     *
-     * <p>So widening the candidate set costs roughly 7-9 s, and <b>this constant is not the dial that
-     * matters</b>: HIRA's list paging is sequential ({@code HospitalApiClient} walks totalCount page by
-     * page) and costs ~20 s on its own. Lowering this cap would buy back seconds while leaving a sick
-     * person waiting twenty of them. Fetch the pages concurrently first, then re-measure before tuning
-     * anything here.
+     * <p>Lowering this cap is the obvious lever for that latency and the wrong one to reach for blind:
+     * it trades away the farther open hospital this constant exists to find. The levers that do not are
+     * {@link #HOSPITAL_DETAIL_CONCURRENCY the detail concurrency} and the grid-shared list cache in
+     * {@link HospitalApiClient#findNear} — reach for those first, and take timings there several at a
+     * time in one window, because HIRA's detail latency swings by 3x between identical runs.
      */
     private static final int MAX_OPEN_NOW_CANDIDATES = 100;
-    private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;
+    /**
+     * How many HIRA detail calls may be in flight at once. This is the dominant cost of an
+     * {@code open_now=true} hospital load — 100 per-ykiho lookups, each ~1.4 s against HIRA's slow
+     * detail server (the pharmacy timetable endpoint answers the same shape in ~40 ms).
+     *
+     * <p>16, not 4. Four was inherited from {@code DrugService}, whose MFDS DUR endpoint throttles at
+     * four; HIRA does not — it scales almost linearly. Measured against the live detail endpoint,
+     * 100 calls: concurrency 4 ≈ 2.4 req/s, 8 ≈ 5.8, 16 ≈ 11.4, 32 ≈ 25 (2026-07-14). End to end, a
+     * cold {@code open_now=true} Seoul City Hall load went from a ~57 s median (worst 86 s) to ~17 s
+     * (worst 25 s) — measured in-app, both settings alternated in one window to defeat HIRA's drift.
+     *
+     * <p>Stopped at 16 rather than 32 on manners, not measurement: 32 concurrent sockets to a
+     * government API sustained is unproven, and 16 already buys 3.4x. It does not make the cold path
+     * fast — 17 s is still a frozen screen — so the loading state and the list cache still matter.
+     */
+    private static final int HOSPITAL_DETAIL_CONCURRENCY = 16;
     /** HIRA 종별코드 for 요양병원 (long-term-care hospitals) — the stable code, not the label. */
     private static final String NURSING_HOSPITAL_CODE = "28";
     /** The public API's maximum number of returned map pins. */
@@ -239,9 +244,9 @@ public class FacilityService {
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         HospitalApiClient.HospitalBatch batch = hospitalApiClient.findNear(lat, lng, radiusMeters);
 
-        // HIRA's radius is authoritative, but its distance is a decimal string. Resolve each metre
-        // value once — here, so a malformed/out-of-contract row is dropped before the detail fan-out
-        // and the same figure is reused on the card instead of recomputed (Haversine twice).
+        // Resolve each row's distance once — here — so it is filtered before the detail fan-out and
+        // the same metre value lands on the card. It is our Haversine from the caller's coordinate,
+        // not HIRA's origin-relative figure, because the list was fetched grid-centred and shared.
         //
         // HIRA classifies 요양병원 (long-term-care hospitals) under 종별코드 28. The default search is
         // for acute care, so omit only that exact code before any detail call, matching the stable code
@@ -318,12 +323,14 @@ public class FacilityService {
                 detail.emergencyNight());
     }
 
-    /** HIRA reports metres (unlike the pharmacy API's kilometres); only malformed omissions use Haversine. */
+    /** Distance in metres, always our own Haversine from the caller — see the body for why HIRA's is unused. */
     private double hospitalDistanceMetres(
             HospitalApiClient.RawHospital raw, double originLat, double originLng) {
-        return raw.distanceMeters() != null
-                ? raw.distanceMeters()
-                : GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
+        // Always our own Haversine, never HIRA's distance. The list is cached grid-centred and shared
+        // (HospitalApiClient#findNear), so HIRA's origin-relative figure belongs to the cell centre,
+        // not this caller. It matched ours within a mean 4 m on 100 live rows anyway (2026-07-14).
+        // raw.distanceMeters() is still parsed — the list fixture test asserts it — just not trusted here.
+        return GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
     }
 
     private FacilityOperation hospitalOperation(

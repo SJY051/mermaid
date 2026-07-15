@@ -2,6 +2,7 @@ package com.mermaid.facility;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
@@ -13,6 +14,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,8 +30,52 @@ public class HospitalApiClient {
     private static final int PAGE_SIZE = 100;
     // 20 pages = 2,000 hospitals, far past any real radius (the densest fixture radius is 440).
     // The cap protects one user request from a runaway/hostile totalCount turning into thousands
-    // of sequential blocking calls — the service only shows the nearest handful anyway.
+    // of blocking calls — the service only shows the nearest handful anyway.
     static final int MAX_PAGES = 20;
+    /**
+     * How many list pages may be in flight at once.
+     *
+     * <p>Every page after the first is fetched concurrently, because HIRA does not sort by distance
+     * and we cannot stop early. Measured live at Seoul City Hall, radius 2,000 m: {@code totalCount}
+     * is 717 (8 pages), page 2 carries 100 hospitals all nearer than page 1's farthest, and page 2's
+     * nearest (139 m) beats page 1's (176 m). Reading only the pages we felt like reading would drop
+     * the closest hospital on the map.
+     *
+     * <p>Reading those 8 pages one after another against four at a time, cold, alternating between the
+     * two builds inside one window (2026-07-14 21:5x KST):
+     *
+     * <pre>
+     *   list alone (limit=1)  sequential  23.9 / 35.0 / 25.0 s
+     *                         concurrent   9.9 / 10.0 / 10.2 s
+     *   whole open_now=true   sequential  58.5 / 30.0 / 60.9 / 60.9 s
+     *                         concurrent  39.3 / 22.6 / 14.5 / 28.4 s
+     * </pre>
+     *
+     * <p><b>Measure both builds in the same window or do not measure at all.</b> HIRA's own latency
+     * drifts by more than this change is worth: the identical sequential build read the same 8 pages in
+     * 20.7 s an hour earlier and 23.9-35.0 s here. Comparing a number taken now against one taken then
+     * is how you conclude a speed-up made things slower — which is exactly what happened on the first
+     * attempt at this measurement.
+     *
+     * <p>Left at four while the detail fan-out runs at 16, because the two are different sizes: the
+     * list is at most a handful of pages (8 for a 2 km radius, capped at 20 by {@link #MAX_PAGES}), so
+     * more concurrency saves little here, whereas the 100-call detail fan-out earns it. The evidence
+     * that HIRA scales almost linearly with concurrency lives on {@code HOSPITAL_DETAIL_CONCURRENCY};
+     * if the page count ever grows, raise this against a measured number rather than by feel.
+     */
+    private static final int LIST_PAGE_CONCURRENCY = 4;
+
+    /** ~100 m grid the cache key rounds to (3 decimal places of latitude). */
+    private static final int GRID_DECIMALS = 1000;
+    /**
+     * How far the fetched radius is widened so a caller anywhere in the grid cell still gets every
+     * hospital inside their own circle. The cell is ~111 m × ~88 m at Seoul's latitude, so its centre
+     * is at most ~73 m from any corner; 100 m clears that with margin. Without this, a caller at the
+     * cell edge would be served the cell centre's smaller circle and silently miss open hospitals
+     * (§2-3). Package-visible so a test can assert the fetched radius includes it.
+     */
+    static final int GRID_MARGIN_METERS = 100;
+
     private static final String FIXTURE = "hospital_list.json";
 
     private final WebClient publicApiWebClient;
@@ -64,15 +110,23 @@ public class HospitalApiClient {
     /**
      * Hospitals near a point. HIRA requires radius in metres; xPos is longitude and yPos is latitude.
      *
-     * <p>This shares a list lookup only for the exact same origin and radius. HIRA's {@code distance}
-     * values are relative to the requested origin, so rounding coordinates into a grid would give a
-     * nearby caller another origin's distance. The batch keeps per-fetch provenance, so a cached
-     * hybrid fallback remains visibly fixture data.
+     * <p>Cached on a ~100 m coordinate grid plus radius, so two people on the same block share one
+     * upstream fetch instead of each waiting out the page walk. HIRA's own {@code distance} is
+     * relative to the requested origin — meaningless once the fetch is grid-centred — but it is a
+     * measured figure, not an authoritative one: on 100 live rows it matched our own Haversine within
+     * a mean of 4 m and flipped zero radius verdicts (2026-07-14). So the fetch is centred on the grid
+     * cell, {@link FacilityService} recomputes each distance from the caller's true coordinate, and
+     * the fetched radius is widened by one cell ({@link #GRID_MARGIN_METERS}) so an edge-of-cell caller
+     * still receives every hospital within their own circle.
+     *
+     * <p>The batch keeps per-fetch provenance, so a cached hybrid fallback remains visibly fixture data.
      */
     @Cacheable(
-            value = "hospitalsNear.v1",
+            // v2: the key changed from exact coordinates to a grid cell. A v1 entry would answer a
+            // grid-cell key it was never stored under, so a new name retires every stale entry at once.
+            value = "hospitalsNear.v2",
             key =
-                    "#lat + ':' + #lng + ':' + #radiusMeters")
+                    "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000) + ':' + #radiusMeters")
     public HospitalBatch findNear(double lat, double lng, int radiusMeters) {
         if (dataMode.isFixtureOnly()) {
             return fixtureBatch();
@@ -82,8 +136,14 @@ public class HospitalApiClient {
             return fixtureBatch();
         }
 
+        // Fetch from the cell centre, not this caller's exact point, so every caller the key rounds
+        // together sees the identical batch; widen the radius by one cell so none of them loses a
+        // hospital that sits inside their circle but outside the centre's.
+        double centreLat = Math.round(lat * GRID_DECIMALS) / (double) GRID_DECIMALS;
+        double centreLng = Math.round(lng * GRID_DECIMALS) / (double) GRID_DECIMALS;
+        int fetchRadius = radiusMeters + GRID_MARGIN_METERS;
         try {
-            return liveBatch(lat, lng, radiusMeters);
+            return liveBatch(centreLat, centreLng, fetchRadius);
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
                 log.warn("hospital lookup failed, falling back to fixture: {}", e.getMessage());
@@ -132,9 +192,16 @@ public class HospitalApiClient {
                     pages,
                     MAX_PAGES);
         }
-        for (int pageNo = 2; pageNo <= lastPage; pageNo++) {
-            hospitals.addAll(parsePage(fetchPage(lat, lng, radiusMeters, pageNo)).hospitals());
-        }
+        // Page 1 has to land first — it carries the totalCount that tells us how many more there are.
+        // The rest are independent, so they go together. Parallel.map emits in input order, so the
+        // rows stay in page order and the fixtures/tests stay deterministic. parsePage always returns
+        // a list (empty at worst), never null: a null here would be dropped and shift every later page.
+        Parallel.map(
+                        IntStream.rangeClosed(2, lastPage).boxed().toList(),
+                        LIST_PAGE_CONCURRENCY,
+                        pageNo -> parsePage(fetchPage(lat, lng, radiusMeters, pageNo)).hospitals())
+                .forEach(hospitals::addAll);
+
         return new HospitalBatch(hospitals, SourceRef.DataMode.LIVE, Instant.now(clock));
     }
 
