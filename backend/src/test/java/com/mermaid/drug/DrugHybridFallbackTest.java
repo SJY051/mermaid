@@ -6,7 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.common.ApiException;
 import com.mermaid.common.ErrorCode;
 import com.mermaid.common.FixtureLoader;
@@ -147,20 +150,25 @@ class DrugHybridFallbackTest {
                     assertThat(warning.itemSeq()).isEqualTo("197100097"));
             assertThat(exact.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
             assertThat(exact.retrievedAt()).isEqualTo(FETCHED_AT);
-            assertSourceUnavailable(() -> dur.byKindBatch(TYLENOL, DurWarning.Kind.AGE));
+            assertSourceUnavailable(() ->
+                    dur.byKindBatch("999999999", DurWarning.Kind.AGE));
         }
 
         @Test
-        @DisplayName("all-kind DUR assembly fails when any fixture cannot prove the requested product")
-        void incompleteDurFallbackCannotBePresentedAsVerified() {
+        @DisplayName("Tylenol DUR fallback uses four product-bound zero captures")
+        void tylenolDurFallbackUsesProductBoundZeroCaptures() {
             DurApiClient dur = dur(failingWebClient(new AtomicInteger()), HYBRID, configured());
 
-            assertSourceUnavailable(() -> dur.warningsForBatch(TYLENOL));
+            DurApiClient.DurBatch batch = dur.warningsForBatch(TYLENOL);
+
+            assertThat(batch.warnings()).isEmpty();
+            assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+            assertThat(batch.retrievedAt()).isEqualTo(FETCHED_AT);
         }
 
         @Test
-        @DisplayName("DrugService propagates an unprovable hybrid source instead of silently skipping it")
-        void detailPropagatesSourceUnavailable() {
+        @DisplayName("DrugService preserves a Tylenol card backed by product-bound zero DUR captures")
+        void detailPreservesProductBoundZeroDurResults() {
             WebClient failing = failingWebClient(new AtomicInteger());
             PublicApiProperties properties = configured();
             FixtureLoader fixtures = fixtures();
@@ -176,7 +184,80 @@ class DrugHybridFallbackTest {
                             mode,
                             CLOCK);
 
-            assertSourceUnavailable(() -> service.detail(TYLENOL, Set.of()));
+            var drug = service.detail(TYLENOL, Set.of());
+
+            assertThat(drug.itemSeq()).isEqualTo(TYLENOL);
+            assertThat(drug.durWarnings()).isEmpty();
+            assertThat(drug.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
+        }
+
+        @Test
+        @DisplayName("fixture-only DUR rejects an unknown product instead of borrowing a kind fixture")
+        void unknownFixtureProductFailsClosed() {
+            DurApiClient dur = dur(countingWebClient(new AtomicInteger()), FIXTURE, configured());
+
+            assertSourceUnavailable(() -> dur.byKindBatch("999999999", DurWarning.Kind.AGE));
+        }
+
+        @Test
+        @DisplayName("every row in a non-empty bound DUR fixture must match the requested product")
+        void boundDurFixtureRejectsAnyRowForAnotherProduct() {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode mismatched = new FixtureLoader(mapper).load("dur_age.json").deepCopy();
+            ((ObjectNode) mismatched.at("/body/items/0")).put("ITEM_SEQ", "200000913");
+            FixtureLoader fixtures = new FixtureLoader(mapper) {
+                @Override
+                public JsonNode load(String name) {
+                    return name.equals("dur_age.json") ? mismatched : super.load(name);
+                }
+            };
+            DurApiClient dur =
+                    new DurApiClient(null, configured(), mode(FIXTURE), fixtures, CLOCK);
+
+            assertSourceUnavailable(() ->
+                    dur.byKindBatch("197100097", DurWarning.Kind.AGE));
+        }
+
+        @Test
+        @DisplayName("the legacy combination capture still proves pair-field parser semantics")
+        void legacyCombinationCaptureStillCoversPairParsing() {
+            AtomicInteger calls = new AtomicInteger();
+            DurApiClient dur =
+                    dur(fixtureWebClient("dur_usjnt.json", calls), LIVE, configured());
+
+            DurApiClient.DurKindBatch batch =
+                    dur.byKindBatch("200000913", DurWarning.Kind.COMBINATION);
+
+            assertThat(calls).hasValue(1);
+            assertThat(batch.warnings()).singleElement().satisfies(warning -> {
+                assertThat(warning.itemSeq()).isEqualTo("200000913");
+                assertThat(warning.pairedItemSeq()).isEqualTo("200400682");
+                assertThat(warning.pairedItemName()).contains("심바스테롤");
+                assertThat(warning.prohibitContent()).isEqualTo("횡문근융해증");
+            });
+            assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.LIVE);
+        }
+
+        @Test
+        @DisplayName("the legacy elderly capture still proves null PROHBT_CONTENT parsing")
+        void legacyElderlyCaptureStillCoversNullContentParsing() {
+            JsonNode captured = fixtures().load("dur_elderly.json").deepCopy();
+            ArrayNode items = (ArrayNode) captured.at("/body/items");
+            items.remove(1);
+            ((ObjectNode) captured.at("/body")).put("numOfRows", 1);
+            AtomicInteger calls = new AtomicInteger();
+            DurApiClient dur = dur(jsonWebClient(captured, calls), LIVE, configured());
+
+            DurApiClient.DurKindBatch batch =
+                    dur.byKindBatch("196000010", DurWarning.Kind.ELDERLY);
+
+            assertThat(calls).hasValue(1);
+            assertThat(batch.warnings()).singleElement().satisfies(warning -> {
+                assertThat(warning.itemSeq()).isEqualTo("196000010");
+                assertThat(warning.ingredientEn()).isEqualTo("Chlorpheniramine");
+                assertThat(warning.prohibitContent()).isNull();
+            });
+            assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.LIVE);
         }
 
         @Test
@@ -340,7 +421,11 @@ class DrugHybridFallbackTest {
     }
 
     private static WebClient fixtureWebClient(String fixture, AtomicInteger calls) {
-        String body = fixtures().load(fixture).toString();
+        return jsonWebClient(fixtures().load(fixture), calls);
+    }
+
+    private static WebClient jsonWebClient(JsonNode response, AtomicInteger calls) {
+        String body = response.toString();
         return WebClient.builder()
                 .exchangeFunction(request -> {
                     calls.incrementAndGet();
