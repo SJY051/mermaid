@@ -14,8 +14,8 @@
   "sourceEvidence": {
     "kind": "mixed_scan_and_diagnostic_collection",
     "label": "Round-06 final batch validations, Track A/B/C audits, threat model, and exact-origin browser evidence",
-    "collectionSha256": "02e1481352ee74f2b7284a22d0fa4b5e5ee6a6dba0461c81ff58352d56317d74",
-    "artifactCount": 13,
+    "collectionSha256": "40de2e5578fecfd180c3e2740afd5a6b81191b118e4b02a08f16c0a101be2753",
+    "artifactCount": 11,
     "sourceDrift": "present"
   },
   "assessment": {
@@ -52,17 +52,15 @@
   "evidenceRegistry": [
     {"evidenceId": "EV-CANON", "title": "Round-06 canonical candidate stream", "path": "../artifacts/04_reconciliation/deduped_candidates.jsonl", "sha256": "274fd61156b7ae3ebeadb1c905258fbe001a5f81380891b9d2491b44652477b8"},
     {"evidenceId": "EV-TM", "title": "Repository threat model", "path": "../artifacts/01_context/threat_model.md", "sha256": "2fbf3600fa6bd9ef2b646d787d22174349ba67f4db99b62574ce81a5456c7450"},
-    {"evidenceId": "EV-A", "title": "Track A final chat-failure audit", "path": "../artifacts/finalization/track_a_final_audit.md", "sha256": "6042d9dd489118caae727afc6de7916658ff6d4798386acca9c18cf4b791e057"},
+    {"evidenceId": "EV-A", "title": "Track A final chat-failure audit", "path": "../artifacts/finalization/track_a_final_audit.md", "sha256": "7f3ecafe64b20207759703934c9561f76e6aef21212a3fb0b68cc1d7295067ed"},
     {"evidenceId": "EV-B", "title": "Track B final map/facility audit", "path": "../artifacts/finalization/track_b_final_audit.md", "sha256": "760d124148e3bab8a4fccf8edb9af596627bc35a3e2d01e4cb8b4141ab88893e"},
     {"evidenceId": "EV-C", "title": "Track C final adversarial audit", "path": "../artifacts/finalization/track_c_final_audit.md", "sha256": "721073151e36429c0a2aaf9d987da4faa2924ca6b271b430e07532cb58f0fb50"},
-    {"evidenceId": "EV-DIAG", "title": "Integrated diagnostic and security prefinal", "path": "../artifacts/finalization/diagnostic_security_review_round06_prefinal.md", "sha256": "3cea2871af41501355345f69b782e9a082107dd3f0f366c7543abac55d8c2790"},
     {"evidenceId": "EV-NAVER", "title": "Exact-origin Naver console and network capture", "path": "../diagnostic_drafts/evidence/naver_5173_console_network_20260716.md", "sha256": "cbab96008330ef853f46405324bc6115cc90968f7a3e72b05dd5aac87c7d468c"},
     {"evidenceId": "EV-B1", "title": "Final validation batch 01", "path": "../artifacts/central_validation_round06/batch-01/validation.jsonl", "sha256": "7c6b132d11a0c3644c2e169ff5f12183faff22e19d6a5e715dc98c208680d358"},
     {"evidenceId": "EV-B2", "title": "Final validation batch 02", "path": "../artifacts/central_validation_round06/batch-02/validation.jsonl", "sha256": "ed5af1803d829d0623097506b172fb0ed3da6e1ea98a4944754620ed628976ed"},
     {"evidenceId": "EV-B3", "title": "Final validation batch 03", "path": "../artifacts/central_validation_round06/batch-03/validation.jsonl", "sha256": "1a9d0428b08304586a2853897998d6d69a43e9a200c8b38e9fda190cb94e7bac"},
     {"evidenceId": "EV-B4", "title": "Final validation batch 04", "path": "../artifacts/central_validation_round06/batch-04/validation.jsonl", "sha256": "d5392b53f366566817786ebd1807dccc20b0ad3206e390b620958e2f1b7cd805"},
-    {"evidenceId": "EV-B5", "title": "Final validation batch 05", "path": "../artifacts/central_validation_round06/batch-05/validation.jsonl", "sha256": "83c67554861df3ed6d506a772eb614dc4d6b5a3dc459c827d71fd4b73b06b28f"},
-    {"evidenceId": "EV-GATE", "title": "Superseded central check-only verification", "path": "../artifacts/central_validation_round06/FINAL_CHECK_ONLY_VERIFICATION.md", "sha256": "4d26e0e4cc6a973ea5426b34a712096cae53bd6688729d4cc00e6ec3fdb75c9d"}
+    {"evidenceId": "EV-B5", "title": "Final validation batch 05", "path": "../artifacts/central_validation_round06/batch-05/validation.jsonl", "sha256": "83c67554861df3ed6d506a772eb614dc4d6b5a3dc459c827d71fd4b73b06b28f"}
   ],
   "opportunities": [
     {

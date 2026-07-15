@@ -12,7 +12,7 @@
 3. For the fresh reproductions, the ID-to-stack association is temporal, not an MDC join: the response `Date` (UTC) matches the unique daemon/log event at the corresponding KST second. This is strong correlation, but the ID is not printed on the stack line itself.
 4. The stale server was PID 8415, started `2026-07-15 00:16:45 KST`, with `DATA_MODE=fixture`, cwd/classpath under `.claude/worktrees/nifty-bohr-af339a/backend`; that pathname is now absent. Its exact Git revision is no longer recoverable. Runtime stack line numbers belong to that old binary, not automatically to the immutable audit target.
 5. The clean comparison server was PID 68633 on port 18080, `DATA_MODE=live`, checkout `f68cc39948bdb11139af07017336e45ef07e2325`. The Track A backend source is byte-equivalent for purposes of these paths: `git diff 654f906..f68cc39 -- backend/src/main/java/com/mermaid/chat backend/src/main/java/com/mermaid/common backend/src/main/resources/application.yml` is empty. `ChatScreen.tsx` did change after the target, so all UI emitter line references below are to the immutable target.
-6. None of the fresh request JSON bodies was retained. They prove the response/status/path associated with the recorded test, but do not independently prove that the sent prose was byte-for-byte the owner wording. This matters especially for A-1: at the target, a literal “no allergies” triggers `AllergyDeclaration` before Pass 1a.
+6. None of the fresh request JSON bodies was retained. They prove the response/status/path associated with the recorded test, but do not independently prove that the sent prose was byte-for-byte the owner wording. This matters especially for A-1: at the target, explicit-none allergy wording triggers `AllergyDeclaration` before Pass 1a. The exact owner wording is redacted under AGENTS.md §2-5.
 
 ## A-1 — “I could not verify that answer against official data…”
 
@@ -101,7 +101,7 @@ Also replace “model/provider … 파싱 가능한 응답을 주지 못했다�
 
 - Reproduced root: **our stale/deleted runtime classpath**, not model, public API, validator, or user input.
 - It is specifically `NoClassDefFoundError` caused by `ClassNotFoundException`; it is **not** `IllegalArgumentException`, and the target explicitly leaves `IllegalArgumentException` out of client-error mapping at `GlobalExceptionHandler.java:76-88`.
-- The clean server's “no allergies” clarification exposes a separate negation false positive (`AllergyDeclaration.java:38-56`). That is not the cause of HTTP 500; it explains why an intact current server still stops before recommending drugs.
+- The clean server's explicit-none allergy clarification exposes a separate negation false positive (`AllergyDeclaration.java:38-56`). That is not the cause of HTTP 500; it explains why an intact current server still stops before recommending drugs.
 - Request prose was not retained, so label the request “equivalent reproduction,” not “byte-exact reproduction.”
 
 Suggested replacement for the draft's root paragraph:
@@ -194,7 +194,7 @@ Suggested replacement for the clean-control paragraph:
 1. Change “`application.yml:60-62`의 로그 패턴” to “no MDC pattern is configured there, and the observed default log lines omit request ID.”
 2. State that every original owner `request_id` is unknown; fresh IDs belong only to reproductions/controls.
 3. State that fresh IDs are joined to stacks by unique-second timestamp because the stack logs themselves lack request IDs.
-4. Do not call `760f…` an exact A-1 reproduction. The retained request body is absent, and literal “no allergies” takes a different target path (`e21ec…`).
+4. Do not call `760f…` an exact A-1 reproduction. The retained request body is absent, and explicit-none allergy wording takes a different target path (`e21ec…`).
 5. Narrow the A-1 verdict: digit/invariant-6/validator were not the direct trigger; medical legitimacy of raw prose and indirect prompt influence remain unknown.
 6. Clarify that `StructuredOutputFallback.java:27-29` is not the terminal `COERCION_FAILED` emitter; the controller's `local-fallback` branch at `:203-210` is.
 7. For A-4 first 503, explicitly list Pass 1a partial success, Pass 1b local fixture failure, and non-execution of Pass 2/post-processing.
@@ -207,7 +207,7 @@ Suggested replacement for the clean-control paragraph:
 | Owner message | Original ID | Reproduction/control ID | `DATA_MODE` | True deciding layer established by retained evidence |
 |---|---|---|---|---|
 | A-1 refusal | unknown | `760f…` live; `ee642…` fixture | matching history fixture | structured-output coercion before grounding/validator; exact owner-session join and raw content unavailable |
-| A-2 500 | unknown | `edf86577…` fixture | fixture | stale runtime `NoClassDefFoundError: AllergyClarification`; clean current backend instead exposes “no allergies” negation false positive |
+| A-2 500 | unknown | `edf86577…` fixture | fixture | stale runtime `NoClassDefFoundError: AllergyClarification`; clean current backend instead exposes an explicit-none allergy negation false positive |
 | A-3 500 | unknown | `73c4b0a5…` fixture | fixture | triage fired first, then stale runtime `NoClassDefFoundError: UiAction$EmergencyPayload`; no LLM/upstream |
 | A-4 first 503 | unknown | no ID-bearing reproduction of 503 | matching history fixture | missing local `permission_ibuprofen.json` misclassified as government outage; no government HTTP status exists for matching trace |
 | A-4 retry 500 | unknown | `6d5a4f92…` fixture | fixture | pre-Pass-1 stale runtime `NoClassDefFoundError: MermaidRequestExtension$ParsedList`; no LLM/upstream |

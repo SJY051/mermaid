@@ -8,6 +8,13 @@ the human report and the machine-readable state needed to audit or resume it.
 The review changed no application, validator, grounding, fixture, or runtime
 behaviour.
 
+> **Snapshot boundary:** This directory records a security review performed from
+> a maintainer's local clone against the specific audited tree named below. It
+> is historical evidence, not a live security status, release gate, or absolute
+> statement about current `main`, a deployed service, credentials, quotas, or
+> third-party APIs. Revalidate every finding against the current target and live
+> environment before using it for remediation or a merge decision.
+
 ## Start here
 
 | Reader | Required document | When to read more |
@@ -17,17 +24,19 @@ behaviour.
 | Round 7 coordinator | [Final report](report.md), [workflow](WORKFLOW.md), terminal state, authority manifest, both adoption holds | Consume the frozen JSONL inputs mechanically; do not expose prior findings to blind discovery workers. |
 | Round 7 discovery worker | Repository AGENTS.md, the immutable target, the shared worklists, and its own worker brief | Do not read this report, prior candidates, validation results, or novelty history before completing discovery. |
 
-The [final report](report.md) is the human-facing primary deliverable. The
-byte-exact temporary scan projection is retained as
-[source/scan-report-original.md](source/scan-report-original.md), SHA-256
-38d0dd1e15ce9e573ec1d15f2baba0a5aca6fcc21b597414326edfc43e48b4ab.
-The repository copy changes only its local Markdown links so they resolve
-inside this durable bundle.
+The [final report](report.md) is the human-facing primary deliverable. A
+privacy-redacted preservation copy of the temporary scan projection is retained
+as [source/scan-report-redacted.md](source/scan-report-redacted.md). It removes
+owner-session wording under AGENTS.md §2-5 and rewrites temporary local links so
+they resolve inside this durable bundle. No unredacted consultation transcript
+is part of this archive.
 
 ## Authority
 
 - Scan ID: 4ad9c6af-1323-4ce2-88ad-7af5cbfbbb1f
-- Audited commit: 654f906e00e81648d1482210b6a9171747dddd75
+- Recorded scan commit: 654f906e00e81648d1482210b6a9171747dddd75
+- Public ref for the recorded commit: refs/heads/feat/DEV-007d-icons
+- Portable same-tree commit on main: f4a2b6de89f5e4fa4ef5a81e5dafd54f8255367b
 - Audited tree: a14388f597c0c2a17e0dbcfc2d951a390c877214
 - Terminal reason: capped_by_user_deadline_after_round_06
 - Saturation: not proven (saturation_proven=false)
@@ -54,7 +63,7 @@ The bundle contains:
 - README.md — human index and authority;
 - WORKFLOW.md — Round 7 continuation contract;
 - report.md — primary final report with durable links;
-- source/scan-report-original.md — byte-exact temporary projection;
+- source/scan-report-redacted.md — privacy-redacted temporary projection;
 - diagnostic_drafts/evidence/ — browser console/network evidence;
 - hardening/ — six proposals and 18 Mermaid diagrams;
 - artifacts/01_context/ — canonical validation threat model;

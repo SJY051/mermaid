@@ -4,22 +4,37 @@ This is the exact continuation contract for the capped Round 6 review. It is
 not permission to fix application behaviour, weaken safety checks, or
 reinterpret the frozen Round 0–6 results.
 
+This bundle is a historical snapshot from a maintainer's local clone, not a
+live authority for current `main` or production. Round 7 may extend the frozen
+scan only against the audited tree. Any remediation or current-release decision
+must separately revalidate the affected path against its actual target and
+environment.
+
 ## 1. Establish authority
 
 1. Read the repository AGENTS.md, especially §2, Review guidelines, and §11.
 2. Read [report.md](report.md) and both hold documents.
 3. Verify SHA256SUMS.
-4. Verify the target commit and tree:
-   - commit 654f906e00e81648d1482210b6a9171747dddd75;
-   - tree a14388f597c0c2a17e0dbcfc2d951a390c877214.
+4. Verify the target commit and tree. The scan recorded commit
+   `654f906e00e81648d1482210b6a9171747dddd75`, published at
+   `refs/heads/feat/DEV-007d-icons`. If that object is absent from a narrow
+   checkout, fetch that ref explicitly:
+
+       git fetch origin refs/heads/feat/DEV-007d-icons:refs/remotes/origin/feat/DEV-007d-icons
+       test "$(git rev-parse 654f906e00e81648d1482210b6a9171747dddd75^{tree})" = a14388f597c0c2a17e0dbcfc2d951a390c877214
+
+   Commit `f4a2b6de89f5e4fa4ef5a81e5dafd54f8255367b`, reachable from `main`, owns
+   the same audited tree and is the portable fallback for source inspection:
+
+       test "$(git rev-parse f4a2b6de89f5e4fa4ef5a81e5dafd54f8255367b^{tree})" = a14388f597c0c2a17e0dbcfc2d951a390c877214
 5. Verify the frozen canonical input:
    - 188 rows;
    - SHA-256 274fd61156b7ae3ebeadb1c905258fbe001a5f81380891b9d2491b44652477b8;
    - terminal state capped_by_user_deadline_after_round_06;
    - saturation_proven=false.
 
-Do not silently update the target to current main. A new target requires a new
-scan authority and invalidates line-level evidence from this bundle.
+Do not silently update the audited tree to current main. A new tree requires a
+new scan authority and invalidates line-level evidence from this bundle.
 
 ## 2. Rehydrate, never execute in the archive
 
