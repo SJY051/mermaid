@@ -1,6 +1,6 @@
 ---
 title: Server-authored medical output boundary
-status: approved — staged amendment in progress
+status: approved — staged amendment complete in this stack
 created: 2026-07-13
 modified: 2026-07-16
 owner: 윤서진
@@ -14,13 +14,15 @@ tags: [safety, validator, DEV-603, OUT-02, OUT-04, "#55"]
 SJY051 approved replacing the hybrid model-prose gate proposed below with a server-authored output
 boundary. The change is staged deliberately so review does not hide a large deletion:
 
-1. **This stack — non-empty official context.** `ServerAuthoredAnswerBuilder` maps complete retrieved
+1. **Previous stack — non-empty official context.** `ServerAuthoredAnswerBuilder` maps complete retrieved
    records into canonical cards. It does not call whole-answer Pass 2. Product identity, ingredients,
    official Korean dosage, warnings, prescription status, allergy verdict, and provenance are
    server-owned; English indication and caution enrichment remain absent.
-2. **Following W3-B stack — true empty and Pass 1 unavailable.** The still-reachable empty-context
-   legacy Pass 2 will be replaced by distinct fixed server answers. That behavior is approved but is
-   not claimed as implemented by this stack.
+2. **This W3-B stack — true empty and Pass 1 unavailable.** A usable extraction with no terms, or a
+   completed official lookup with no records, returns `server-empty-official-data`. An unusable Pass 1
+   returns the distinct `server-search-unavailable` answer and performs no public lookup. Both are
+   fixed server DTOs with no medicine, guidance, question, action, source, or model prose. JSON and
+   SSE carry the same answer, and whole-answer Pass 2 is not called.
 3. **Later cleanup.** Dormant whole-answer grounding and validation code is removed in a separate,
    reviewable cleanup after every reachable call has been blocked and verified.
 
@@ -30,9 +32,10 @@ already paid the latency and model cost. A small prose rule set could still miss
 diagnosis, cure, or reassurance. Server-authored cards close that safety boundary while preserving
 the official data already retrieved instead of discarding it because a whole-answer schema failed.
 
-Emergency triage and allergy direct answers still run before this split. A truly empty context keeps
-its existing behavior in this stack; no Pass 1 retry, client-role, or empty/unavailable contract is
-changed here.
+Emergency triage, allergy clarification, and SA-08 allergy suppression remain server-authored direct
+answers before the empty/unavailable split. This stack consumes the Pass 1 status introduced by the
+bounded retry stack; it does not change that retry policy or the client-role boundary. Dormant legacy
+source remains below exhaustive returns so its physical deletion can be reviewed separately.
 
 ## Superseded 2026-07-13 proposal (retained for audit history)
 

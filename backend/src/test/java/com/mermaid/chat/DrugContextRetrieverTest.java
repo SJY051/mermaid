@@ -10,6 +10,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
+import com.mermaid.chat.SearchTermExtractor.ExtractionResult;
 import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.RequestIdFilter;
@@ -174,7 +175,7 @@ class DrugContextRetrieverTest {
     class Empty {
 
         @Test
-        @DisplayName("the model is told, in words, that it may name no medicine")
+        @DisplayName("the dormant empty context states that no medicine may be named")
         void saysSoExplicitly() {
             DrugContext context = retriever(RetrievalQuery.EMPTY, RetrievedContext.EMPTY).retrieve("hello", "hello", exclusions());
 
@@ -214,6 +215,39 @@ class DrugContextRetrieverTest {
                             .retrieve("where is the nearest pharmacy?", "where is the nearest pharmacy?", exclusions());
 
             assertThat(context.allowedProductNames()).isEmpty();
+            assertThat(context.directAnswer()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("a Pass 1 failure skips retrieval and is not reported as an empty official search")
+        void extractionFailureHasASeparateServerAnswer() {
+            SearchTermExtractor unavailable = new SearchTermExtractor(null, mapper) {
+                @Override
+                public ExtractionResult extract(String userText) {
+                    return ExtractionResult.unavailableResult();
+                }
+            };
+            DrugService neverCalled = new DrugService(null, null, null, null, null, null, null) {
+                @Override
+                public RetrievedContext retrieve(RetrievalQuery query, Set<String> avoidedKeys) {
+                    throw new AssertionError("retrieve() must not run after Pass 1 fails");
+                }
+            };
+
+            DrugContext context = new DrugContextRetriever(
+                            unavailable, neverCalled, new IngredientNormalizer(), mapper)
+                    .retrieve("I have a headache", "I have a headache", exclusions());
+
+            MermAidAnswer answer = context.directAnswer().orElseThrow();
+            assertThat(answer.answerId()).isEqualTo(ServerAuthoredSearchUnavailableAnswer.ANSWER_ID);
+            assertThat(answer.summary())
+                    .isEqualTo(ServerAuthoredSearchUnavailableAnswer.SUMMARY)
+                    .isNotEqualTo(ServerAuthoredEmptyAnswer.SUMMARY);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.guidance()).isEmpty();
+            assertThat(answer.clarifyingQuestions()).isEmpty();
+            assertThat(answer.uiActions()).isEmpty();
+            assertThat(answer.sourceRefs()).isEmpty();
         }
     }
 
@@ -451,7 +485,7 @@ class DrugContextRetrieverTest {
         }
 
         @Test
-        @DisplayName("the model is told to leave the card's warnings alone")
+        @DisplayName("the dormant record context keeps the server-owned warning instruction")
         void preambleHandsWarningsToTheServer() throws Exception {
             Drug drug = new Drug(
                     "drug:mfds:1", "1", "나르펜정400밀리그램(이부프로펜)", null, "제조사", List.of("Ibuprofen"), null,
@@ -651,13 +685,18 @@ class DrugContextRetrieverTest {
             // ingredient proposals still suppressed (SA-08).
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
-            gated(new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")), drugService)
+            DrugContext context = gated(
+                            new RetrievalQuery(List.of("Naproxen"), List.of("부루펜")), drugService)
                     .retrieve("can I take 부루펜?", DECLARED_EARLIER, exclusions("Ibuprofen"));
 
             assertThat(drugService.seen).isNotNull();
             assertThat(drugService.seen.ingredientsEn()).isEmpty();
             assertThat(drugService.seen.productNamesKo()).containsExactly("부루펜");
             assertThat(drugService.avoidedKeys).containsExactly("ibuprofen");
+            assertThat(context.directAnswer())
+                    .as("an official zero-result is not a query suppressed before retrieval")
+                    .isEmpty();
+            assertThat(context.systemMessage()).contains("nothing was retrieved");
         }
 
         @Test
@@ -665,12 +704,13 @@ class DrugContextRetrieverTest {
         void excludeIngredientsFieldAlsoGates() {
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
 
-            gated(PROPOSED, drugService)
+            DrugContext context = gated(PROPOSED, drugService)
                     .retrieve("I have a headache", "I have a headache", exclusions("Ibuprofen"));
 
             assertThat(drugService.seen)
                     .as("suppression leaves no query, so retrieval is never asked")
                     .isNull();
+            assertThat(context.directAnswer()).contains(AllergySuppressedAnswer.answer());
         }
 
         @Test
@@ -924,23 +964,24 @@ class DrugContextRetrieverTest {
         }
 
         @Test
-        @DisplayName("\"we refused to look\" is not rendered as \"we found nothing\"")
-        void preambleExplainsTheRefusal() {
+        @DisplayName("the server suppression answer is not rendered as an empty official search")
+        void serverAnswerExplainsTheRefusal() {
             // History carries the declaration, the structured list resolves it, and the model's
-            // proposals are suppressed — leaving nothing to retrieve. The empty context must say
-            // "we refused to choose", not "we found nothing".
-            String message = gated(PROPOSED, new CapturingDrugService(RetrievedContext.EMPTY))
+            // proposals are suppressed — leaving nothing to retrieve. The terminal answer must say
+            // that the server refused AI selection, not claim a completed empty official search.
+            MermAidAnswer answer = gated(PROPOSED, new CapturingDrugService(RetrievedContext.EMPTY))
                     .retrieve("my head hurts", DECLARED_EARLIER, exclusions("Ibuprofen"))
-                    .systemMessage();
+                    .directAnswer()
+                    .orElseThrow();
 
-            assertThat(message)
-                    .contains("you must not name one")
-                    .contains("cannot suggest an alternative")
-                    .contains("name no medicine");
+            assertThat(answer).isEqualTo(AllergySuppressedAnswer.answer());
+            assertThat(answer.summary())
+                    .contains("no AI-selected medicine is shown")
+                    .doesNotContain(ServerAuthoredEmptyAnswer.SUMMARY);
         }
 
         @Test
-        @DisplayName("without an allergy an empty context keeps its old wording")
+        @DisplayName("the dormant no-allergy empty context keeps its audit wording")
         void plainEmptyIsUnchanged() {
             String message = gated(RetrievalQuery.EMPTY, new CapturingDrugService(RetrievedContext.EMPTY))
                     .retrieve("hello", "hello", exclusions())
@@ -952,7 +993,7 @@ class DrugContextRetrieverTest {
         }
 
         @Test
-        @DisplayName("when the person named a drug, the model is told not to gesture at alternatives")
+        @DisplayName("the dormant named-product context retains the no-alternatives instruction")
         void groundedContextForbidsAlternatives() {
             Drug blocked = new Drug(
                     "drug:mfds:198701721", "198701721", "부루펜정400밀리그램", null, "삼일제약",

@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -41,7 +42,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.publisher.Mono;
 
-/** The direct-safety, canonical-record, and legacy empty-context paths without Spring or a network. */
+/** Direct safety, canonical records, fixed terminal states, and dormant legacy helpers. */
 class ChatProxyControllerTest {
 
     private static final Instant WHEN = Instant.parse("2026-07-10T05:00:00Z");
@@ -161,6 +162,11 @@ class ChatProxyControllerTest {
         return new DrugContext("DRUG_CONTEXT: nothing", Map.of(), List.of());
     }
 
+    private static DrugContext searchUnavailableContext() {
+        return new DrugContext(
+                "", Map.of(), List.of(), Optional.of(ServerAuthoredSearchUnavailableAnswer.answer()));
+    }
+
     private JsonNode request(String userText) {
         var messages = mapper.createArrayNode();
         messages.addObject().put("role", "user").put("content", userText);
@@ -244,21 +250,6 @@ class ChatProxyControllerTest {
             """.formatted(drugsJson);
     }
 
-    private void assertServerCanonicalModelEmergency(MermAidAnswer answer) throws Exception {
-        assertThat(answer.answerId()).isEqualTo("triage-model_escalation");
-        assertThat(answer.urgency().level()).isEqualTo(MermAidAnswer.Urgency.Level.EMERGENCY);
-        assertThat(answer.urgency().reasonCodes()).containsExactly("MODEL_ESCALATION");
-        assertThat(answer.drugs()).isEmpty();
-        assertThat(answer.uiActions()).singleElement().isInstanceOf(UiAction.ShowEmergencyCall.class);
-        assertThat(answer.urgency().actions())
-                .singleElement()
-                .isInstanceOf(UiAction.ShowEmergencyCall.class);
-        UiAction.ShowEmergencyCall call = (UiAction.ShowEmergencyCall) answer.uiActions().get(0);
-        assertThat(call.payload().phone()).isEqualTo("119");
-        assertThat(answer.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
-        assertThat(mapper.writeValueAsString(answer)).doesNotContain("_SENTINEL");
-    }
-
     @Test
     @DisplayName("the server-authored allergy clarification bypasses the model unchanged")
     void unresolvedAllergyCannotBeSuppressedOrRewordedByTheModel() throws Exception {
@@ -273,6 +264,108 @@ class ChatProxyControllerTest {
         assertThat(harness.upstream().calls).as("allergy direct answer runs first").hasValue(0);
     }
 
+    @Nested
+    @DisplayName("server-authored empty and unavailable states")
+    class ServerAuthoredTerminalStates {
+
+        private static final String MODEL_SENTINEL = "MODEL_WHOLE_ANSWER_MUST_NOT_RUN";
+
+        @Test
+        @DisplayName("usable empty official context skips Pass 2 and returns the fixed empty answer")
+        void usableEmptyContextSkipsPassTwo() throws Exception {
+            ControllerHarness harness = harness(
+                    modelAnswer(drugCard(TYLENOL, TYLENOL_SOURCE.id()), "[]")
+                            .replace("Here is what I found.", MODEL_SENTINEL),
+                    emptyContext());
+
+            MermAidAnswer answer =
+                    answerOf(harness.controller().completions(request("I have a headache")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(harness.upstream().sentRequest).hasValue(null);
+            assertTerminalAnswer(answer, ServerAuthoredEmptyAnswer.answer());
+            assertThat(answer.summary()).doesNotContain(MODEL_SENTINEL);
+        }
+
+        @Test
+        @DisplayName("Pass 1 unavailable is distinct from a usable empty official result")
+        void unavailableIsDistinctFromUsableEmpty() throws Exception {
+            ControllerHarness emptyHarness = harness(modelAnswer("[]", "[]"), emptyContext());
+            ControllerHarness unavailableHarness =
+                    harness(modelAnswer("[]", "[]"), searchUnavailableContext());
+
+            MermAidAnswer empty =
+                    answerOf(emptyHarness.controller().completions(request("I have a headache")));
+            MermAidAnswer unavailable = answerOf(
+                    unavailableHarness.controller().completions(request("I have a headache")));
+
+            assertThat(emptyHarness.upstream().calls).hasValue(0);
+            assertThat(unavailableHarness.upstream().calls).hasValue(0);
+            assertTerminalAnswer(empty, ServerAuthoredEmptyAnswer.answer());
+            assertTerminalAnswer(unavailable, ServerAuthoredSearchUnavailableAnswer.answer());
+            assertThat(unavailable.answerId()).isNotEqualTo(empty.answerId());
+            assertThat(unavailable.summary()).isNotEqualTo(empty.summary());
+        }
+
+        @Test
+        @DisplayName("JSON and SSE carry the same fixed answer for each terminal state")
+        void jsonAndSseMatchForBothTerminalStates() throws Exception {
+            for (DrugContext context : List.of(emptyContext(), searchUnavailableContext())) {
+                ControllerHarness jsonHarness = harness(modelAnswer("[]", "[]"), context);
+                ControllerHarness sseHarness = harness(modelAnswer("[]", "[]"), context);
+                ObjectNode streamingRequest = (ObjectNode) request("I have a headache");
+                streamingRequest.put("stream", true);
+
+                MermAidAnswer json = answerOf(
+                        jsonHarness.controller().completions(request("I have a headache")));
+                MermAidAnswer sse =
+                        streamedAnswerOf(sseHarness.controller(), streamingRequest);
+
+                assertThat(sse).isEqualTo(json);
+                assertThat(jsonHarness.upstream().calls).hasValue(0);
+                assertThat(sseHarness.upstream().calls).hasValue(0);
+            }
+        }
+
+        private void assertTerminalAnswer(MermAidAnswer actual, MermAidAnswer expected) {
+            assertThat(actual).isEqualTo(expected);
+            assertThat(actual.dataStatus()).isEqualTo(MermAidAnswer.DataStatus.UNAVAILABLE);
+            assertThat(actual.urgency().level()).isEqualTo(MermAidAnswer.Urgency.Level.UNKNOWN);
+            assertThat(actual.urgency().actions()).isEmpty();
+            assertThat(actual.drugs()).isEmpty();
+            assertThat(actual.guidance()).isEmpty();
+            assertThat(actual.clarifyingQuestions()).isEmpty();
+            assertThat(actual.uiActions()).isEmpty();
+            assertThat(actual.sourceRefs()).isEmpty();
+            assertThat(actual.warnings()).isEmpty();
+            assertThat(actual.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
+        }
+    }
+
+    @Test
+    @DisplayName("SA-08 suppression remains a server-authored direct answer before empty handling")
+    void allergySuppressionPrecedesTheEmptyState() throws Exception {
+        ControllerHarness jsonHarness = harness(
+                modelAnswer("[]", "[]")
+                        .replace("Here is what I found.", "MODEL_ALTERNATIVE_MUST_NOT_RUN"),
+                DrugContext.allergySuppressed());
+        ControllerHarness sseHarness = harness(
+                modelAnswer("[]", "[]")
+                        .replace("Here is what I found.", "MODEL_ALTERNATIVE_MUST_NOT_RUN"),
+                DrugContext.allergySuppressed());
+        ObjectNode streamingRequest = (ObjectNode) request("I have a headache");
+        streamingRequest.put("stream", true);
+
+        MermAidAnswer json =
+                answerOf(jsonHarness.controller().completions(request("I have a headache")));
+        MermAidAnswer sse = streamedAnswerOf(sseHarness.controller(), streamingRequest);
+
+        assertThat(sse).isEqualTo(json).isEqualTo(AllergySuppressedAnswer.answer());
+        assertThat(jsonHarness.upstream().calls).hasValue(0);
+        assertThat(sseHarness.upstream().calls).hasValue(0);
+        assertThat(json.answerId()).isNotEqualTo(ServerAuthoredEmptyAnswer.ANSWER_ID);
+    }
+
 
     @Test
     @DisplayName("FR-017: the server appends the unverified-allergen caveat to every final answer")
@@ -281,10 +374,12 @@ class ChatProxyControllerTest {
                 .replace("\"warnings\":[]", "\"warnings\":[\"Model warning\"]");
         String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
 
-        MermAidAnswer answer = answerOf(controller(replyWithModelWarning, emptyContext())
+        ControllerHarness emptyHarness = harness(replyWithModelWarning, emptyContext());
+        MermAidAnswer answer = answerOf(emptyHarness.controller()
                 .completions(requestWithUnverifiedAllergen("can I take this?", "Yellow dye")));
 
-        assertThat(answer.warnings()).containsExactly("Model warning", caveat);
+        assertThat(emptyHarness.upstream().calls).hasValue(0);
+        assertThat(answer.warnings()).containsExactly(caveat);
         assertThat(String.join(" ", answer.warnings())).doesNotContain("safe");
 
         MermAidAnswer emergency = answerOf(controller(replyWithModelWarning, emptyContext())
@@ -576,11 +671,10 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("a null ingredient on the legacy empty-context path fails closed without a 500")
+        @DisplayName("a null ingredient from dormant Pass 2 cannot enter the fixed empty answer")
         void nullIngredientElementIsRefusedOnLegacyPath() throws Exception {
-            // A true no-allergy empty context still uses the legacy model path. A schema-less answer
-            // can contain a null ingredient element, so the validator must reject it without
-            // dereferencing it or exposing the malformed card.
+            // Keep the malformed fixture as a mutation guard: restoring whole-answer Pass 2 would
+            // call the provider and expose this input to the dormant coercion/validator path.
             String card = """
                 [{"productNameKo":"%s","productNameEn":null,
                   "ingredients":[null],
@@ -590,13 +684,14 @@ class ChatProxyControllerTest {
                   "sourceRefId":"src:mfds:202005623"}]
                 """.formatted(TYLENOL);
 
-            MermAidAnswer answer = answerOf(controller(
-                            modelAnswer(card, "[]"), emptyContext())
+            ControllerHarness harness = harness(modelAnswer(card, "[]"), emptyContext());
+            MermAidAnswer answer = answerOf(harness.controller()
                     .completions(request("can I take 타이레놀?")));
 
-            assertThat(answer.answerId()).isEqualTo("local-fallback");
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.answerId()).isEqualTo(ServerAuthoredEmptyAnswer.ANSWER_ID);
             assertThat(answer.drugs()).isEmpty();
-            assertThat(answer.summary()).contains("could not verify");
+            assertThat(answer.summary()).isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY);
         }
 
         @Test
@@ -722,7 +817,7 @@ class ChatProxyControllerTest {
     // ── retrieved and empty-context boundaries ─────────────────────────────────────────────────
 
     @Nested
-    @DisplayName("retrieved contexts are canonical; empty contexts retain the legacy validator")
+    @DisplayName("retrieved and empty contexts both stop at server-owned output")
     class HallucinationGate {
 
         @Test
@@ -754,23 +849,27 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("with nothing retrieved, naming any drug is refused")
+        @DisplayName("with nothing retrieved, a model-named drug is never read")
         void emptyContextRefusesEveryDrug() throws Exception {
-            var response = controller(
-                            modelAnswer(drugCard(TYLENOL, "src:mfds:202005623"), "[]"), emptyContext())
-                    .completions(request("hello"));
+            ControllerHarness harness = harness(
+                    modelAnswer(drugCard(TYLENOL, "src:mfds:202005623"), "[]"), emptyContext());
+            var response = harness.controller().completions(request("hello"));
 
-            assertThat(answerOf(response).drugs()).isEmpty();
+            MermAidAnswer answer = answerOf(response);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.answerId()).isEqualTo(ServerAuthoredEmptyAnswer.ANSWER_ID);
+            assertThat(answer.drugs()).isEmpty();
         }
 
         @Test
-        @DisplayName("with nothing retrieved, a drug-free reply is still delivered")
+        @DisplayName("with nothing retrieved, model prose is replaced by the fixed empty answer")
         void emptyContextStillAnswers() throws Exception {
-            var response = controller(modelAnswer("[]", "[]"), emptyContext())
-                    .completions(request("where is the nearest pharmacy?"));
+            ControllerHarness harness = harness(modelAnswer("[]", "[]"), emptyContext());
+            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
 
             MermAidAnswer answer = answerOf(response);
-            assertThat(answer.summary()).isEqualTo("Here is what I found.");
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.summary()).isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY);
             assertThat(answer.drugs()).isEmpty();
         }
     }
@@ -865,8 +964,8 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("an empty context continues through the existing model path")
-        void emptyContextStillUsesTheModel() throws Exception {
+        @DisplayName("an empty context stops before the retained legacy model path")
+        void emptyContextStopsBeforeRetainedLegacyModelPath() throws Exception {
             String reply = modelAnswer("[]", "[]")
                     .replace("Here is what I found.", MODEL_SENTINEL);
             ControllerHarness harness = harness(reply, emptyContext());
@@ -874,8 +973,10 @@ class ChatProxyControllerTest {
             MermAidAnswer answer =
                     answerOf(harness.controller().completions(request("I have a headache")));
 
-            assertThat(harness.upstream().calls).hasValue(1);
-            assertThat(answer.summary()).isEqualTo(MODEL_SENTINEL);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.summary())
+                    .isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY)
+                    .doesNotContain(MODEL_SENTINEL);
             assertThat(answer.drugs()).isEmpty();
         }
     }
@@ -927,7 +1028,7 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("the same action asked for three times is one action")
+        @DisplayName("model-supplied duplicate map actions cannot enter an empty answer")
         void duplicateUiActionsCollapse() throws Exception {
             // A live answer really did carry OPEN_FACILITY_MAP once per drug it described.
             String threeMaps = """
@@ -935,46 +1036,49 @@ class ChatProxyControllerTest {
                  {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}},
                  {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}}]
                 """;
-            var response = controller(
-                            modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + threeMaps),
-                            emptyContext())
-                    .completions(request("where is the nearest pharmacy?"));
+            ControllerHarness harness = harness(
+                    modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + threeMaps),
+                    emptyContext());
+            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
 
-            assertThat(answerOf(response).uiActions()).hasSize(1);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answerOf(response).uiActions()).isEmpty();
         }
 
         @Test
-        @DisplayName("two map requests that differ are both kept")
+        @DisplayName("model-supplied distinct map actions cannot enter an empty answer")
         void differentActionsSurvive() throws Exception {
             String twoMaps = """
                 [{"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}},
                  {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":3000}}]
                 """;
-            var response = controller(
-                            modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + twoMaps),
-                            emptyContext())
-                    .completions(request("pharmacies near me"));
+            ControllerHarness harness = harness(
+                    modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + twoMaps),
+                    emptyContext());
+            var response = harness.controller().completions(request("pharmacies near me"));
 
-            assertThat(answerOf(response).uiActions()).hasSize(2);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answerOf(response).uiActions()).isEmpty();
         }
 
         @Test
-        @DisplayName("a map action with null types is refused before it reaches the browser")
+        @DisplayName("a malformed model map action cannot enter the fixed empty answer")
         void nullMapTypesAreRefused() throws Exception {
             String invalidMap =
                     """
                     [{"type":"OPEN_FACILITY_MAP",
                       "payload":{"types":null,"openNow":true,"radiusM":1000}}]
                     """;
-            var response = controller(
-                            modelAnswer("[]", "[]")
-                                    .replace("\"uiActions\":[]", "\"uiActions\":" + invalidMap),
-                            emptyContext())
-                    .completions(request("where is the nearest pharmacy?"));
+            ControllerHarness harness = harness(
+                    modelAnswer("[]", "[]")
+                            .replace("\"uiActions\":[]", "\"uiActions\":" + invalidMap),
+                    emptyContext());
+            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
 
             MermAidAnswer answer = answerOf(response);
-            assertThat(answer.answerId()).isEqualTo("local-fallback");
-            assertThat(answer.summary()).contains("could not verify");
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.answerId()).isEqualTo(ServerAuthoredEmptyAnswer.ANSWER_ID);
+            assertThat(answer.summary()).isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY);
             assertThat(answer.uiActions()).isEmpty();
         }
 
@@ -1031,30 +1135,35 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("a model emergency is replaced wholesale with the server's 119 answer")
-        void modelEmergencyIsCanonicalizedBeforeValidationFallback() throws Exception {
-            MermAidAnswer answer = answerOf(controller(
-                            hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
-                            emptyContext())
-                    .completions(request("I have a headache")));
+        @DisplayName("a model emergency cannot run after the fixed empty state")
+        void modelEmergencyCannotRunAfterFixedEmptyState() throws Exception {
+            ControllerHarness harness = harness(
+                    hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
+                    emptyContext());
 
-            assertServerCanonicalModelEmergency(answer);
+            MermAidAnswer answer = answerOf(
+                    harness.controller().completions(request("I have a headache")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer).isEqualTo(ServerAuthoredEmptyAnswer.answer());
+            assertThat(mapper.writeValueAsString(answer)).doesNotContain("_SENTINEL");
         }
 
         @Test
-        @DisplayName("an incomplete model emergency is canonicalized before drug grounding")
-        void incompleteModelEmergencyCannotFailBeforeCanonicalization() throws Exception {
-            MermAidAnswer answer = answerOf(controller(
-                            hostileModelEmergency("[{}]"),
-                            emptyContext())
-                    .completions(request("I have a headache")));
+        @DisplayName("an incomplete model emergency cannot reach drug grounding")
+        void incompleteModelEmergencyCannotReachDrugGrounding() throws Exception {
+            ControllerHarness harness = harness(hostileModelEmergency("[{}]"), emptyContext());
 
-            assertServerCanonicalModelEmergency(answer);
+            MermAidAnswer answer = answerOf(
+                    harness.controller().completions(request("I have a headache")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer).isEqualTo(ServerAuthoredEmptyAnswer.answer());
         }
     }
 
     @Test
-    @DisplayName("validation logs contain stable code counts, never model text or forged lines")
+    @DisplayName("a skipped empty-context model answer writes neither its text nor validation logs")
     void validationLogsContainCodesAndCountsOnly() throws Exception {
         Logger logger = (Logger) LoggerFactory.getLogger(ChatProxyController.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -1071,11 +1180,13 @@ class ChatProxyControllerTest {
                                     + "\"evidence\":\"general_safety\",\"sourceRefIds\":"
                                     + "[\"LEAK_SOURCE_SENTINEL\\r\\nFORGED_SOURCE\"]}]");
 
-            MermAidAnswer answer = answerOf(
-                    controller(attack, emptyContext())
-                            .completions(request("REQUEST_SENTINEL\r\nFORGED_REQUEST headache")));
+            ControllerHarness harness = harness(attack, emptyContext());
+            MermAidAnswer answer = answerOf(harness
+                    .controller()
+                    .completions(request("REQUEST_SENTINEL\r\nFORGED_REQUEST headache")));
 
-            assertThat(answer.summary()).contains("could not verify");
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.summary()).isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY);
         } finally {
             logger.detachAppender(appender);
             appender.stop();
@@ -1104,12 +1215,7 @@ class ChatProxyControllerTest {
         List<ILoggingEvent> warnings = appender.list.stream()
                 .filter(event -> event.getLevel() == Level.WARN)
                 .toList();
-        assertThat(warnings).singleElement().satisfies(event -> {
-            assertThat(event.getFormattedMessage())
-                    .contains("answer_validation_failed total=2")
-                    .contains("INV5_GUIDANCE_SOURCE_UNKNOWN=1")
-                    .contains("INV7_FORBIDDEN_MARKUP=1");
-        });
+        assertThat(warnings).isEmpty();
     }
 
     @Nested
@@ -1130,15 +1236,17 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("a streamed model emergency carries the same server-authored 119 answer")
-        void streamedModelEmergencyIsCanonicalizedBeforeValidationFallback() throws Exception {
-            ChatProxyController controller = controller(
+        @DisplayName("a streamed model emergency cannot run after the fixed empty state")
+        void streamedModelEmergencyCannotRunAfterFixedEmptyState() throws Exception {
+            ControllerHarness harness = harness(
                     hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
                     emptyContext());
 
-            MermAidAnswer answer = streamedAnswerOf(controller, request("I have a headache"));
+            MermAidAnswer answer =
+                    streamedAnswerOf(harness.controller(), request("I have a headache"));
 
-            assertServerCanonicalModelEmergency(answer);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer).isEqualTo(ServerAuthoredEmptyAnswer.answer());
         }
 
         @Test
