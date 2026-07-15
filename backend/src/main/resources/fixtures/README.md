@@ -15,6 +15,9 @@
 | `permission_detail.json` | `…/getDrugPrdtPrmsnDtlInq06` | 상세. `MAIN_INGR_ENG`, `MAIN_ITEM_INGR`(`[M######]…`) |
 | `dur_usjnt.json` | `DURPrdlstInfoService03/getUsjntTabooInfoList03` | 병용금기. `MIXTURE_*` 블록, `PROHBT_CONTENT` |
 | `dur_age.json` | `…/getSpcifyAgrdeTabooInfoList03` | 연령금기. **나이 필드가 없습니다.** `PROHBT_CONTENT` 한국어 자유 텍스트 |
+| `dur_elderly.json` | `…/getOdsnAtentInfoList03` | 노인주의. 여러 품목 행과 null `PROHBT_CONTENT`를 포함하는 파서용 캡처 |
+| `dur_empty.json` | `…/getPwnmTabooInfoList03` | `totalCount: 0` 응답 형태를 보여주는 기존 파서용 캡처 |
+| `dur_202005623_{combination,age,pregnancy,elderly}.json` | 위 네 DUR 오퍼레이션 | 2026-07-16 `itemSeq=202005623` 재확인. 네 응답 모두 HTTP 200, `resultCode: 00`, `totalCount: 0`으로 byte-identical |
 | `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCd`(종별코드: 문자열/숫자 혼합), `clCdNm`(표시명). **진료시간이 없습니다** |
 | `hospital_detail.json` | `MadmDtlInfoService2.8/`**`getDtlInfo2.8`** | `ykiho` 단건. **여기에 `trmtMonStart`~`trmtSatEnd`, `lunchWeek`, `noTrmtSun`, `emyNgtYn`이 있습니다** |
 
@@ -56,7 +59,7 @@
 
 **6. 목록 조회에 `item_seq` 파라미터가 없습니다.** 넣어도 조용히 무시하고 전체 43,064건을 반환합니다. `ITEM_SEQ`로 단건을 잡으려면 상세 조회(`getDrugPrdtPrmsnDtlInq06` — **06**입니다. `…Inq07`은 404)를 쓰세요.
 
-**7. `ITEM_SEQ`가 마스터 조인 키입니다.** e약은요의 `itemSeq`, 허가정보의 `ITEM_SEQ`, DUR의 `ITEM_SEQ`가 같은 값(`202005623`)입니다. 실물로 확인했습니다.
+**7. `ITEM_SEQ`가 non-empty 의약품 레코드의 마스터 조인 키입니다.** e약은요의 `itemSeq`, 허가정보의 `ITEM_SEQ`, DUR의 `ITEM_SEQ`는 행이 있을 때 같은 품목을 식별합니다. DUR zero-row 응답에는 `ITEM_SEQ`가 없으므로 요청한 `(itemSeq, kind)`가 캡처의 정체성을 보존합니다.
 
 **8. DUR `INGR_CODE`(`D000762`)는 허가정보의 `[M######]`와 조인되지 않습니다.** 성분 레벨로 엮으려면 DUR의 `MAIN_INGR`(역시 `[M######]`)을 쓰세요.
 
@@ -66,6 +69,15 @@
 **10. 같은 성분이 두 번 옵니다.** `타이레놀8시간이알서방정`의 `ITEM_INGR_NAME`은 `"Acetaminophen/Acetaminophen"`, `ITEM_INGR_CNT=2`. 이중층 정제라서요.
 
 **11. 모든 약이 e약은요에 있는 건 아닙니다.** 수출용 의약품은 안내문이 없습니다. `Optional.empty()`가 정상이며, `@Cacheable`에 `unless = "#result == null"`이 없으면 Redis가 예외를 던집니다.
+
+**DUR fixture는 반드시 품목과 종류를 함께 식별합니다.** 2026-07-16에 품목기준코드
+`202005623`을 병용금기·연령금기·임부금기·노인주의 네 오퍼레이션에서 다시 조회했고,
+네 응답은 byte-identical한 정상 HTTP 200 / `resultCode: 00` / `totalCount: 0`이었습니다.
+빈 응답 본문에는 `ITEM_SEQ`가 없으므로 파일 이름과 런타임 binding의 `(itemSeq, kind)`가
+그 캡처의 요청 정체성을 보존합니다. 기존 `dur_usjnt.json`, `dur_age.json`,
+`dur_elderly.json`, `dur_empty.json`은 실응답 파서 증거로 남기되 다른 품목의 결과로
+재사용하지 않습니다. 등록되지 않은 `(itemSeq, kind)`는 source unavailable로 닫고,
+행이 있는 캡처는 모든 `ITEM_SEQ`가 요청 품목과 일치해야만 사용합니다.
 
 **12. 병원 목록의 `radius`는 선택이 아니라 필수입니다.** 빼면 좌표를 줘도 **전국 79,727건**이 옵니다. 거르는 게 아니라 아예 무시합니다.
 
