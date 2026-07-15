@@ -140,7 +140,7 @@ for table, rows in sorted(by_table.items()):
 title: mermAid ERD
 status: generated
 created: 2026-07-10
-source: MariaDB 11.4 INFORMATION_SCHEMA, after Flyway V1+V2
+source: MariaDB 11.4 INFORMATION_SCHEMA, after Flyway V1–V3
 ---
 
 # ERD
@@ -224,7 +224,7 @@ for table, rows in sorted(by_table.items()):
 title: mermAid 테이블 명세서
 status: generated
 created: 2026-07-10
-source: MariaDB 11.4 INFORMATION_SCHEMA, after Flyway V1+V2
+source: MariaDB 11.4 INFORMATION_SCHEMA, after Flyway V1–V3
 ---
 
 # 테이블 명세서

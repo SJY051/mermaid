@@ -524,7 +524,7 @@ user_profile (1) ──< (N) allergy_ingredient      [opt-in 시에만 채워짐
 
 ```
 facility:nmc:12345        (국립중앙의료원 hpid)
-facility:hira:<ykiho>     (심평원)
+facility:hira:<base64url(ykiho)>  (심평원; path-safe segment)
 drug:mfds:200000001       (식약처 ITEM_SEQ)
 ```
 
@@ -586,8 +586,8 @@ X-Data-Mode: live | hybrid | fixture
 | Method | URL | 비고 |
 |---|---|---|
 | POST | `/api/v1/chat/completions` | OpenAI 호환. `stream=true`도 **검증된 답변 1청크**로 옵니다. 비표준 확장 필드 `mermaid.exclude_ingredients[]`로 알레르기를 받습니다 |
-| GET | `/api/v1/facilities` | `?lat=&lng=&radius_m=&open_now=&type=&limit=&sort=` |
-| GET | `/api/v1/facilities/{id}` | `facility:nmc:12345` |
+| GET | `/api/v1/facilities` | `?lat=&lng=&radius_m=&open_now=&type=&limit=` |
+| GET | `/api/v1/facilities/{id}` | `facility:nmc:12345` 또는 `facility:hira:<base64url(ykiho)>` |
 | GET | `/api/v1/drugs` | `?query=&ingredient=&prescription_status=&limit=` |
 | GET | `/api/v1/drugs/{id}` | e약은요 + 허가정보 + DUR 병합 |
 | GET/POST/PATCH/DELETE | `/api/v1/profiles/{deviceId}/**` | CRUD |

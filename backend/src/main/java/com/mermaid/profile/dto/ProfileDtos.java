@@ -67,7 +67,7 @@ public final class ProfileDtos {
 
     /** CREATE — save a pharmacy or hospital. {@code facilityId} must be provider-namespaced. */
     public record FavoriteCreateRequest(
-            @NotBlank @Size(max = 120) String facilityId,
+            @NotBlank @Size(max = 255) String facilityId,
             @NotNull FacilityType facilityType,
             @Size(max = 100) String alias,
             @Size(max = 500) String memo) {}

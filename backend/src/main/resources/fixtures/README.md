@@ -13,7 +13,7 @@
 | `permission_detail.json` | `…/getDrugPrdtPrmsnDtlInq06` | 상세. `MAIN_INGR_ENG`, `MAIN_ITEM_INGR`(`[M######]…`) |
 | `dur_usjnt.json` | `DURPrdlstInfoService03/getUsjntTabooInfoList03` | 병용금기. `MIXTURE_*` 블록, `PROHBT_CONTENT` |
 | `dur_age.json` | `…/getSpcifyAgrdeTabooInfoList03` | 연령금기. **나이 필드가 없습니다.** `PROHBT_CONTENT` 한국어 자유 텍스트 |
-| `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCdNm`. **진료시간이 없습니다** |
+| `hospital_list.json` | `hospInfoServicev2/getHospBasisList` | 병원 목록. `ykiho`, `yadmNm`, `XPos`/`YPos`(대문자!), `distance`(**미터**), `clCd`(종별코드: 문자열/숫자 혼합), `clCdNm`(표시명). **진료시간이 없습니다** |
 | `hospital_detail.json` | `MadmDtlInfoService2.8/`**`getDtlInfo2.8`** | `ykiho` 단건. **여기에 `trmtMonStart`~`trmtSatEnd`, `lunchWeek`, `noTrmtSun`, `emyNgtYn`이 있습니다** |
 
 ## 실물을 열어보고 알게 된 것 (조사 문서와 달랐던 것)
@@ -78,7 +78,7 @@
 `…2.8/getDtlInfo`는 **404 `API not found`**입니다 — 그런데 이건 **오퍼레이션 이름이 틀렸다는 뜻이지, 서비스가 없다는 뜻이 아닙니다.**
 우리는 이 404를 보고 "2.8은 없다"고 단정해 설정을 `2.7`로 바꿨습니다. `2.7`은 실재하지만 승인되지 않은 구버전이라 403을 냈고, 그 403을 다시 "승인 대기"의 증거로 읽었습니다. **틀린 전제가 그럴듯한 증거를 만들어냅니다.**
 
-**17. 병원 상세도 일요일 필드가 없습니다.** `trmtSunStart`가 아예 없고 `noTrmtSun: "휴진"`만 옵니다. 4번(약국의 `dutyTime7*` 부재)과 같은 패턴입니다. `lunchWeek`은 `"12:30 ~ 13:30"` 자유 텍스트라 파싱해야 합니다.
+**17. 병원 상세도 일요일 필드가 없습니다.** `trmtSunStart`가 아예 없고 `noTrmtSun: "휴진"`만 옵니다. 4번(약국의 `dutyTime7*` 부재)과 같은 패턴입니다. `lunchWeek`은 `"12:30 ~ 13:30"` 자유 텍스트라 파싱해야 합니다. `hospital_detail.json`은 강북삼성병원 한 건의 캡처라, 다른 `ykiho`의 시간표로 재사용하면 안 됩니다 — 일치하지 않으면 hours unknown입니다.
 
 ## 재수집
 

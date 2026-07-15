@@ -23,7 +23,13 @@ class FacilityServiceTest {
                         List.of(
                                 pharmacy("far", 10.0),
                                 pharmacy("near", 0.1)));
-        var service = new FacilityService(client, new HolidayCalendar(), FRIDAY_AFTERNOON);
+        var service =
+                new FacilityService(
+                        client,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        new HolidayCalendar(),
+                        FRIDAY_AFTERNOON);
 
         var found = service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY);
 
