@@ -250,21 +250,6 @@ class ChatProxyControllerTest {
             """.formatted(drugsJson);
     }
 
-    private void assertServerCanonicalModelEmergency(MermAidAnswer answer) throws Exception {
-        assertThat(answer.answerId()).isEqualTo("triage-model_escalation");
-        assertThat(answer.urgency().level()).isEqualTo(MermAidAnswer.Urgency.Level.EMERGENCY);
-        assertThat(answer.urgency().reasonCodes()).containsExactly("MODEL_ESCALATION");
-        assertThat(answer.drugs()).isEmpty();
-        assertThat(answer.uiActions()).singleElement().isInstanceOf(UiAction.ShowEmergencyCall.class);
-        assertThat(answer.urgency().actions())
-                .singleElement()
-                .isInstanceOf(UiAction.ShowEmergencyCall.class);
-        UiAction.ShowEmergencyCall call = (UiAction.ShowEmergencyCall) answer.uiActions().get(0);
-        assertThat(call.payload().phone()).isEqualTo("119");
-        assertThat(answer.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
-        assertThat(mapper.writeValueAsString(answer)).doesNotContain("_SENTINEL");
-    }
-
     @Test
     @DisplayName("the server-authored allergy clarification bypasses the model unchanged")
     void unresolvedAllergyCannotBeSuppressedOrRewordedByTheModel() throws Exception {
@@ -1150,25 +1135,30 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("a model emergency is replaced wholesale with the server's 119 answer")
-        void modelEmergencyIsCanonicalizedBeforeValidationFallback() throws Exception {
-            MermAidAnswer answer = answerOf(controller(
-                            hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
-                            emptyContext())
-                    .completions(request("I have a headache")));
+        @DisplayName("a model emergency cannot run after the fixed empty state")
+        void modelEmergencyCannotRunAfterFixedEmptyState() throws Exception {
+            ControllerHarness harness = harness(
+                    hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
+                    emptyContext());
 
-            assertServerCanonicalModelEmergency(answer);
+            MermAidAnswer answer = answerOf(
+                    harness.controller().completions(request("I have a headache")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer).isEqualTo(ServerAuthoredEmptyAnswer.answer());
+            assertThat(mapper.writeValueAsString(answer)).doesNotContain("_SENTINEL");
         }
 
         @Test
-        @DisplayName("an incomplete model emergency is canonicalized before drug grounding")
-        void incompleteModelEmergencyCannotFailBeforeCanonicalization() throws Exception {
-            MermAidAnswer answer = answerOf(controller(
-                            hostileModelEmergency("[{}]"),
-                            emptyContext())
-                    .completions(request("I have a headache")));
+        @DisplayName("an incomplete model emergency cannot reach drug grounding")
+        void incompleteModelEmergencyCannotReachDrugGrounding() throws Exception {
+            ControllerHarness harness = harness(hostileModelEmergency("[{}]"), emptyContext());
 
-            assertServerCanonicalModelEmergency(answer);
+            MermAidAnswer answer = answerOf(
+                    harness.controller().completions(request("I have a headache")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer).isEqualTo(ServerAuthoredEmptyAnswer.answer());
         }
     }
 
@@ -1246,15 +1236,17 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("a streamed model emergency carries the same server-authored 119 answer")
-        void streamedModelEmergencyIsCanonicalizedBeforeValidationFallback() throws Exception {
-            ChatProxyController controller = controller(
+        @DisplayName("a streamed model emergency cannot run after the fixed empty state")
+        void streamedModelEmergencyCannotRunAfterFixedEmptyState() throws Exception {
+            ControllerHarness harness = harness(
                     hostileModelEmergency(drugCard(TYLENOL, "src:mfds:202005623")),
                     emptyContext());
 
-            MermAidAnswer answer = streamedAnswerOf(controller, request("I have a headache"));
+            MermAidAnswer answer =
+                    streamedAnswerOf(harness.controller(), request("I have a headache"));
 
-            assertServerCanonicalModelEmergency(answer);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer).isEqualTo(ServerAuthoredEmptyAnswer.answer());
         }
 
         @Test
