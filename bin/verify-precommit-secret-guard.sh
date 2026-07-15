@@ -61,6 +61,8 @@ run_case() {
 # Secret-bearing environment files are forbidden at every repository depth.
 run_case nested-env-file block "frontend/.env.production" \
     "PLACEHOLDER=not-needed"
+run_case non-ascii-nested-env-file block "설정/.env" \
+    "DB_PASS=correct-horse-battery-staple-827361945"
 
 # A placeholder word elsewhere on a line must not excuse a credential-shaped value.
 run_case placeholder-comment-bypass block "src/comment-bypass.txt" \

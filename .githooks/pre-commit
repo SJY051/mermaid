@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 #
 # Blocks the two ways a key reaches a public repo: committing the file that holds it,
 # or pasting it into source. Enable once per clone:
@@ -9,8 +9,13 @@
 
 set -e
 
-staged=$(git diff --cached --name-only --diff-filter=ACM)
-[ -z "$staged" ] && exit 0
+staged=()
+# Git C-quotes non-ASCII paths by default, so line-oriented output can hide a
+# forbidden basename behind quotes. NUL-delimited names preserve every path byte.
+while IFS= read -r -d '' f; do
+    staged+=("$f")
+done < <(git diff --cached --name-only --diff-filter=ACM -z)
+[ "${#staged[@]}" -eq 0 ] && exit 0
 
 fail() {
     echo ""
@@ -24,7 +29,7 @@ fail() {
 }
 
 # 1. Files that must never be committed.
-for f in $staged; do
+for f in "${staged[@]}"; do
     case "$f" in
         .env.example|*/.env.example)
             continue
