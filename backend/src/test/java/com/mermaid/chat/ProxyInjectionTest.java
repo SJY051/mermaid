@@ -169,6 +169,9 @@ class ProxyInjectionTest {
                 retriever,
                 new StructuredOutputFallback(mapper),
                 new AnswerValidator(new IngredientNormalizer()),
+                new ServerAuthoredAnswerBuilder(
+                        new IngredientNormalizer(),
+                        new AnswerValidator(new IngredientNormalizer())),
                 new EmergencyTriage(),
                 new IngredientNormalizer(),
                 mapper);
@@ -192,6 +195,9 @@ class ProxyInjectionTest {
                 retriever,
                 new StructuredOutputFallback(mapper),
                 new AnswerValidator(new IngredientNormalizer()),
+                new ServerAuthoredAnswerBuilder(
+                        new IngredientNormalizer(),
+                        new AnswerValidator(new IngredientNormalizer())),
                 new EmergencyTriage(),
                 new IngredientNormalizer(),
                 mapper);

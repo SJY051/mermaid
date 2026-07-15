@@ -1,12 +1,43 @@
 ---
-title: Semantic output policy gate
-status: approved
+title: Server-authored medical output boundary
+status: approved — staged amendment in progress
 created: 2026-07-13
+modified: 2026-07-16
 owner: 윤서진
 tags: [safety, validator, DEV-603, OUT-02, OUT-04, "#55"]
 ---
 
-# Semantic output policy gate
+# Server-authored medical output boundary
+
+## 2026-07-16 staged amendment
+
+SJY051 approved replacing the hybrid model-prose gate proposed below with a server-authored output
+boundary. The change is staged deliberately so review does not hide a large deletion:
+
+1. **This stack — non-empty official context.** `ServerAuthoredAnswerBuilder` maps complete retrieved
+   records into canonical cards. It does not call whole-answer Pass 2. Product identity, ingredients,
+   official Korean dosage, warnings, prescription status, allergy verdict, and provenance are
+   server-owned; English indication and caution enrichment remain absent.
+2. **Following W3-B stack — true empty and Pass 1 unavailable.** The still-reachable empty-context
+   legacy Pass 2 will be replaced by distinct fixed server answers. That behavior is approved but is
+   not claimed as implemented by this stack.
+3. **Later cleanup.** Dormant whole-answer grounding and validation code is removed in a separate,
+   reviewable cleanup after every reachable call has been blocked and verified.
+
+The reason for changing the earlier approach must remain visible in the PR and release report:
+providers repeatedly returned malformed or cross-wired structured answers after the server had
+already paid the latency and model cost. A small prose rule set could still miss an unknown medicine,
+diagnosis, cure, or reassurance. Server-authored cards close that safety boundary while preserving
+the official data already retrieved instead of discarding it because a whole-answer schema failed.
+
+Emergency triage and allergy direct answers still run before this split. A truly empty context keeps
+its existing behavior in this stack; no Pass 1 retry, client-role, or empty/unavailable contract is
+changed here.
+
+## Superseded 2026-07-13 proposal (retained for audit history)
+
+The hybrid semantic-policy proposal below records the earlier decision and test targets. Where it
+conflicts with the staged amendment above, the amendment is the current approved contract.
 
 ## Context & problem
 
