@@ -128,6 +128,21 @@ class PharmacyApiClientTest {
                                         "C1110693",
                                         SourceRef.DataMode.LIVE))
                 .isNull();
+
+        // A whitespace-only address is equally unusable for a person trying to find the pharmacy.
+        String blankAddress =
+                """
+                {"response":{"header":{"resultCode":"00","resultMsg":"OK"},
+                 "body":{"items":{"item":{"hpid":"C1110693","dutyName":"청실약국","dutyAddr":"  ",
+                   "dutyTel1":"02-000-0000","wgs84Lat":37.56,"wgs84Lon":126.97}}}}}
+                """;
+        assertThat(
+                        fixtureClient()
+                                .parseBasisDetail(
+                                        new ObjectMapper().readTree(blankAddress),
+                                        "C1110693",
+                                        SourceRef.DataMode.LIVE))
+                .isNull();
     }
 
     @Test
