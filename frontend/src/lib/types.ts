@@ -138,8 +138,8 @@ export interface Facility {
   phone: string | null
   latitude: number
   longitude: number
-  /** Computed by the backend — no public API provides it. */
-  distanceMeters: number
+  /** Computed by the backend when the response has a query centre. */
+  distanceMeters: number | null
   operation: FacilityOperation
   source: SourceRef
 }

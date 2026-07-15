@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
@@ -62,14 +63,18 @@ public class DurApiClient {
                     DurWarning.Kind.PREGNANCY, "getPwnmTabooInfoList03",
                     DurWarning.Kind.ELDERLY, "getOdsnAtentInfoList03");
 
-    /** A product with no warnings of a kind returns {@code totalCount: 0} and no items. */
-    private static final String FIXTURE_EMPTY = "dur_empty.json";
-    private static final Map<DurWarning.Kind, String> FIXTURES =
-            Map.of(
-                    DurWarning.Kind.COMBINATION, "dur_usjnt.json",
-                    DurWarning.Kind.AGE, "dur_age.json",
-                    DurWarning.Kind.PREGNANCY, FIXTURE_EMPTY,
-                    DurWarning.Kind.ELDERLY, "dur_elderly.json");
+    /**
+     * A zero-row response carries no ITEM_SEQ, so the requested product is part of its identity.
+     * Never reuse a DUR capture by kind alone: that attaches another product's warning to this one.
+     */
+    private static final Map<FixtureKey, String> FIXTURES =
+            Map.ofEntries(
+                    fixture("202005623", DurWarning.Kind.COMBINATION, "dur_202005623_combination.json"),
+                    fixture("202005623", DurWarning.Kind.AGE, "dur_202005623_age.json"),
+                    fixture("202005623", DurWarning.Kind.PREGNANCY, "dur_202005623_pregnancy.json"),
+                    fixture("202005623", DurWarning.Kind.ELDERLY, "dur_202005623_elderly.json"),
+                    fixture("200000913", DurWarning.Kind.COMBINATION, "dur_usjnt.json"),
+                    fixture("197100097", DurWarning.Kind.AGE, "dur_age.json"));
 
     private static final int MAX_ROWS = 20;
 
@@ -118,7 +123,7 @@ public class DurApiClient {
         return warningsForBatch(itemSeq).warnings();
     }
 
-    @Cacheable(value = "durWarningsV2", key = "#root.target.cacheRoute() + '|seq=' + #itemSeq")
+    @Cacheable(value = "durWarningsV3", key = "#root.target.cacheRoute() + '|seq=' + #itemSeq")
     public DurBatch warningsForBatch(String itemSeq) {
         List<DurKindBatch> perKind =
                 Parallel.map(
@@ -144,8 +149,7 @@ public class DurApiClient {
     public DurKindBatch byKindBatch(String itemSeq, DurWarning.Kind kind) {
         String operationCode = "dur_" + kind.wire();
         if (dataMode.isFixtureOnly()) {
-            return new DurKindBatch(
-                    parse(fixtures.load(FIXTURES.get(kind)), kind), SourceRef.DataMode.FIXTURE, now());
+            return fixtureKind(itemSeq, kind, operationCode, false);
         }
         requireConfigured(operationCode);
 
@@ -154,7 +158,7 @@ public class DurApiClient {
             rows = parse(fetchLive(OPERATIONS.get(kind), Map.of("itemSeq", itemSeq)), kind);
         } catch (RuntimeException failure) {
             if (dataMode.allowsFallback()) {
-                return fixtureKind(itemSeq, kind, operationCode);
+                return fixtureKind(itemSeq, kind, operationCode, true);
             }
             throw unavailable(operationCode, "UPSTREAM_FAILURE");
         }
@@ -180,18 +184,30 @@ public class DurApiClient {
         return hits;
     }
 
-    private DurKindBatch fixtureKind(String itemSeq, DurWarning.Kind kind, String operationCode) {
+    private DurKindBatch fixtureKind(
+            String itemSeq, DurWarning.Kind kind, String operationCode, boolean fallback) {
+        String fixture = FIXTURES.get(new FixtureKey(itemSeq, kind));
+        if (fixture == null) {
+            throw unavailable(operationCode, "FIXTURE_UNBOUND");
+        }
         List<DurWarning> rows;
         try {
-            rows = parse(fixtures.load(FIXTURES.get(kind)), kind);
+            rows = parse(fixtures.load(fixture), kind);
         } catch (RuntimeException fixtureFailure) {
             throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
         }
-        if (rows.isEmpty() || rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
+        if (rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
             throw unavailable(operationCode, "FIXTURE_UNBOUND");
         }
-        log.warn("drug_api_fallback operation={} reason=UPSTREAM_FAILURE", operationCode);
+        if (fallback) {
+            log.warn("drug_api_fallback operation={} reason=UPSTREAM_FAILURE", operationCode);
+        }
         return new DurKindBatch(rows, SourceRef.DataMode.FIXTURE, now());
+    }
+
+    private static Entry<FixtureKey, String> fixture(
+            String itemSeq, DurWarning.Kind kind, String fixture) {
+        return Map.entry(new FixtureKey(itemSeq, kind), fixture);
     }
 
     private JsonNode fetchLive(String operation, Map<String, Object> params) {
@@ -266,6 +282,8 @@ public class DurApiClient {
         }
         return out;
     }
+
+    private record FixtureKey(String itemSeq, DurWarning.Kind kind) {}
 
     public record DurKindBatch(
             List<DurWarning> warnings, SourceRef.DataMode origin, Instant retrievedAt) {

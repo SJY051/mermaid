@@ -1,12 +1,14 @@
+import { fileURLToPath } from 'node:url'
 import { loadEnv, type Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-const ENV_DIR = '..'
+const ENV_DIR = fileURLToPath(new URL('..', import.meta.url))
+const REVIEWED_PUBLIC_CLIENT_ENV = new Set(['VITE_NAVER_MAP_CLIENT_ID'])
 
 /**
- * Anything named like a secret must never carry a `VITE_` prefix.
+ * Only reviewed public values may carry a `VITE_` prefix.
  *
  * Vite inlines every `VITE_*` variable into the JavaScript it serves. There is no runtime lookup
  * and no way to redact it afterwards: the literal string ends up in `dist/assets/index-*.js`, which
@@ -15,18 +17,19 @@ const ENV_DIR = '..'
  *
  * Refusing to start is the point. A warning scrolls past; a build that will not run does not.
  */
-function refuseSecretsInClientBundle(): Plugin {
-  const LOOKS_SECRET = /SECRET|PASSWORD|PASSWD|PRIVATE_KEY|TOKEN|CREDENTIAL/i
-
+function refuseUnreviewedClientEnvironment(): Plugin {
   return {
-    name: 'mermaid:refuse-secrets-in-client-bundle',
+    name: 'mermaid:refuse-unreviewed-client-environment',
     config(_config, { mode }) {
-      const offenders = Object.keys(loadEnv(mode, ENV_DIR, 'VITE_')).filter((k) => LOOKS_SECRET.test(k))
+      const offenders = Object.keys(loadEnv(mode, ENV_DIR, 'VITE_'))
+        .filter((name) => !REVIEWED_PUBLIC_CLIENT_ENV.has(name))
+        .sort()
       if (offenders.length > 0) {
         throw new Error(
-          `\n\n  ${offenders.join(', ')} — a VITE_ variable named like a secret.\n\n` +
+          `\n\n  ${offenders.join(', ')} — an unreviewed VITE_ variable.\n\n` +
             '  Vite inlines every VITE_ variable into the browser bundle, where anyone can read it.\n' +
-            '  Move it to a name without the VITE_ prefix and read it from the server instead.\n' +
+            '  Only VITE_NAVER_MAP_CLIENT_ID is approved as public browser configuration.\n' +
+            '  Move server values to names without the VITE_ prefix.\n' +
             '  See .env.example.\n',
         )
       }
@@ -35,7 +38,7 @@ function refuseSecretsInClientBundle(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [refuseSecretsInClientBundle(), react(), tailwindcss()],
+  plugins: [refuseUnreviewedClientEnvironment(), react(), tailwindcss()],
 
   // Tests run through this same config on purpose: the secret guard above fires during
   // `pnpm test` too, so a badly-named key fails the suite as well as the build.
