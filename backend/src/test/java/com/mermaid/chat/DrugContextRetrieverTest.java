@@ -25,6 +25,7 @@ import com.mermaid.drug.domain.PrescriptionStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
@@ -638,6 +639,39 @@ class DrugContextRetrieverTest {
             assertThat(answer.drugs()).isEmpty();
             assertThat(answer.disclaimer()).isEqualTo(StructuredOutputFallback.DISCLAIMER);
             assertThat(mapper.writeValueAsString(answer)).doesNotContain("no_match_found", "Naproxen");
+        }
+
+        @Test
+        @DisplayName("a single-l allergy typo clarifies before extraction or retrieval")
+        void misspelledFreeTextDeclarationClarifiesBeforeProviderOrRetrieval() {
+            AtomicInteger extractionCalls = new AtomicInteger();
+            SearchTermExtractor extractor = new SearchTermExtractor(null, mapper) {
+                @Override
+                public SearchTermExtractor.ExtractionResult extract(String userText) {
+                    extractionCalls.incrementAndGet();
+                    return ExtractionResult.usable(PROPOSED);
+                }
+            };
+            AtomicInteger retrievalCalls = new AtomicInteger();
+            DrugService drugService = new DrugService(null, null, null, null, null, null, null) {
+                @Override
+                public RetrievedContext retrieve(RetrievalQuery query, Set<String> avoidedKeys) {
+                    retrievalCalls.incrementAndGet();
+                    return new RetrievedContext(
+                            List.of(TYLENOL), Set.of(TYLENOL.nameKo()), List.of(TYLENOL_SOURCE));
+                }
+            };
+            String turn = "I have a headache but I am alergic to aspirin. What should I do?";
+
+            DrugContext context =
+                    new DrugContextRetriever(extractor, drugService, new IngredientNormalizer(), mapper)
+                            .retrieve(turn, turn, exclusions());
+
+            assertThat(extractionCalls).as("the extraction provider must not run").hasValue(0);
+            assertThat(retrievalCalls).as("official drug lookup must not run").hasValue(0);
+            assertThat(context.directAnswer()).contains(AllergyClarification.answer());
+            assertThat(context.groundedDrugs()).isEmpty();
+            assertThat(context.sources()).isEmpty();
         }
 
         @Test
