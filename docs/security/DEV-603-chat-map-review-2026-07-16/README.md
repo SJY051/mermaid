@@ -27,9 +27,11 @@ behaviour.
 The [final report](report.md) is the human-facing primary deliverable. A
 privacy-redacted preservation copy of the temporary scan projection is retained
 as [source/scan-report-redacted.md](source/scan-report-redacted.md). It removes
-owner-session wording under AGENTS.md §2-5 and rewrites temporary local links so
-they resolve inside this durable bundle. No unredacted consultation transcript
-is part of this archive.
+owner-session wording under AGENTS.md §2-5 but intentionally preserves the
+original temporary local-link text as provenance; those `/private/...` links
+are non-portable and must not be used for navigation. Use the final report's
+durable links instead. No unredacted consultation transcript is part of this
+archive.
 
 ## Authority
 
