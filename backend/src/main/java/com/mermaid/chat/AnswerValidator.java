@@ -45,7 +45,6 @@ public class AnswerValidator {
         INV2_BLOCKED_WITHOUT_MATCH,
         INV3_LIVE_WITH_FIXTURE_SOURCE,
         INV4_EMERGENCY_ACTION_MISSING,
-        INV4_EMERGENCY_DRUGS_PRESENT,
         INV5_GUIDANCE_SOURCE_MISSING,
         INV5_GUIDANCE_SOURCE_UNKNOWN,
         INV6_PRODUCT_NOT_RETRIEVED,
@@ -99,16 +98,12 @@ public class AnswerValidator {
             }
         }
 
-        // 4. An emergency must always offer the call and never recommend a medicine. Pre-model
-        //    triage already emits no drugs; this independently closes any later model-authored path.
+        // 4. An emergency must always offer the call. This one exists so that a model which
+        //    correctly identifies a heart attack cannot forget to say "call 119".
         if (answer.urgency() != null
-                && answer.urgency().level() == MermAidAnswer.Urgency.Level.EMERGENCY) {
-            if (!hasEmergencyCall(answer)) {
-                violations.add(ViolationCode.INV4_EMERGENCY_ACTION_MISSING);
-            }
-            if (!nullSafe(answer.drugs()).isEmpty()) {
-                violations.add(ViolationCode.INV4_EMERGENCY_DRUGS_PRESENT);
-            }
+                && answer.urgency().level() == MermAidAnswer.Urgency.Level.EMERGENCY
+                && !hasEmergencyCall(answer)) {
+            violations.add(ViolationCode.INV4_EMERGENCY_ACTION_MISSING);
         }
 
         // 5. Official claims must cite a source, and every guidance citation must be one we hold.

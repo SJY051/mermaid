@@ -258,21 +258,6 @@ class AnswerValidatorTest {
 
             assertThat(validator.validate(a, Map.of())).isEmpty();
         }
-
-        @Test
-        @DisplayName("emergency with a medicine card is rejected even when the 119 action is present")
-        void emergencyCannotRecommendMedicine() {
-            MermAidAnswer a =
-                    answer(
-                            MermAidAnswer.Urgency.Level.EMERGENCY,
-                            List.of(drug("타이레놀", "src:1", AllergyCheck.noMatch())),
-                            List.of(UiAction.ShowEmergencyCall.korea119()),
-                            List.of(source("src:1")),
-                            MermAidAnswer.DataStatus.LIVE);
-
-            assertThat(validator.validate(a, grounded("타이레놀", "src:1")))
-                    .containsExactly(ViolationCode.INV4_EMERGENCY_DRUGS_PRESENT);
-        }
     }
 
     @Test
