@@ -654,6 +654,16 @@ tests do not close a P0 unless the root confirms the actual trust or provenance 
 
 Do not launch another exhaustive Ultra swarm merely to duplicate the canonical DIAG scan.
 
+**2026-07-16 KST result — known-finding reconciliation complete; release `NO-GO`.** The final DIAG
+semantically classified all 188 canonical candidates, including 33 reportable P0 rows, but Round 6
+receipts were not physically adopted into every ledger, attack paths were not materialized, and
+Round 7 did not run (`saturation_proven=false`). All 33 reportable P0 rows survive on current
+`main@3d586695`; thirteen have unmerged candidate fixes, four are partial, four await human
+decisions, and twelve lack a complete published candidate. The full evidence and exact PR-head
+crosswalk are in
+`docs/specs/worker-briefs/DEV-603-final-diag-reconciliation-2026-07-16.md`. No clean corrected RC
+exists while #104/#106 remain P0-blocked and #109/#110/#112 remain P1-blocked.
+
 ## 13. Verification and reporting contract
 
 Before any code change is called complete, run now and record exit codes:

@@ -17,6 +17,9 @@ remain with their existing owner, and the canonical security report does not cla
 
 This packet is the primary maintainer decision artifact. The wave plan records execution history;
 the W3-C packet records the four human clinical decisions and does not authorize implementation.
+The final DIAG crosswalk is recorded separately in
+`docs/specs/worker-briefs/DEV-603-final-diag-reconciliation-2026-07-16.md`; it distinguishes semantic
+disposition, unmerged candidate fixes, physical receipt adoption, and saturation.
 
 ## Current baseline and authority
 
@@ -26,6 +29,10 @@ the W3-C packet records the four human clinical decisions and does not authorize
 - The report contains 188 canonical findings, but Round 7 was not run and
   `saturation_proven=false`. This packet therefore reconciles known findings only; it does not claim
   that no additional P0 exists.
+- The final reconciliation found that all 33 `reportable / P0` rows survive on current `main`.
+  Thirteen have unmerged candidate fixes, four are partial, four require a human decision, and
+  twelve have no complete published candidate. Round 6 semantic validation finished, but its
+  central receipts and attack-path materialization were not physically adopted into every ledger.
 - SJY051 explicitly authorized overnight commit/push/ready-PR publication and required the reason
   for every behavior/test change to be stated. That authorization did not include merging the new
   PRs or deciding clinical thresholds.
