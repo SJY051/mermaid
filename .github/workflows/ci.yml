@@ -95,6 +95,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Verify pre-commit secret guard
+        run: ./bin/verify-precommit-secret-guard.sh
+
       # This repository is public. A leaked data.go.kr service key or LLM key is
       # scraped within minutes of being pushed.
       # GITLEAKS_LICENSE is only required for organization-owned repos, not personal ones.
