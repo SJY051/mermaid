@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mermaid.config.LlmProperties;
+import java.time.Duration;
 import java.util.List;
 import java.util.StringJoiner;
 import lombok.RequiredArgsConstructor;
@@ -39,6 +40,12 @@ public class ChatProxyService {
 
     /** Application-owned output ceiling; this is a spend/surface bound, not a provider maximum. */
     private static final int MAX_OUTPUT_TOKENS = 8192;
+
+    /** Pass 1 emits two short arrays; a full-answer token budget would only buy malformed output. */
+    private static final int PASS_ONE_MAX_OUTPUT_TOKENS = 512;
+
+    /** Do not buy a retry that has too little of the logical extraction budget left to finish. */
+    private static final Duration PASS_ONE_RETRY_RESERVE = Duration.ofSeconds(15);
 
     /**
      * OpenAI-compatible streams terminate with this literal. It is not JSON.
@@ -82,6 +89,10 @@ public class ChatProxyService {
     }
 
     private Mono<JsonNode> post(ObjectNode body) {
+        return postWithoutTimeout(body).timeout(llmProperties.timeout());
+    }
+
+    private Mono<JsonNode> postWithoutTimeout(ObjectNode body) {
         return llmWebClient
                 .post()
                 .uri(COMPLETIONS_PATH)
@@ -89,8 +100,7 @@ public class ChatProxyService {
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(body)
                 .retrieve()
-                .bodyToMono(JsonNode.class)
-                .timeout(llmProperties.timeout());
+                .bodyToMono(JsonNode.class);
     }
 
     private static ObjectNode withoutSchema(ObjectNode body) {
@@ -116,21 +126,108 @@ public class ChatProxyService {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("model", llmProperties.model());
         body.put("stream", false);
-        body.set(RESPONSE_FORMAT, responseFormat(schemaName, schema));
+        body.put("n", 1);
+        body.put("max_tokens", PASS_ONE_MAX_OUTPUT_TOKENS);
+        body.put("store", false);
         ArrayNode messages = body.putArray("messages");
         messages.addObject().put("role", "system").put("content", systemPrompt);
         messages.addObject().put("role", "user").put("content", userText);
 
-        return llmWebClient
-                .post()
-                .uri(COMPLETIONS_PATH)
-                .header(HttpHeaders.AUTHORIZATION, "Bearer " + llmProperties.apiKey())
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(body)
-                .retrieve()
-                .bodyToMono(JsonNode.class)
-                .timeout(llmProperties.extractionTimeoutOrDefault())
-                .mapNotNull(r -> r.path("choices").path(0).path("message").path("content").asText(null));
+        Duration budget = llmProperties.extractionTimeoutOrDefault();
+        if (!llmProperties.supportsStructuredOutput()) {
+            return postWithoutTimeout(body)
+                    .map(ChatProxyService::passOneResponse)
+                    .flatMap(response -> Mono.justOrEmpty(response.content()))
+                    .timeout(budget);
+        }
+
+        body.set(RESPONSE_FORMAT, responseFormat(schemaName, schema));
+        return completeStructuredPassOne(body, userText, budget).timeout(budget);
+    }
+
+    private Mono<String> completeStructuredPassOne(
+            ObjectNode schemaRequest, String userText, Duration budget) {
+        return postWithoutTimeout(schemaRequest)
+                .map(response -> PassOneFirstAttempt.response(content(response)))
+                .switchIfEmpty(Mono.just(PassOneFirstAttempt.response(null)))
+                .onErrorResume(
+                        ChatProxyService::isBadRequest,
+                        error -> Mono.just(PassOneFirstAttempt.badRequest(error)))
+                .elapsed()
+                .flatMap(elapsed -> {
+                    PassOneFirstAttempt first = elapsed.getT2();
+                    if (first.error() == null
+                            && SearchTermExtractor.canConsume(
+                                    first.content(), userText, objectMapper)) {
+                        return Mono.just(first.content());
+                    }
+
+                    PassOneRetryReason reason = first.error() == null
+                            ? PassOneRetryReason.UNUSABLE_OUTPUT
+                            : PassOneRetryReason.HTTP_400;
+                    if (!hasRetryReserve(budget, elapsed.getT1())) {
+                        logPassOneRetry(reason, PassOneRetryOutcome.SKIPPED_BUDGET);
+                        return first.error() == null
+                                ? Mono.justOrEmpty(first.content())
+                                : Mono.error(first.error());
+                    }
+
+                    logPassOneRetry(reason, PassOneRetryOutcome.STARTED);
+                    return postWithoutTimeout(withoutSchema(schemaRequest))
+                            .map(ChatProxyService::passOneResponse)
+                            .switchIfEmpty(Mono.just(new PassOneResponse(null)))
+                            .flatMap(second -> {
+                                PassOneRetryOutcome outcome = SearchTermExtractor.canConsume(
+                                                second.content(), userText, objectMapper)
+                                        ? PassOneRetryOutcome.RECOVERED
+                                        : PassOneRetryOutcome.UNUSABLE;
+                                logPassOneRetry(reason, outcome);
+                                return Mono.justOrEmpty(second.content());
+                            })
+                            .doOnError(error -> logPassOneRetry(reason, PassOneRetryOutcome.FAILED));
+                });
+    }
+
+    private static PassOneResponse passOneResponse(JsonNode response) {
+        return new PassOneResponse(content(response));
+    }
+
+    private static String content(JsonNode response) {
+        return response.path("choices").path(0).path("message").path("content").asText(null);
+    }
+
+    private static boolean hasRetryReserve(Duration budget, long elapsedMillis) {
+        return budget.toMillis() - elapsedMillis >= PASS_ONE_RETRY_RESERVE.toMillis();
+    }
+
+    private static void logPassOneRetry(PassOneRetryReason reason, PassOneRetryOutcome outcome) {
+        log.warn("search_term_extraction_retry reason={} outcome={}", reason, outcome);
+    }
+
+    private record PassOneResponse(String content) {}
+
+    private record PassOneFirstAttempt(String content, Throwable error) {
+
+        private static PassOneFirstAttempt response(String content) {
+            return new PassOneFirstAttempt(content, null);
+        }
+
+        private static PassOneFirstAttempt badRequest(Throwable error) {
+            return new PassOneFirstAttempt(null, error);
+        }
+    }
+
+    private enum PassOneRetryReason {
+        HTTP_400,
+        UNUSABLE_OUTPUT
+    }
+
+    private enum PassOneRetryOutcome {
+        STARTED,
+        RECOVERED,
+        UNUSABLE,
+        FAILED,
+        SKIPPED_BUDGET
     }
 
     public static boolean wantsStream(JsonNode clientRequest) {

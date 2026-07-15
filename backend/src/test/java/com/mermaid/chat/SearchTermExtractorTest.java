@@ -215,8 +215,106 @@ class SearchTermExtractorTest {
     }
 
     @Nested
-    @DisplayName("an empty context is a safe context")
+    @DisplayName("extraction failures fail closed without becoming usable empty results")
     class FailsClosed {
+
+        @Test
+        @DisplayName("valid empty arrays are a usable extraction, not a provider failure")
+        void validEmptyOutputRemainsUsable() {
+            ChatProxyService emptyService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just("{\"ingredients\":[],\"productNames\":[]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(emptyService, mapper).extract("hello");
+
+            assertThat(result.status()).isEqualTo(SearchTermExtractor.ExtractionStatus.USABLE);
+            assertThat(result.query().isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a product name invented by the model is unavailable after user binding")
+        void modelOnlyProductNameIsUnavailable() {
+            ChatProxyService productService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just(
+                            "{\"ingredients\":[],\"productNames\":[\"Tylenol\"]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(productService, mapper).extract("I have a fever");
+
+            assertThat(result.status())
+                    .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+            assertThat(result.query().isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a usable ingredient survives when an unauthorized product name is dropped")
+        void ingredientSurvivesDroppedModelOnlyProductName() {
+            ChatProxyService mixedService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just(
+                            "{\"ingredients\":[\"Acetaminophen\"],"
+                                    + "\"productNames\":[\"Tylenol\"]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(mixedService, mapper).extract("I have a fever");
+
+            assertThat(result.status()).isEqualTo(SearchTermExtractor.ExtractionStatus.USABLE);
+            assertThat(result.query().ingredientsEn()).containsExactly("Acetaminophen");
+            assertThat(result.query().productNamesKo()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("rejected-only terms are unavailable rather than a successful empty extraction")
+        void rejectedOnlyOutputIsUnavailable() {
+            ChatProxyService rejectedService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just(
+                            "{\"ingredients\":[\"Ibuprofen 200mg\"],\"productNames\":[]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(rejectedService, mapper).extract("fever");
+
+            assertThat(result.status())
+                    .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+            assertThat(result.query().isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("a partial empty shape is unavailable because the missing array was not answered")
+        void partialEmptyOutputIsUnavailable() {
+            ChatProxyService partialService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.just("{\"ingredients\":[]}");
+                }
+            };
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(partialService, mapper).extract("fever");
+
+            assertThat(result.status())
+                    .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+            assertThat(result.query().isEmpty()).isTrue();
+        }
 
         @Test
         @DisplayName("provider failures name their cause and still leak nothing")
@@ -239,7 +337,10 @@ class SearchTermExtractorTest {
             appender.start();
             logger.addAppender(appender);
             try {
-                assertThat(extractor.extract("synthetic symptom").isEmpty()).isTrue();
+                SearchTermExtractor.ExtractionResult result = extractor.extract("synthetic symptom");
+                assertThat(result.status())
+                        .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+                assertThat(result.query().isEmpty()).isTrue();
             } finally {
                 logger.detachAppender(appender);
                 appender.stop();
@@ -280,7 +381,10 @@ class SearchTermExtractorTest {
             appender.start();
             logger.addAppender(appender);
             try {
-                assertThat(extractor.extract("synthetic symptom").isEmpty()).isTrue();
+                SearchTermExtractor.ExtractionResult result = extractor.extract("synthetic symptom");
+                assertThat(result.status())
+                        .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+                assertThat(result.query().isEmpty()).isTrue();
             } finally {
                 logger.detachAppender(appender);
                 appender.stop();
@@ -306,6 +410,17 @@ class SearchTermExtractorTest {
             assertThat(parse("""
                 {"drugs": ["Ibuprofen"]}
                 """).isEmpty()).isTrue();
+        }
+
+        @Test
+        @DisplayName("each expected array is salvaged independently when the other is absent")
+        void partialShapePreservesUsableTerms() {
+            assertThat(parse("""
+                {"ingredients": ["Ibuprofen"]}
+                """).ingredientsEn()).containsExactly("Ibuprofen");
+            assertThat(parse("""
+                {"productNames": ["타이레놀"]}
+                """).productNamesKo()).containsExactly("타이레놀");
         }
 
         @Test

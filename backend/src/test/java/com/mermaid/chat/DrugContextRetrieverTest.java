@@ -57,8 +57,8 @@ class DrugContextRetrieverTest {
     private DrugContextRetriever retriever(RetrievalQuery extracted, RetrievedContext retrieved) {
         SearchTermExtractor extractor = new SearchTermExtractor(null, mapper) {
             @Override
-            public RetrievalQuery extract(String userText) {
-                return extracted;
+            public SearchTermExtractor.ExtractionResult extract(String userText) {
+                return SearchTermExtractor.ExtractionResult.usable(extracted);
             }
         };
         DrugService drugService = new DrugService(null, null, null, null, null, null, null) {
@@ -107,8 +107,8 @@ class DrugContextRetrieverTest {
     private DrugContextRetriever gated(RetrievalQuery extracted, CapturingDrugService drugService) {
         SearchTermExtractor extractor = new SearchTermExtractor(null, mapper) {
             @Override
-            public RetrievalQuery extract(String userText) {
-                return extracted;
+            public SearchTermExtractor.ExtractionResult extract(String userText) {
+                return SearchTermExtractor.ExtractionResult.usable(extracted);
             }
         };
         return new DrugContextRetriever(extractor, drugService, new IngredientNormalizer(), mapper);
@@ -204,8 +204,8 @@ class DrugContextRetrieverTest {
             };
             SearchTermExtractor extractor = new SearchTermExtractor(null, mapper) {
                 @Override
-                public RetrievalQuery extract(String userText) {
-                    return RetrievalQuery.EMPTY;
+                public SearchTermExtractor.ExtractionResult extract(String userText) {
+                    return SearchTermExtractor.ExtractionResult.usable(RetrievalQuery.EMPTY);
                 }
             };
 
@@ -581,7 +581,7 @@ class DrugContextRetrieverTest {
         private SearchTermExtractor neverCalled() {
             return new SearchTermExtractor(null, mapper) {
                 @Override
-                public RetrievalQuery extract(String userText) {
+                public SearchTermExtractor.ExtractionResult extract(String userText) {
                     throw new AssertionError(
                             "a turn that fails closed must not pay for a model call");
                 }
