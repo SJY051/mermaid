@@ -121,14 +121,13 @@ public class SearchTermExtractor {
                     chatProxyService
                             .completeJson(SYSTEM_PROMPT, userText, SCHEMA_NAME, objectMapper.readTree(SCHEMA_JSON))
                             .block();
-            Inspection inspection = inspect(content, objectMapper);
+            Inspection inspection = inspect(content, userText, objectMapper);
             logInspection(inspection);
             if (!inspection.usable()) {
                 log.warn("search_term_extraction_failed code=UNUSABLE_OUTPUT");
                 return ExtractionResult.unavailableResult();
             }
-            RetrievalQuery query =
-                    bindUserAuthoredNamesToText(inspection.query(), userText);
+            RetrievalQuery query = inspection.query();
             log.debug("Extracted {} ingredient(s), {} product name(s)",
                     query.ingredientsEn().size(), query.productNamesKo().size());
             return ExtractionResult.usable(query);
@@ -236,9 +235,22 @@ public class SearchTermExtractor {
         }
     }
 
-    /** Whether the same parser used by {@link #parse} can safely consume this provider output. */
-    static boolean canConsume(String rawContent, ObjectMapper mapper) {
-        return inspect(rawContent, mapper).usable();
+    /** Whether the same parsing and user-authority binding used by {@link #extract} can consume it. */
+    static boolean canConsume(String rawContent, String userText, ObjectMapper mapper) {
+        return inspect(rawContent, userText, mapper).usable();
+    }
+
+    private static Inspection inspect(
+            String rawContent, String userText, ObjectMapper mapper) {
+        Inspection parsed = inspect(rawContent, mapper);
+        RetrievalQuery bound = bindUserAuthoredNamesToText(parsed.query(), userText);
+        boolean explicitEmpty = parsed.usable() && parsed.query().isEmpty();
+        return new Inspection(
+                bound,
+                !bound.isEmpty() || explicitEmpty,
+                parsed.nonJson(),
+                parsed.ingredientRejections(),
+                parsed.productNameRejections());
     }
 
     private static Inspection inspect(String rawContent, ObjectMapper mapper) {

@@ -443,6 +443,90 @@ class ChatProxyServiceTest {
         }
 
         @Test
+        @DisplayName("a model-only product name is unusable and spends the bounded retry")
+        void modelOnlyProductNameRetriesAfterUserBinding() {
+            String modelOnlyProduct =
+                    "{\"ingredients\":[],\"productNames\":[\"Tylenol\"]}";
+            String recovered =
+                    "{\"ingredients\":[\"Acetaminophen\"],\"productNames\":[]}";
+            ScriptedExchange exchange = new ScriptedExchange(
+                    immediateOk(providerEnvelope(modelOnlyProduct)),
+                    immediateOk(providerEnvelope(recovered)));
+            ChatProxyService proxy = service(
+                    SUPPORTED,
+                    exchange.webClient(),
+                    Duration.ofSeconds(60),
+                    Set.of(SUPPORTED));
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(proxy, mapper).extract("I have a fever");
+
+            assertThat(result.status()).isEqualTo(SearchTermExtractor.ExtractionStatus.USABLE);
+            assertThat(result.query().ingredientsEn()).containsExactly("Acetaminophen");
+            assertThat(result.query().productNamesKo()).isEmpty();
+            assertThat(exchange.requests()).hasSize(2);
+            assertOnlyResponseFormatChanged(exchange.requests().get(0), exchange.requests().get(1));
+        }
+
+        @Test
+        @DisplayName("a product name the user typed remains usable without a retry")
+        void userTypedProductNameDoesNotRetry() {
+            String userTypedProduct =
+                    "{\"ingredients\":[],\"productNames\":[\"Tylenol\"]}";
+            ScriptedExchange exchange =
+                    new ScriptedExchange(immediateOk(providerEnvelope(userTypedProduct)));
+            ChatProxyService proxy = service(
+                    SUPPORTED,
+                    exchange.webClient(),
+                    Duration.ofSeconds(60),
+                    Set.of(SUPPORTED));
+
+            SearchTermExtractor.ExtractionResult result =
+                    new SearchTermExtractor(proxy, mapper).extract("Can I take Tylenol?");
+
+            assertThat(result.status()).isEqualTo(SearchTermExtractor.ExtractionStatus.USABLE);
+            assertThat(result.query().ingredientsEn()).isEmpty();
+            assertThat(result.query().productNamesKo()).containsExactly("Tylenol");
+            assertThat(exchange.requests()).hasSize(1);
+        }
+
+        @Test
+        @DisplayName("a model-only product on the retry is still reported as unusable")
+        void modelOnlyProductNameOnRetryRemainsUnusable() {
+            String modelOnlyProduct =
+                    "{\"ingredients\":[],\"productNames\":[\"Tylenol\"]}";
+            ScriptedExchange exchange = new ScriptedExchange(
+                    immediateOk(providerEnvelope("FIRST_UNUSABLE_SENTINEL")),
+                    immediateOk(providerEnvelope(modelOnlyProduct)));
+            ChatProxyService proxy = service(
+                    SUPPORTED,
+                    exchange.webClient(),
+                    Duration.ofSeconds(60),
+                    Set.of(SUPPORTED));
+            Logger logger = (Logger) LoggerFactory.getLogger(ChatProxyService.class);
+            ListAppender<ILoggingEvent> appender = attach(logger);
+            try {
+                SearchTermExtractor.ExtractionResult result =
+                        new SearchTermExtractor(proxy, mapper).extract("I have a fever");
+
+                assertThat(result.status())
+                        .isEqualTo(SearchTermExtractor.ExtractionStatus.UNAVAILABLE);
+                assertThat(result.query().isEmpty()).isTrue();
+            } finally {
+                detach(logger, appender);
+            }
+
+            assertThat(exchange.requests()).hasSize(2);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .contains(
+                            "search_term_extraction_retry reason=UNUSABLE_OUTPUT outcome=STARTED",
+                            "search_term_extraction_retry reason=UNUSABLE_OUTPUT outcome=UNUSABLE")
+                    .doesNotContain(
+                            "search_term_extraction_retry reason=UNUSABLE_OUTPUT outcome=RECOVERED");
+        }
+
+        @Test
         @DisplayName("pass 1 keeps output the extractor can safely salvage instead of retrying")
         void parserUsablePassOneOutputDoesNotRetry() {
             String salvageable =
