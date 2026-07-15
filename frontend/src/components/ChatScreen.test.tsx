@@ -121,7 +121,12 @@ describe('while the answer is being written (the >100s cold path)', () => {
     await ask()
 
     const progress = await screen.findByTestId('chat-progress')
-    expect(progress).toHaveTextContent(/writing an answer/i)
+    expect(
+      within(progress).getByRole('progressbar', { name: 'Waiting for the answer' }),
+    ).toBeInTheDocument()
+    expect(
+      within(progress).getByText('Checking government drug data and writing your answer.'),
+    ).toBeVisible()
     expect(progress).toHaveTextContent(/nothing is stuck/i)
 
     release(validAnswer)
@@ -156,18 +161,58 @@ describe('while the answer is being written (the >100s cold path)', () => {
 })
 
 describe('when the answer arrives', () => {
-  it('renders the summary and identifies fixture provenance', async () => {
-    const fixtureAnswer = JSON.parse(validAnswer)
-    fixtureAnswer.dataStatus = 'fixture'
-    const { stream, release } = pendingStream()
-    streamChatMock.mockReturnValue(stream())
-    renderChat()
-    await ask()
-    release(JSON.stringify(fixtureAnswer))
+  it(
+    'renders server-authored fixture provenance as a header chip, not inline answer copy',
+    async () => {
+      const fixtureAnswer = JSON.parse(validAnswer)
+      fixtureAnswer.dataStatus = 'fixture'
+      const { stream, release } = pendingStream()
+      streamChatMock.mockReturnValue(stream())
+      renderChat()
+      await ask()
+      release(JSON.stringify(fixtureAnswer))
 
-    expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
-    expect(screen.getByText(/showing sample data/i)).toBeInTheDocument()
-  })
+      expect(await screen.findByText('Drink water and rest.')).toBeInTheDocument()
+      const header = screen.getByRole('heading', { name: 'mermAid' }).closest('header')!
+      expect(within(header).getByText('sample data')).toBeVisible()
+      expect(
+        screen.queryByText(
+          'Showing sample data — the live government data source was unavailable.',
+        ),
+      ).not.toBeInTheDocument()
+    },
+  )
+
+  it(
+    'keeps the header provenance chip when a live answer follows an earlier fixture answer',
+    async () => {
+      const fixtureAnswer = {
+        ...JSON.parse(validAnswer),
+        answerId: 'fixture-answer',
+        dataStatus: 'fixture',
+        summary: 'Fixture answer.',
+      }
+      const liveAnswer = {
+        ...JSON.parse(validAnswer),
+        answerId: 'live-answer',
+        dataStatus: 'live',
+        summary: 'Live answer.',
+      }
+      streamChatMock
+        .mockReturnValueOnce(completedStream(JSON.stringify(fixtureAnswer)))
+        .mockReturnValueOnce(completedStream(JSON.stringify(liveAnswer)))
+      renderChat()
+      const user = await ask('First question')
+      expect(await screen.findByText('Fixture answer.')).toBeInTheDocument()
+
+      await user.type(screen.getByRole('textbox'), 'Second question')
+      await user.click(screen.getByRole('button', { name: /ask/i }))
+      expect(await screen.findByText('Live answer.')).toBeInTheDocument()
+
+      const header = screen.getByRole('heading', { name: 'mermAid' }).closest('header')!
+      expect(within(header).getByText('sample data')).toBeVisible()
+    },
+  )
 
   it('shows the emergency banner when the server says emergency', async () => {
     const emergency = JSON.parse(validAnswer)
@@ -311,6 +356,7 @@ describe('when the request fails', () => {
     // aria-disabled, not `disabled`: the field stays focusable and says why it is locked, so a
     // keyboard or screen-reader user is not left at a silently dead box for a hundred seconds.
     expect(box).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByText('Working…', { selector: '[aria-hidden="true"]' })).toBeVisible()
     await user.type(box, ' and I also have fever')
     expect(box).toHaveValue('I am allergic to ibuprofen')
 
@@ -820,6 +866,29 @@ describe('when the request fails', () => {
 })
 
 describe('conversation state', () => {
+  it('removes the header subtitle that has no wireframe counterpart', () => {
+    renderChat()
+
+    const header = screen.getByRole('heading', { name: 'mermAid' }).closest('header')!
+    expect(
+      within(header).queryByText(
+        'Find care and understand Korean medicines — in English, without signing in.',
+      ),
+    ).not.toBeInTheDocument()
+  })
+
+  it('uses the wireframe placeholder while preserving the visible SA-04 privacy warning', () => {
+    renderChat()
+
+    const box = screen.getByRole('textbox', { name: 'Describe your symptoms' })
+    expect(box).toHaveAttribute('placeholder', 'Describe your symptoms…')
+    expect(
+      screen.getByText(
+        'Please do not include identifying information, such as a passport number or date of birth.',
+      ),
+    ).toBeVisible()
+  })
+
   it('accumulates two questions and two answers', async () => {
     const secondAnswer = JSON.stringify({
       ...JSON.parse(validAnswer),
@@ -1328,7 +1397,7 @@ describe('allergen picker (spec 005 FR-014)', () => {
     expect(screen.queryByRole('button', { name: 'Edit allergy list' })).not.toBeInTheDocument()
     expect(screen.getByRole('textbox')).toHaveAttribute(
       'placeholder',
-      "I have a sore throat and a fever, and it's 11pm.",
+      'Describe your symptoms…',
     )
     expect(sessionStorage.getItem('mermaid.chatSession.v2')).toBeNull()
   })

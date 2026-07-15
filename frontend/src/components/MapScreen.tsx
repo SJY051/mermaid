@@ -213,8 +213,10 @@ export function MapScreen({ active }: MapScreenProps) {
 
   if (!location) {
     return (
-      <div className="flex flex-col gap-3 p-6">
-        <h1 className="text-2xl font-semibold text-primary">Map</h1>
+      <div className="flex flex-col gap-3 px-3 pb-3">
+        <header className="-mx-3 flex min-h-11 items-center border-b border-primary px-3.5">
+          <h1 className="text-sm font-semibold text-primary">Map</h1>
+        </header>
         {locationError ? (
           <p role="alert" className="text-sm text-secondary">
             {locationError}
@@ -252,36 +254,54 @@ export function MapScreen({ active }: MapScreenProps) {
     !(typeFilter === 'hospital' && hospitalUnavailable)
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <h1 className="text-2xl font-semibold text-primary">Map</h1>
-      {typeFilter === 'all' && !hospitalUnavailable && (
-        <p className="text-sm text-primary">Nearby pharmacies and hospitals will appear here.</p>
-      )}
+    <div className="flex flex-col gap-3 px-3 pb-3">
+      <header className="-mx-3 flex min-h-11 items-center gap-2 border-b border-primary px-3.5">
+        <h1 className="text-sm font-semibold text-primary">Map</h1>
+        {location.source === 'device' && (
+          <span className="rounded-full border border-primary px-2 py-0.5 text-[10px] text-secondary">
+            Centred on you
+          </span>
+        )}
+      </header>
 
-      <div role="group" aria-label="Facility type" className="grid grid-cols-3 gap-1">
+      <div
+        role="group"
+        aria-label="Facility type"
+        className="grid grid-cols-4 overflow-hidden rounded-full border border-primary bg-surface"
+      >
         {TYPE_FILTERS.map((filter) => (
           <button
             key={filter.id}
             type="button"
             aria-pressed={typeFilter === filter.id}
-            className={`min-h-11 rounded border px-2 text-sm font-medium ${
+            className={`min-h-11 border-r border-primary px-2 text-xs font-medium ${
               typeFilter === filter.id
-                ? 'border-primary bg-primary text-surface'
-                : 'border-primary bg-surface text-primary'
+                ? 'bg-primary text-surface'
+                : 'bg-surface text-primary'
             }`}
             onClick={() => selectType(filter.id)}
           >
             {filter.label}
           </button>
         ))}
-        {/* Emergency rooms join this segment only after their backend adapter exists. */}
+        <button
+          type="button"
+          disabled
+          aria-describedby="er-results-unavailable"
+          className="min-h-11 bg-surface px-2 text-xs font-medium text-secondary disabled:cursor-not-allowed"
+        >
+          ER
+        </button>
+        <span id="er-results-unavailable" className="sr-only">
+          Emergency-room results are not available yet.
+        </span>
       </div>
 
       <button
         type="button"
         role="switch"
         aria-checked={openNowOnly}
-        className="flex min-h-11 items-center justify-between rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+        className="flex min-h-11 items-center justify-between rounded-full border border-primary bg-surface px-3 text-xs font-medium text-primary"
         onClick={() => setOpenNowOnly((current) => !current)}
       >
         <span>Open now</span>
