@@ -31,8 +31,9 @@ public class RequestIdFilter extends OncePerRequestFilter {
             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        // This value persists in request-thread logs. Parallel worker threads need explicit MDC
-        // propagation; until then they remain uncorrelated rather than inheriting client text.
+        // This value persists in request-thread logs. Parallel.map/async install it only around
+        // their own worker calls and restore the pooled thread afterward. Reactive provider
+        // callbacks have a separate context boundary tracked in DEV-603 follow-up #119.
         // Accept only an opaque canonical UUID so a caller cannot turn symptoms or log-shaping
         // text into stored log content.
         String upstreamRequestId = request.getHeader(HEADER);
