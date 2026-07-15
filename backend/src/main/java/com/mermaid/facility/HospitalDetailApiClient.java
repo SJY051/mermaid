@@ -86,12 +86,14 @@ public class HospitalDetailApiClient {
                             .bodyToMono(JsonNode.class)
                             .block();
             return new HospitalDetailBatch(parse(raw, ykiho), SourceRef.DataMode.LIVE, Instant.now(clock));
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
-                log.warn("hospital detail lookup failed, falling back to fixture: {}", e.getMessage());
+                // WebClient failures may include the request URI and its serviceKey. Neither the
+                // message nor the cause may cross this provider boundary.
+                log.warn("hospital detail lookup failed, falling back to fixture");
                 return fixtureBatch(ykiho);
             }
-            throw new PublicApiException("Hospital detail lookup failed for " + ykiho, e);
+            throw new PublicApiException("Hospital detail lookup failed for " + ykiho);
         }
     }
 
