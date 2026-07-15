@@ -2,6 +2,7 @@ package com.mermaid.drug;
 
 import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.common.ApiException;
+import com.mermaid.common.FixtureIntegrityException;
 import com.mermaid.common.NotFoundException;
 import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
@@ -293,6 +294,8 @@ public class DrugService {
                 return Optional.empty();
             }
             return Optional.of(full);
+        } catch (FixtureIntegrityException e) {
+            throw e;
         } catch (RuntimeException e) {
             if (e instanceof PublicApiException || e instanceof ApiException) {
                 throw e;

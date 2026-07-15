@@ -3,6 +3,7 @@ package com.mermaid.drug;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mermaid.common.ApiException;
 import com.mermaid.common.ErrorCode;
+import com.mermaid.common.FixtureIntegrityException;
 import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
@@ -190,6 +191,8 @@ public class DrugPermissionApiClient {
         List<Permitted> rows;
         try {
             rows = parseList(fixtures.load(fixture));
+        } catch (FixtureIntegrityException fixtureFailure) {
+            throw fixtureFailure;
         } catch (RuntimeException fixtureFailure) {
             throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
         }
@@ -204,6 +207,8 @@ public class DrugPermissionApiClient {
         List<PermittedDetail> rows;
         try {
             rows = parseDetails(fixtures.load(FIXTURE_DETAIL));
+        } catch (FixtureIntegrityException fixtureFailure) {
+            throw fixtureFailure;
         } catch (RuntimeException fixtureFailure) {
             throw unavailable("permission_detail", "FIXTURE_UNAVAILABLE");
         }

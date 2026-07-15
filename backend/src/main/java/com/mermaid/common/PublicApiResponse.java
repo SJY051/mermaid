@@ -76,6 +76,11 @@ public final class PublicApiResponse {
         return body.path("totalCount").asInt(0);
     }
 
+    /** Package-visible for fixture integrity checks; a successful envelope must carry a body object. */
+    boolean hasBody() {
+        return body.isObject();
+    }
+
     /**
      * The rows, always as a list.
      *
