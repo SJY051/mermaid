@@ -39,13 +39,13 @@ the W3-C packet records the four human clinical decisions and does not authorize
 | #103 | positive allowlist for browser-visible `VITE_*` values | #102 integration order | rebase after #102 and preserve both CI contracts |
 | #104 | bind drug query, record identity, origin, timestamp, and cache route | first chat-stack base | **BLOCKED:** amend fixture-only DUR product binding first |
 | #105 | put request ID in each server log line | none | merge after final green check |
-| #106 | accept only client `user` roles; reject emergency answers carrying drugs | #104 | merge after #104, then retarget to `main` |
+| #106 | accept only client `user` roles; reject emergency answers carrying drugs | #104 | **BLOCKED:** preserve server emergency state after rejection |
 | #107 | remove health search-term values from logs | none | merge after final green check |
 | #108 | handle malformed JSON without logging request bodies or full exceptions | #104 | merge after #104, then retarget to `main` |
-| #109 | close nested-env and placeholder secret-hook bypasses | none | merge after final green check |
-| #110 | bounded Pass 1 structured-output retry and usable/unavailable classification | #106 | merge after #106, then retarget to `main` |
-| #111 | server-authored cards for non-empty official context | #110 | merge after #110, then retarget to `main` |
-| #112 | distinct server-authored empty, Pass-1-unavailable, and SA-08 terminal states | #111 | merge after #111, then retarget to `main` |
+| #109 | close nested-env and placeholder secret-hook bypasses | none | **BLOCKED:** repair two mutation-insensitive harness cases |
+| #110 | bounded Pass 1 structured-output retry and usable/unavailable classification | #106 | **BLOCKED:** bind user product authority before retry decision |
+| #111 | server-authored cards for non-empty official context | #110 | wait for corrected #104/#106/#110 bases |
+| #112 | distinct server-authored empty, Pass-1-unavailable, and SA-08 terminal states | #111 | **BLOCKED:** distinguish user-product zero result from SA-08 suppression |
 | #113 | distinguish local JSON fixture integrity failures from government outages | #108 | merge after #108, then retarget to `main` |
 
 At the final refresh on 2026-07-16 KST, every PR #101–#113 was open, ready, `CLEAN`, and
@@ -74,6 +74,36 @@ zero-row Tylenol responses, prevents stale cache reuse, and turns the current cr
 Protected fixture and README edits were not made without SJY051's explicit approval of this newly
 discovered scope.
 
+## Late stack audit — additional merge holds
+
+Targeted end-to-end and mutation audits found four more blockers after the first broad diff review.
+The earlier green suites remain valid for what they asserted, but none covered these exact final-state
+contracts.
+
+- **#106 — P0 emergency state loss.** The new validator correctly rejects a model emergency that
+  also carries a drug. The controller then sends every validation failure through the generic safe
+  fallback, which changes urgency to `UNKNOWN` and removes the 119 action. The emergency banner,
+  persistent alert, and `tel:119` action therefore disappear. Model emergency output must instead be
+  replaced wholesale by a server-authored emergency response with `drugs=[]` and the Korean 119
+  action; model prose and actions remain untrusted.
+- **#109 — P1 test false-greens.** The current hook behavior is correct, but the harness still passes
+  if multi-candidate scanning is broken after a leading placeholder, and it passes if the
+  `change-me*` placeholder branch is removed. Add an inverse-order placeholder/real assignment case
+  and a credential-regex-length `change-me*` case, then prove both mutations red under `sh` and
+  `dash`.
+- **#110 — P1 recovery skipped before authority binding.** A syntactically valid model-only product
+  name is marked usable before the server checks whether the user actually typed it. The later
+  authority binding drops the name, leaving a usable empty query without spending the bounded retry.
+  First and second attempts must share one user-text-aware bound inspection.
+- **#112 — P1 wrong safety-state copy.** When allergy handling removes model ingredients but keeps a
+  user-named product, an official zero-result lookup currently becomes `allergy-suppressed`. The copy
+  says an AI-selected medicine was withheld even though the server queried the user's product.
+  Suppression belongs only to the pre-retrieval empty query; a completed user-product zero result is
+  the fixed official-empty state.
+
+No production, test, fixture, or hook source was changed for these newly discovered scopes. Their PR
+descriptions and this decision packet record the hold pending SJY051 approval.
+
 ## Why chat recovery is a stack
 
 The large experimental RC proved the target behavior, but SJY051 asked that the actual review path
@@ -81,8 +111,9 @@ remove risk gradually instead of landing a broad deletion. The production stack 
 dormant legacy code and changes one reachable boundary at a time:
 
 1. bind official records and provenance, including fixture-only DUR identity (#104 amendment);
-2. trust only client user messages and add the emergency/drug validator backstop (#106);
-3. bound and classify Pass 1 structured-output recovery;
+2. trust only client user messages and canonicalize every model emergency to the server 119 response
+   after the emergency/drug validator backstop (#106 amendment);
+3. bind product authority before bounded Pass 1 recovery and classification (#110 amendment);
 4. return server-authored cards for non-empty official context;
 5. return distinct fixed server answers for usable-empty and Pass-1-unavailable context;
 6. remove dormant legacy code only in a later cleanup PR.
@@ -98,7 +129,9 @@ owned backend on port 18085, frontend on 15175, and fake provider on 19093. A no
 rendered `server-empty-official-data`; a synthetic Pass-1 503 rendered
 `server-search-unavailable`. The provider received exactly one Pass-1 call per turn and no Pass-2
 call. Root full verification passed 537 backend tests, 248 frontend tests, and the production build;
-an independent 89-test diff audit found no actionable P0/P1.
+an initial independent 89-test diff audit found no actionable P0/P1. The later targeted audit found
+the user-product zero-result misclassification above; #112 is therefore blocked despite those test
+results.
 
 PR #113 closes the observed JSON-fixture/government-outage misclassification without claiming a
 startup manifest. Integration on the latest #104/#108 head first turned the propagation test red:
@@ -163,16 +196,22 @@ browser matrix before changing this report from `NO-GO`.
 
 ## Recommended merge order
 
-1. Independently mergeable after a fresh maintainer review: #101, #102, #105, #107, #109.
+1. Independently mergeable after a fresh maintainer review: #101, #102, #105, and #107. The
+   documentation-only #114 joins this candidate set only after the current report corrections are
+   committed and pushed and all three checks are green on that new head.
 2. After #102 merges, rebase #103 on current `main` and verify that both the packaged-lifecycle CI
    step and the Vite client-environment guard remain present; then require fresh three-check CI.
-3. First amend #104 for fixture-only `(itemSeq, kind)` binding, add RED-before/GREEN-after proof,
+3. Repair #109's inverse-order multi-candidate and long `change-me*` harness cases; mutation-check
+   under `sh` and `dash`, then require fresh CI.
+4. Amend #104 for fixture-only `(itemSeq, kind)` binding, add RED-before/GREEN-after proof,
    refresh the PR description, and require independent P0/P1 review plus fresh CI.
-4. Only then run the provenance/chat chain: #104 → #106 → #110 → #111 → #112. Retarget and require
-   fresh CI at each arrow.
-5. Error/fixture chain: after the amended #104, retarget #108 to `main`, require fresh CI and merge
+5. Continue the chat chain in dependency order: amend and verify #106 emergency canonicalization;
+   amend and verify #110 post-binding retry classification; rebase and independently verify #111;
+   only then amend #112's user-product zero-result ownership on the corrected #111 base. Run
+   #104 → #106 → #110 → #111 → #112, retargeting and requiring fresh CI at every arrow.
+6. Error/fixture chain: after the amended #104, retarget #108 to `main`, require fresh CI and merge
    it; then retarget #113, require fresh CI, and merge it.
-6. Build one clean RC only after those merges. Re-run the full DoD and chat/map browser matrix on
+7. Build one clean RC only after those merges. Re-run the full DoD and chat/map browser matrix on
    that SHA before considering the functional recovery complete.
 
 This ordering minimizes conflict and preserves a readable review history. It is not merge approval;
@@ -187,6 +226,10 @@ SJY051 retains the final decision for every PR.
   substitute for the repository's final safety-state copy review;
 - `R05-CAN-002` unverified-allergen output ownership;
 - #104 fixture-only DUR cross-product binding;
+- #106 model-emergency state/119 canonicalization;
+- #109 mutation-insensitive secret-hook harness cases;
+- #110 post-binding Pass 1 retry classification;
+- #112 user-product official-empty versus SA-08 suppression ownership;
 - `R01-CAN-001/005/008` command-policy authority, which the unpublished lexical parser did not close;
 - #95/#96 and the separately owned facility/profile/frontend P0 set;
 - Holiday XML fixture semantics and any approved startup manifest;

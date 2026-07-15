@@ -155,15 +155,18 @@ The following file sets do not overlap and may proceed concurrently from exact `
    contract and therefore requires its test doubles and Redis round-trip evidence to implement that
    same contract; the tests are not being changed merely to make production compile.
 
-**2026-07-16 KST result — `GO`.** Issue #92 now carries `distanceMeters: number | null`; its unit
+**2026-07-16 KST historical checkpoint — `GO` at the isolated-slice stage, superseded by
+§15–§16 for the affected published PRs.** Issue #92 now carries `distanceMeters: number | null`; its unit
 tests and a real-browser list/detail run prove null renders as `Distance unavailable` and never
 `0 m`. The Vite boundary passes 7/7 value-free positive-allowlist cases. The drug slice now carries
 typed rows with actual origin and retrieval time, uses mode/configuration/query-aware V2 cache
 routes, rejects unbound fallback payloads, and propagates public-source failures rather than
 silently skipping them. Its old-base focused matrix passed 61/61 and full backend suite 454/454;
 the first latest-main integration passed 64/64 focused and 515/515 full. Independent diff review
-found no P0/P1 issue, and mutations for query binding, origin, cache route, record ID, and oldest
-retrieval time all turned the owning tests red.
+found no P0/P1 issue at that checkpoint, and mutations for query binding, origin, cache route,
+record ID, and oldest retrieval time all turned the owning tests red. Later targeted audits found
+the fixture-only DUR product-binding P0 and the additional stack blockers recorded in §15–§16;
+therefore this historical GO is not current merge approval for #104 or its dependants.
 
 The protected-test approval remains part of the eventual PR/report rationale: real origin and
 retrieval-time values are now part of the permission/Easy/DUR client result contract, so the
@@ -176,7 +179,7 @@ RED with expected 1 / actual 3 before that change and passed GREEN afterwards; l
 canonical builder's cardinality fail-close or relabelling the record with the requested list ID was
 explicitly rejected because either would weaken provenance.
 
-### Wave B — latest-main RC integration — complete
+### Wave B — latest-main RC integration — historical checkpoint; published stack now blocked
 
 After each Wave A slice has independent GO evidence, integrate into one fresh `4358efec` RC in this
 order:
@@ -192,7 +195,8 @@ After every step run the owning focused matrix and `git diff --check`. After the
 backend tests, frontend tests, frontend build, and fixture-mode browser chat/map/detail smoke before
 starting another safety contract.
 
-**2026-07-16 KST result — `GO` for the integrated RC.** This monolithic local RC itself was never
+**2026-07-16 KST historical result — `GO` for that unpublished integrated RC, superseded by
+§15–§16 for current merge decisions.** This monolithic local RC itself was never
 committed or published; its scopes were later split into reviewable PR #101–#113. The ephemeral
 integration worktree at `/private/tmp/mermaid-rc-4358efe` was based on exact merged main
 `4358efec58d7e18c6bdc1615886185f76d606c08` and contains all six integration steps above. Final
@@ -215,16 +219,17 @@ The `/private/tmp` worktree and captures are local, non-durable QA evidence and 
 durable review evidence is the published PR head, its owning tests, and the verification summary in
 the PR description; do not treat the temporary path as an artifact retention guarantee.
 
-This closes functional recovery and RC integration only. It does not close the terminal DIAG or the
-remaining Wave C safety contracts.
+At that checkpoint this closed functional recovery and RC integration only. It did not close the
+terminal DIAG or the remaining Wave C safety contracts, and later audits in §15–§16 block the
+corresponding published stack until its bounded amendments are verified.
 
 ### Wave C — remaining safety P0, sequential
 
-1. **Complete on the RC:** canonicalize any emergency final state to a server-authored 119 response
-   with `drugs=[]`.
-2. **Complete on the RC:** remove model control over `answerId`, urgency, and safety UI intent on the
-   remaining legacy whole-answer path.
-3. **Complete on the RC:** SJY051 chose server-authored
+1. **Historical RC only; published #106 blocked by §16:** canonicalize any emergency final state to
+   a server-authored 119 response with `drugs=[]`.
+2. **Historical RC only; published #106 blocked by §16:** remove model control over `answerId`,
+   urgency, and safety UI intent on the remaining legacy whole-answer path.
+3. **Historical RC only; published #112 blocked by §16:** SJY051 chose server-authored
    empty answers. A true empty official context does not invoke whole-answer Pass 2 and returns a
    fixed unavailable/unknown answer with no active content. This explicitly modifies the earlier
    hybrid semantic-regex proposal because no bounded detector can soundly identify every unknown
@@ -254,14 +259,15 @@ W3-B evidence on published PR #112:
   sentinel; browser console errors/warnings were empty. Screenshot evidence is
   `/private/tmp/mermaid-w3b-empty-answer-final.png` and
   `/private/tmp/mermaid-w3b-search-unavailable-final.png`;
-- frontend 248/248 and the production build passed. An independent focused audit passed 89 tests and
-  found no actionable P0/P1;
+- frontend 248/248 and the production build passed. The initial independent focused audit passed 89
+  tests and found no actionable P0/P1 at that checkpoint;
 - tests that formerly asserted model-owned empty summary/action/validator behavior were changed only
   with SJY051's explicit contract approval. Their replacements assert provider zero calls, complete
   server DTO equality, empty/unavailable distinction, JSON/SSE equality, and SA-08 precedence;
-- no new P0/P1 issue was found. W3-B is `GO` as ready PR #112 on exact head
-  `34d9a0181a9435871c8f03316ac7c30e008d4563`, stacked on #111. It is not merged; final behavioral
-  acceptance remains SJY051's decision.
+- the initial checkpoint therefore marked W3-B `GO` as ready PR #112 on exact head
+  `34d9a0181a9435871c8f03316ac7c30e008d4563`, stacked on #111. That historical decision is
+  **superseded by §16**: a later targeted audit found that a user-product official zero result is
+  misclassified as allergy suppression, so #112 is currently blocked.
 
 Those two screenshot paths are local, non-durable QA captures. PR #112's tests, exact head, and PR
 description are the durable evidence; the images are not committed artifacts.
@@ -289,6 +295,10 @@ actions, disclaimer, and the empty medicine list are all rebuilt by the server. 
 rule independently closes future paths that might bypass the controller canonicalization. SJY051
 explicitly approved the necessary production/test scope and requested that this reasoning accompany
 the eventual PR and release report.
+
+This W3-A evidence belongs to the unpublished isolated RC. Published PR #106 contains the role
+boundary and validator backstop but not the controller canonicalization proven above; §16 therefore
+blocks #106 until that bounded server-emergency amendment is restored and independently verified.
 
 ### Wave D — frontend and bounded P1
 
@@ -578,12 +588,15 @@ tests do not close a P0 unless the root confirms the actual trust or provenance 
 - The modification must always be disclosed in the PR and reports. Reason: a sound arbitrary
   medicine-name detector is unavailable for empty context, and paying for model output that is then
   discarded is both poor UX and avoidable operating cost.
-- Verification complete in PR #112: four RED-before contract failures, focused GREEN, independent
-  mutation proof, backend 537/537, frontend 248/248 plus build, and real Chrome for both usable-empty
-  and Pass-1-unavailable. The fake provider received no whole-answer call.
-- The W3-A pre-model emergency response and independent emergency-plus-drugs validator remain. The
-  retained model-emergency canonicalization is now a dormant backstop below the exhaustive
-  server-authored boundaries and is removed only with the later legacy cleanup.
+- Initial verification in PR #112 covered four RED-before contract failures, focused GREEN,
+  independent mutation proof, backend 537/537, frontend 248/248 plus build, and real Chrome for both
+  usable-empty and Pass-1-unavailable. The fake provider received no whole-answer call. A later
+  targeted audit found the distinct user-product official-zero misclassification in §16, so this
+  evidence does not make #112 merge-ready.
+- Published #106 retains the pre-model emergency response and independent emergency-plus-drugs
+  validator, but not the controller canonicalization that existed only on the historical RC. It is
+  therefore blocked by §16 until model emergency output is again replaced with the server-authored
+  119 state.
 
 ### W3-C — emergency and allergy expression review packet
 
@@ -688,3 +701,21 @@ This overrides earlier merge-ready language for #104. The PR and both dependent 
 until SJY051 explicitly authorizes protected fixture/README changes and #104 proves
 `(itemSeq, kind)` binding, correct zero-row fixture behavior, cache invalidation, mutation-sensitive
 tests, full verification, and independent P0/P1 review. No fixture was modified during this audit.
+
+## 16. Second late audit override — #106, #109, #110, and #112
+
+Targeted final-state and mutation audits supersede the earlier broad green review for four more PRs:
+
+- #106 is blocked because emergency+drug rejection falls through the generic fallback, removing the
+  emergency urgency and 119 action instead of returning the server-authored emergency state.
+- #109 is blocked because the current nine-case harness stays green when leading-placeholder
+  multi-candidate scanning or the `change-me*` branch is broken.
+- #110 is blocked because raw product-array usability is decided before user-authored product
+  binding, so a model-only product can suppress the bounded retry and become usable empty.
+- #112 is blocked because a completed zero-result lookup for a user-named product is described as
+  suppression of an AI-selected medicine.
+
+These findings do not invalidate unrelated successful assertions; they show that the earlier test
+sets did not cover the final output and mutation boundaries above. No source or protected test was
+changed during this audit. Each PR requires an approved bounded amendment, red-before/green-after
+evidence, full verification, independent P0/P1 review, and fresh CI before its merge hold is lifted.
