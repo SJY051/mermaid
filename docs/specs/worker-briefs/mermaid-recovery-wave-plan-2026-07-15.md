@@ -1,6 +1,6 @@
 ---
 title: mermAid recovery, PR review, and safety-hardening wave plan
-status: active — PR #93/#87/#99/#100 merged; remediation PR #101–#113 published; release NO-GO
+status: active — PR #93/#87/#99–#103/#107 merged; remediation stack published; release NO-GO
 created: 2026-07-15 KST
 owner: SJY051 (윤서진)
 root_orchestrator: Codex / GPT-5.6 Sol xhigh
@@ -15,8 +15,9 @@ The root orchestrator plans the work, dispatches bounded workers, verifies every
 the real repository, and returns evidence-backed `GO`, `NO-GO`, `WAITING`, or `UNKNOWN` decisions.
 SJY051 owns the final decision. No worker or orchestrator pushes, merges, opens or approves a PR, or
 posts an external comment without SJY051's explicit authorization. SJY051 later granted explicit
-overnight authorization to commit, push, and open separated remediation PRs; that authorization does
-not include merging those new PRs or making the pending clinical decisions.
+overnight authorization to commit, push, open separated remediation PRs, and merge independently
+verified safe PRs while recording the rationale. That authorization does not waive a P0/P1 hold or
+make the pending clinical decisions.
 
 The active global goal now covers, in order:
 
@@ -91,9 +92,11 @@ it. The root owns all fan-out.
   `origin/main` and contained the user-owned untracked diagnostic briefs
   `A2-wireframe-parity.md` and `DIAG-chat-map-failures.md`.
 - After the facility merges, `main` was `4358efec58d7e18c6bdc1615886185f76d606c08`.
-  PR #99 and the canonical security archive PR #100 later advanced the current remote baseline to
-  exact `main` `3d586695c46815998fa073e4e9d63d51de27fbc5`. New writers must start from that SHA, or from an
-  explicitly recorded remediation-stack head whose base chain leads to it.
+  PR #99 and the canonical security archive PR #100 later produced the historical reconciliation
+  baseline `3d586695c46815998fa073e4e9d63d51de27fbc5`. Merged PRs #101/#102/#103/#107 advanced the
+  current remote baseline to `aef030df88633db2644ccc2c238ceb3d92e7d871`. New independent writers
+  must start from current `origin/main`, or from an explicitly recorded remediation-stack head whose
+  dependency chain and merge-base are stated.
 - Every writer gets an isolated worktree and branch based on an exact recorded SHA.
 - Read-only workers may inspect PR refs or evidence in isolated worktrees without changing them.
 - Run no more than three write-heavy workers at once.
@@ -617,8 +620,9 @@ tests do not close a P0 unless the root confirms the actual trust or provenance 
 - Recommended worker: **Terra xhigh**.
 - Goal: add MDC request ID to useful logs while removing ingredient/product values and precise
   coordinates from persistent logging.
-- Published slices: #105 adds request-ID log correlation, #107 removes health search-term values,
-  and #108 gives malformed JSON a value-free handler. Coordinate and other-lane sinks remain open.
+- Published slices: merged #107 removes health search-term values; #108 gives malformed JSON a
+  value-free handler. #105's request-ID correlation is P0-blocked because arbitrary client header
+  text would become global MDC log content. Coordinate and other-lane sinks remain open.
 
 ### W4-B — fixture integrity error semantics
 
@@ -657,9 +661,10 @@ Do not launch another exhaustive Ultra swarm merely to duplicate the canonical D
 **2026-07-16 KST result — known-finding reconciliation complete; release `NO-GO`.** The final DIAG
 semantically classified all 188 canonical candidates, including 33 reportable P0 rows, but Round 6
 receipts were not physically adopted into every ledger, attack paths were not materialized, and
-Round 7 did not run (`saturation_proven=false`). All 33 reportable P0 rows survive on current
-`main@3d586695`; thirteen have unmerged candidate fixes, four are partial, four await human
-decisions, and twelve lack a complete published candidate. The full evidence and exact PR-head
+Round 7 did not run (`saturation_proven=false`). All 33 reportable P0 rows survived at the original
+`main@3d586695` crosswalk; after merged #107, 32 survive on current `main@aef030df`, with twelve
+unmerged candidate fixes, four partial rows, four human decisions, and twelve rows lacking a
+complete published candidate. The full evidence and exact PR-head
 crosswalk are in
 `docs/specs/worker-briefs/DEV-603-final-diag-reconciliation-2026-07-16.md`. No clean corrected RC
 exists while #104/#106 remain P0-blocked and #109/#110/#112 remain P1-blocked.
@@ -707,10 +712,11 @@ the requested `itemSeq` and attaches the four non-empty captured fixture rows to
 `202005623`, even though those rows belong to four different products. The older parser/assembly test
 documents the mismatch and treats it as expected fixture behavior.
 
-This overrides earlier merge-ready language for #104. The PR and both dependent stacks are blocked
-until SJY051 explicitly authorizes protected fixture/README changes and #104 proves
-`(itemSeq, kind)` binding, correct zero-row fixture behavior, cache invalidation, mutation-sensitive
-tests, full verification, and independent P0/P1 review. No fixture was modified during this audit.
+This overrides earlier merge-ready language for #104. SJY051 subsequently authorized the protected
+fixture/README amendment scope, with the reason required in the PR/report. The PR and both dependent
+stacks remain blocked until #104 proves `(itemSeq, kind)` binding, correct zero-row fixture behavior,
+cache invalidation, mutation-sensitive tests, full verification, and independent P0/P1 review. No
+fixture was modified during the audit that found the issue.
 
 ## 16. Second late audit override — #106, #109, #110, and #112
 
@@ -729,3 +735,16 @@ These findings do not invalidate unrelated successful assertions; they show that
 sets did not cover the final output and mutation boundaries above. No source or protected test was
 changed during this audit. Each PR requires an approved bounded amendment, red-before/green-after
 evidence, full verification, independent P0/P1 review, and fresh CI before its merge hold is lifted.
+
+## 17. Third late audit override — #105 request-ID privacy hold
+
+PR #105 adds the request-ID MDC key to every log line, but the current `RequestIdFilter` accepts any
+nonblank client `X-Request-Id` up to 100 characters verbatim. Exact-head execution of the existing
+filter-backed request test logged the supplied value as `[requestId=trace-me-123]`. A client can
+therefore substitute symptom, allergy, coordinate, or log-shaping text and make it persistent log
+content. The existing logging test manually injects MDC and does not cover this boundary.
+
+This overrides earlier merge-ready language for #105. It remains open until the server accepts only
+an approved opaque ID shape or mints a UUID, hostile values are replaced, a real
+filter-to-MDC-to-appender test is mutation-sensitive, the full DoD passes, and independent P0/P1
+review plus fresh CI are green. No #105 source or test was modified during this audit.

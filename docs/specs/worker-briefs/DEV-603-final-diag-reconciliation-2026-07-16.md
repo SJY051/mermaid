@@ -3,7 +3,7 @@ title: DEV-603 final DIAG reconciliation
 status: decision evidence — release NO-GO
 created: 2026-07-16 KST
 owner: SJY051 (윤서진)
-main: 3d586695c46815998fa073e4e9d63d51de27fbc5
+main: aef030df88633db2644ccc2c238ceb3d92e7d871
 ---
 
 # DEV-603 final DIAG reconciliation
@@ -16,11 +16,11 @@ candidates and semantic attack-path review finished for all 123 eligible candida
 adoption into every canonical ledger, final attack-path materialization, and Round 7 saturation did
 not finish before the deadline.
 
-All 33 `reportable / P0` findings still survive on current `main`. Thirteen have an unmerged
-candidate fix, four are only partially addressed, four require an explicit human clinical/product
-decision, and twelve have no complete published candidate. An unmerged candidate is not a closed
-finding. The current remediation stack also has later P0/P1 merge blockers, so there is no clean
-release-candidate SHA to approve.
+At the original reconciliation baseline, all 33 `reportable / P0` findings survived. PR #107 is now
+merged and closes `R01-CAN-069`, so 32 survive on current `main`: twelve have an unmerged candidate
+fix, four are only partially addressed, four require an explicit human clinical/product decision,
+and twelve have no complete published candidate. The current remediation stack also has later
+P0/P1 merge blockers, so there is no clean release-candidate SHA to approve.
 
 **Release decision: NO-GO.** This document reconciles known findings only. It does not claim that no
 additional P0 exists.
@@ -35,7 +35,8 @@ additional P0 exists.
 | Canonical inventory | 188 rows, SHA-256 `274fd61156b7ae3ebeadb1c905258fbe001a5f81380891b9d2491b44652477b8` |
 | Semantic authority | SHA-256 `93ef34ade615c54c6069f6c53115576b0090c8574b786f5ebccb63b323605b5a` |
 | Durable repository archive | `docs/security/DEV-603-chat-map-review-2026-07-16/`; its report uses rewritten relative links and therefore has SHA-256 `2bf0d1f787962854c8b3210773c13ede84f52e7d77fde22a048b63375024e572` |
-| Current code baseline | `origin/main@3d586695c46815998fa073e4e9d63d51de27fbc5` |
+| Original crosswalk baseline | `origin/main@3d586695c46815998fa073e4e9d63d51de27fbc5` |
+| Current code baseline | `origin/main@aef030df88633db2644ccc2c238ceb3d92e7d871` after #101/#102/#103/#107 |
 
 The repository archive checksum manifest verifies every archived file. The archive report is the
 durable reading copy; the original scan report remains the byte authority. The link rewrite does
@@ -119,7 +120,7 @@ but #104 is still unsafe to merge.
 | `R01-CAN-005` | Git global options and shell semantics bypass staging/push authority checks | requires a new structural authority design | `open` |
 | `R01-CAN-008` | `--no-verify` denial depends on fragile literal Git parsing | #109 is a pre-commit-content guard, not command authority | `open` |
 | `R01-CAN-038` | refreshed allergy catalog silently intersects away a stored declaration | FE-1 safety UX decision and implementation | `open` |
-| `R01-CAN-069` | exact health search terms remain in INFO logs | #107 changes logs to count-only; #105 adds request correlation | `candidate_fix_unmerged` |
+| `R01-CAN-069` | merged #107 removes exact health search terms from INFO logs; count/timing events remain | #107 merged as `aef030df`; #105 request correlation is separately P0-blocked | `fixed_on_main` |
 | `R01-CAN-125` | consent withdrawal and allergy add are concurrent non-serialized transactions | profile locking/database invariant decision | `open` |
 | `R01-CAN-126` | stale country update can restore withdrawn consent | profile versioning or intent-specific update decision | `open` |
 | `R01-CAN-127` | V2 sets consent false but neither removes nor read-gates legacy allergy rows | migration/data decision; production legacy-row presence remains operational evidence to gather | `open` |
@@ -132,16 +133,25 @@ but #104 is still unsafe to merge.
 |---|---|---|
 | #104 `0e295821c1295b73a4a6bde1047fce937ba6b334` | `R01-CAN-105/109/110/113`, `R05-CAN-023` | P0 fixture-only DUR cross-product binding |
 | #106 `00a524949617f21b597fc3c22c2a3e3b44a6708f` | `R01-CAN-027`; partial `R01-CAN-020` | P0 generic fallback removes canonical emergency/119 state |
-| #107 `96270e4a7589d04f4501d510cd875998c761f210` | `R01-CAN-069` | independent candidate; fresh maintainer review/CI before merge |
+| #107 `96270e4a7589d04f4501d510cd875998c761f210` | `R01-CAN-069` | merged as `aef030df88633db2644ccc2c238ceb3d92e7d871` |
 | #108 `f16cdd40ff3db6b5914b787ff415199fe9ea771f` | `R06-CAN-003` | stacked on #104; extract/retarget only after dependency decision |
 | #109 `57306f077351e813da9f5e1245f1eb961ae8ec62` | production candidates for `R04-CAN-001/002` | P1 mutation-insensitive inverse-order and long-placeholder tests |
 | #110 `b7b48e464ea90573b74c286f0c8aa550fd187160` | enables the server-answer chain | P1 usability is decided before user-product authority binding |
 | #111 `408bfc083700cdc0cc140578f2c45119328391e6` | `R01-CAN-019`; non-empty legs of `018/021/034` | depends on corrected #104/#106/#110; currently amplifies #104’s wrong fixture warning |
 | #112 `34d9a0181a9435871c8f03316ac7c30e008d4563` | remaining reachable legs of `018/021/034` and `R02-CAN-003` | P1 user-product official-zero is misclassified as SA-08 suppression |
 
-PRs #101, #102, #105, and #107 remain independently reviewable candidates. #103 follows #102 and
-must preserve both CI contracts. These mechanically independent PRs do not make the full release
-safe, and GitHub `CLEAN/MERGEABLE` is not a semantic approval.
+PRs #101, #102, #103, and #107 were independently reviewed and merged. PR #105 is not in the
+canonical 33-row table, but its change would persist arbitrary client-controlled request-ID text on
+every log line; it is therefore P0-blocked despite green CI and mechanical mergeability. These
+independent merges do not make the full release safe.
+
+The #105 hold was confirmed on exact head `d5502382c6ce0cb7d5a8a8ff4e937fb091d493d5`.
+`RequestIdFilter` accepts any nonblank `X-Request-Id` of at most 100 characters and places it in
+`MDC[requestId]`; #105 adds `%X{requestId:-}` to the global log pattern. Re-running the existing
+filter-backed `ErrorContractTest.honoursSuppliedRequestId` produced
+`[requestId=trace-me-123]` on the validation warning. The current logging test injects the MDC map
+directly, so it neither rejects health-text IDs nor detects a filter/log-key mismatch. This is a new
+PR-diff P0, not a retroactive change to the DIAG 33-row count.
 
 ## No current release-candidate SHA
 
@@ -153,7 +163,8 @@ SHA can be named or release-tested.
 
 ## Required decisions and resume order
 
-1. SJY051 decides whether to authorize protected fixture and fixture-README changes for #104.
+1. Amend #105 so only opaque IDs can reach MDC and prove the real filter-to-appender path rejects
+   health text and log-shaping values.
 2. Amend #104 with exact `(itemSeq, kind)` fixture binding, product-specific captured zero responses,
    fail-closed unknown keys, all-row binding, and a cache namespace bump; prove each mutation red.
 3. Amend #106 to replace any model emergency result with a server-authored emergency answer,
@@ -179,8 +190,8 @@ from passing application tests.
 
 - **Can the final DIAG report be used now?** Yes, for the 188 known candidates and their semantic
   dispositions, with the receipt and saturation limitations stated above.
-- **Are the 33 reportable P0 findings fixed on current `main`?** No. All 33 survive.
-- **Do published candidate fixes exist?** Yes, for 13; four more are only partial.
+- **Are the 33 reportable P0 findings fixed on current `main`?** No. #107 closes one; 32 survive.
+- **Do published candidate fixes exist?** Yes, for twelve remaining rows; four more are only partial.
 - **Can the current chat stack merge as published?** No. #104 and #106 have P0 blockers; #110 and
   #112 have P1 blockers; #111 depends on them.
 - **Can the current release be approved?** No. There is no clean corrected RC, human decisions and

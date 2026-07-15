@@ -3,17 +3,19 @@ title: DEV-603 recovery decision report
 status: active decision packet — release NO-GO
 created: 2026-07-16 KST
 owner: SJY051 (윤서진)
-baseline: 3d586695c46815998fa073e4e9d63d51de27fbc5
+baseline: aef030df88633db2644ccc2c238ceb3d92e7d871
 ---
 
 # DEV-603 recovery decision report
 
 ## Decision
 
-The repository is **not release-ready yet**. The historical chat/map failures have bounded fixes and
-the published remediation PRs are independently reviewable, but they are still unmerged. Clinical
-emergency/allergy thresholds remain deliberately unimplemented pending human approval, #95/#96
-remain with their existing owner, and the canonical security report does not claim saturation.
+The repository is **not release-ready yet**. PRs #101, #102, #103, and #107 are now merged, closing
+their independently verified distance, runtime-lifecycle, Vite-boundary, and health-term logging
+slices. The chat recovery stack remains blocked, PR #105 has a newly confirmed request-ID privacy
+P0, clinical emergency/allergy thresholds remain deliberately unimplemented pending human
+approval, #95/#96 remain with their existing owner, and the canonical security report does not
+claim saturation.
 
 This packet is the primary maintainer decision artifact. The wave plan records execution history;
 the W3-C packet records the four human clinical decisions and does not authorize implementation.
@@ -23,31 +25,33 @@ disposition, unmerged candidate fixes, physical receipt adoption, and saturation
 
 ## Current baseline and authority
 
-- `main`: `3d586695c46815998fa073e4e9d63d51de27fbc5` after merged PR #99 and #100.
+- `main`: `aef030df88633db2644ccc2c238ceb3d92e7d871` after merged PRs #101, #102, #103,
+  and #107.
 - Canonical known-finding inventory:
   `docs/security/DEV-603-chat-map-review-2026-07-16/report.md`.
 - The report contains 188 canonical findings, but Round 7 was not run and
   `saturation_proven=false`. This packet therefore reconciles known findings only; it does not claim
   that no additional P0 exists.
-- The final reconciliation found that all 33 `reportable / P0` rows survive on current `main`.
-  Thirteen have unmerged candidate fixes, four are partial, four require a human decision, and
-  twelve have no complete published candidate. Round 6 semantic validation finished, but its
-  central receipts and attack-path materialization were not physically adopted into every ledger.
-- SJY051 explicitly authorized overnight commit/push/ready-PR publication and required the reason
-  for every behavior/test change to be stated. That authorization did not include merging the new
-  PRs or deciding clinical thresholds.
+- The final reconciliation originally found all 33 `reportable / P0` rows surviving on
+  `main@3d586695`. Merged PR #107 closes `R01-CAN-069`; 32 now survive, twelve have unmerged
+  candidate fixes, four are partial, four require a human decision, and twelve have no complete
+  published candidate. Round 6 semantic validation finished, but its central receipts and
+  attack-path materialization were not physically adopted into every ledger.
+- SJY051 explicitly authorized overnight commit/push/ready-PR publication and later authorized
+  safe, independently verified merges, while requiring the reason for every behavior/test change
+  to be stated. That authorization does not decide clinical thresholds or waive P0/P1 holds.
 
 ## Published remediation PRs
 
 | PR | Scope | Dependency | Current recommendation |
 |---|---|---|---|
-| #101 | render nullable facility distance honestly | none | merge after final green check |
-| #102 | run demo backend from an owned packaged artifact | none | merge after final green check |
-| #103 | positive allowlist for browser-visible `VITE_*` values | #102 integration order | rebase after #102 and preserve both CI contracts |
+| #101 | render nullable facility distance honestly | none | **MERGED** as `b32d3092` |
+| #102 | run demo backend from an owned packaged artifact | none | **MERGED** as `526a4c69` |
+| #103 | positive allowlist for browser-visible `VITE_*` values | #102 integration order | **MERGED** as `f71b073b`; both CI contracts preserved |
 | #104 | bind drug query, record identity, origin, timestamp, and cache route | first chat-stack base | **BLOCKED:** amend fixture-only DUR product binding first |
-| #105 | put request ID in each server log line | none | merge after final green check |
+| #105 | put request ID in each server log line | none | **BLOCKED:** reject client-controlled health text before MDC logging |
 | #106 | accept only client `user` roles; reject emergency answers carrying drugs | #104 | **BLOCKED:** preserve server emergency state after rejection |
-| #107 | remove health search-term values from logs | none | merge after final green check |
+| #107 | remove health search-term values from logs | none | **MERGED** as `aef030df` |
 | #108 | handle malformed JSON without logging request bodies or full exceptions | #104 | merge after #104, then retarget to `main` |
 | #109 | close nested-env and placeholder secret-hook bypasses | none | **BLOCKED:** repair two mutation-insensitive harness cases |
 | #110 | bounded Pass 1 structured-output retry and usable/unavailable classification | #106 | **BLOCKED:** bind user product authority before retry decision |
@@ -55,16 +59,30 @@ disposition, unmerged candidate fixes, physical receipt adoption, and saturation
 | #112 | distinct server-authored empty, Pass-1-unavailable, and SA-08 terminal states | #111 | **BLOCKED:** distinguish user-product zero result from SA-08 suppression |
 | #113 | distinguish local JSON fixture integrity failures from government outages | #108 | merge after #108, then retarget to `main` |
 
-At the final refresh on 2026-07-16 KST, every PR #101–#113 was open, ready, `CLEAN`, and
-`MERGEABLE`. PR #101–#109 had three successful GitHub checks on their current head SHA. PR
-#110–#113 had no check rollup while based on another feature branch; the workflow only runs for a
-pull request targeting `main`. The exact stacked heads passed their local DoD. After each prerequisite
-merges, retarget the next PR to `main` and require fresh backend/frontend/secret checks before merge.
-No new remediation PR is merged by the orchestrator.
+On 2026-07-16 KST, exact-head review, local verification, and green GitHub CI supported sequential
+squash merges of #101, #102, #103, and #107. Current `main` is `aef030df`. PR #105 remains open and
+mechanically mergeable, but its new P0 below overrides its green CI. PR #110–#113 still have no
+target-`main` check rollup while based on another feature branch; after each prerequisite merges,
+retarget the next PR to `main` and require fresh backend/frontend/secret checks before merge.
 
 GitHub's mechanical `MERGEABLE` state is not human merge approval. A late product-binding audit
 found the P0 below in #104 after that status refresh, so #104 and both stacks that depend on it are
 currently blocked even though GitHub still reports them as clean.
+
+## Late P0 — client-controlled request IDs become persistent log content
+
+PR #105 adds `%X{requestId:-}` to every server log line, but `RequestIdFilter` accepts any nonblank
+client `X-Request-Id` up to 100 characters verbatim. The exact-head integration test proved the
+filter-to-log path: a supplied `trace-me-123` appeared as `[requestId=trace-me-123]` on the logged
+validation warning. Because the filter does not require an opaque identifier, a client can instead
+put a symptom, allergy, coordinate, newline-like log-shaping text, or other personal data in the
+header and make it persistent MDC content.
+
+This is a new diff-introduced P0 under the transcript/PII logging boundary and is not one of the
+DIAG report's 33 current-main P0 rows. Do not merge #105 until the server accepts only an approved
+opaque trace-ID shape or mints a UUID, and an actual filter-to-MDC-to-appender test proves that
+health text and log-shaping values are replaced. The current `LoggingConfigTest` manually injects
+the MDC key and stays green if the filter key changes, so it is not sufficient integration evidence.
 
 ## Late P0 — fixture-only DUR cross-product binding
 
@@ -78,8 +96,9 @@ This is release-blocking under server-owned provenance: labelling the rows `fixt
 warning about another medicine true for the displayed medicine. Do not merge #104 or its dependent
 PRs until a separately approved fixture change binds `(itemSeq, kind)`, represents the confirmed
 zero-row Tylenol responses, prevents stale cache reuse, and turns the current cross-product test red.
-Protected fixture and README edits were not made without SJY051's explicit approval of this newly
-discovered scope.
+SJY051 subsequently approved the protected fixture/README amendment scope with the condition that
+the PR and report explicitly explain the change. The implementation and RED/GREEN proof remain to
+be completed; approval alone does not lift the hold.
 
 ## Late stack audit — additional merge holds
 
@@ -109,7 +128,7 @@ contracts.
   the fixed official-empty state.
 
 No production, test, fixture, or hook source was changed for these newly discovered scopes. Their PR
-descriptions and this decision packet record the hold pending SJY051 approval.
+descriptions and this decision packet record the hold pending bounded amendment and re-verification.
 
 ## Why chat recovery is a stack
 
@@ -203,11 +222,11 @@ browser matrix before changing this report from `NO-GO`.
 
 ## Recommended merge order
 
-1. Independently mergeable after a fresh maintainer review: #101, #102, #105, and #107. The
-   documentation-only #114 joins this candidate set only after the current report corrections are
-   committed and pushed and all three checks are green on that new head.
-2. After #102 merges, rebase #103 on current `main` and verify that both the packaged-lifecycle CI
-   step and the Vite client-environment guard remain present; then require fresh three-check CI.
+1. Completed: #101 → #102 → #103 → #107 were independently reviewed and squash-merged. The
+   documentation-only #114 follows only after these report corrections are committed, pushed, and
+   all three checks are green on its new head.
+2. Amend #105 so only opaque request IDs can reach MDC, add a real filter-to-appender integration
+   test plus hostile health-text/log-shape cases, then require independent review and fresh CI.
 3. Repair #109's inverse-order multi-candidate and long `change-me*` harness cases; mutation-check
    under `sh` and `dash`, then require fresh CI.
 4. Amend #104 for fixture-only `(itemSeq, kind)` binding, add RED-before/GREEN-after proof,
@@ -232,6 +251,7 @@ SJY051 retains the final decision for every PR.
   SA-08 English safety copy. SJY051 approved the ownership/behavior contract, but that is not a
   substitute for the repository's final safety-state copy review;
 - `R05-CAN-002` unverified-allergen output ownership;
+- #105 client-controlled request-ID log injection;
 - #104 fixture-only DUR cross-product binding;
 - #106 model-emergency state/119 canonicalization;
 - #109 mutation-insensitive secret-hook harness cases;
