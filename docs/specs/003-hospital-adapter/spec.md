@@ -67,9 +67,10 @@ lookup supplies a `ykiho`, and a per-hospital detail lookup supplies operating h
   identifies a holiday, provenance, bounded detail concurrency, page caps, public result limits,
   emergency flags, and the service-level result.
 - **FR-011 (DEV-203e):** `GET /facilities` MUST accept `limit` from 1 through 50 (default 50) and
-  return the nearest requested number of results. For hospitals, the same limit bounds detail fetches
-  before `open_now` filtering; this protects the HIRA quota and means `open_now=true` is not an
-  exhaustive search beyond those nearest candidates.
+  return the nearest requested number of results. Hospital `open_now=false` bounds detail fetches by
+  that limit. Hospital `open_now=true` instead checks the nearest eligible 100 candidates before
+  returning the nearest requested open results; the cap protects the HIRA detail quota and latency.
+  See spec 005 for the shared bounded-open-now policy.
 - **FR-012 (DEV-203e):** The default acute-care hospital search MUST exclude only HIRA rows whose
   종별코드 `clCd` is `28` (요양병원), before detail fan-out. It MUST match the stable code, not the
   display label `clCdNm`, which HIRA can re-word without notice. Other and unknown codes remain

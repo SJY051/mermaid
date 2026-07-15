@@ -523,6 +523,73 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
+    @DisplayName("open-now hospitals inspect 100 candidates so a farther open hospital is not hidden")
+    void hospitalOpenNowLooksPastReturnedLimitWithinCandidateCap() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
+        var loader = new FixtureLoader(new ObjectMapper());
+        List<HospitalApiClient.RawHospital> many =
+                IntStream.rangeClosed(0, 120)
+                        .mapToObj(
+                                i ->
+                                        new HospitalApiClient.RawHospital(
+                                                "YKIHO-" + i,
+                                                i == 0 ? "Nursing hospital" : "Hospital " + i,
+                                                "Seoul",
+                                                null,
+                                                null,
+                                                i == 0 ? "28" : "11",
+                                                LAT,
+                                                LNG,
+                                                10.0 + i))
+                        .toList();
+        var listClient =
+                new HospitalApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public HospitalBatch findNear(double lat, double lng, int radiusMeters) {
+                        return new HospitalBatch(many, SourceRef.DataMode.LIVE);
+                    }
+                };
+        var detailCalls = new AtomicInteger();
+        var detailClient =
+                new HospitalDetailApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public HospitalDetailBatch findByYkiho(String ykiho) {
+                        detailCalls.incrementAndGet();
+                        boolean fartherCandidateIsOpen = "YKIHO-100".equals(ykiho);
+                        return new HospitalDetailBatch(
+                                new HospitalDetail(
+                                        ykiho,
+                                        Map.of(
+                                                5,
+                                                fartherCandidateIsOpen
+                                                        ? List.of("0830", "1700")
+                                                        : List.of("0830", "1300")),
+                                        Optional.empty(),
+                                        false,
+                                        false,
+                                        null,
+                                        null),
+                                SourceRef.DataMode.LIVE);
+                    }
+                };
+        var service =
+                new FacilityService(
+                        new PharmacyApiClient(null, props, dataMode, loader),
+                        listClient,
+                        detailClient,
+                        new HolidayCalendar(),
+                        FRIDAY_AFTERNOON);
+
+        List<Facility> found = service.findNearby(LAT, LNG, 2000, true, FacilityType.HOSPITAL, 10);
+
+        // Removing the wider candidate set makes this empty; removing its cap calls all 120 acute rows.
+        assertThat(found).extracting(Facility::nameKo).containsExactly("Hospital 100");
+        assertThat(detailCalls).hasValue(100);
+    }
+
+    @Test
     @DisplayName("HIRA's holiday-closed flag closes a hospital only when the calendar identifies a holiday")
     void hospitalHonoursHolidayClosure() {
         var props =
