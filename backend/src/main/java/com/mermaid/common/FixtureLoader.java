@@ -28,8 +28,8 @@ public class FixtureLoader {
 
     /**
      * @param name file name under {@code /fixtures/}, e.g. {@code "pharmacy.json"}
-     * @throws PublicApiException when the fixture is missing — a broken demo must fail loudly, not
-     *     quietly return an empty list that looks like "no pharmacies nearby"
+     * @throws FixtureIntegrityException when the fixture is missing or corrupt — a broken artifact
+     *     must fail loudly, not quietly return an empty list or masquerade as a government outage
      */
     public JsonNode load(String name) {
         return cache.computeIfAbsent(name, this::read);
@@ -39,14 +39,25 @@ public class FixtureLoader {
         String path = "/fixtures/" + name;
         try (InputStream in = FixtureLoader.class.getResourceAsStream(path)) {
             if (in == null) {
-                throw new PublicApiException("fixture not found on classpath: " + path);
+                throw FixtureIntegrityException.missing();
+            }
+            JsonNode fixture = objectMapper.readTree(in);
+            if (fixture == null || fixture.isNull() || fixture.isMissingNode()) {
+                throw FixtureIntegrityException.corrupt(null);
+            }
+            // Every production JSON fixture is a captured successful data.go.kr envelope. Validate
+            // that boundary here so a syntactically valid but damaged artifact cannot later become
+            // a PublicApiException and masquerade as a live government outage.
+            PublicApiResponse response = PublicApiResponse.of(fixture).requireOk();
+            if (!response.hasBody()) {
+                throw FixtureIntegrityException.corrupt(null);
             }
             log.debug("loaded fixture {}", path);
-            return objectMapper.readTree(in);
-        } catch (PublicApiException e) {
+            return fixture;
+        } catch (FixtureIntegrityException e) {
             throw e;
         } catch (Exception e) {
-            throw new PublicApiException("could not read fixture " + path, e);
+            throw FixtureIntegrityException.corrupt(e);
         }
     }
 }
