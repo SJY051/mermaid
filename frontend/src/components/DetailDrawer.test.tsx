@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DetailDrawer } from './DetailDrawer'
@@ -41,6 +41,12 @@ describe('DetailDrawer', () => {
         <DetailDrawer facility={facility(overrides)} onClose={onClose} />
       </FavoritesProvider>,
     )
+  }
+
+  function finishAnimation(element: HTMLElement) {
+    // jsdom has no AnimationEvent, so React registers its animation plugin on the WebKit fallback.
+    // Dispatching that fallback reaches the same onAnimationEnd handler as animationend in a browser.
+    fireEvent(element, new Event('webkitAnimationEnd', { bubbles: true }))
   }
 
   it('shows the selected facility name, type, address, distance, and source', () => {
@@ -120,25 +126,51 @@ describe('DetailDrawer', () => {
     expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('×')
   })
 
-  it('closes through an accessible close button', async () => {
+  it('plays the sheet exit motion before closing through the accessible close button', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderDrawer({}, onClose)
 
     await user.click(screen.getByRole('button', { name: 'Close facility details' }))
 
+    expect(screen.getByRole('dialog')).toHaveClass('appearance-sheet-exit')
+    expect(onClose).not.toHaveBeenCalled()
+
+    finishAnimation(screen.getByRole('dialog'))
+
     expect(onClose).toHaveBeenCalledOnce()
   })
 
-  it('closes when the dimmed map backdrop is clicked, but not when the card is clicked', async () => {
+  it('plays the sheet exit motion when the dimmed backdrop is clicked, but not when the card is clicked', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderDrawer({}, onClose)
 
     await user.click(screen.getByRole('dialog'))
     expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog')).not.toHaveClass('appearance-sheet-exit')
 
     await user.click(screen.getByTestId('detail-drawer-backdrop'))
+    expect(screen.getByRole('dialog')).toHaveClass('appearance-sheet-exit')
+    expect(onClose).not.toHaveBeenCalled()
+
+    finishAnimation(screen.getByRole('dialog'))
+
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('ignores child animation completion while the sheet is exiting', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    renderDrawer({}, onClose)
+
+    await user.click(screen.getByRole('button', { name: 'Close facility details' }))
+    finishAnimation(screen.getByRole('heading', { name: '가나약국' }))
+
+    expect(onClose).not.toHaveBeenCalled()
+
+    finishAnimation(screen.getByRole('dialog'))
+
     expect(onClose).toHaveBeenCalledOnce()
   })
 
@@ -167,14 +199,44 @@ describe('DetailDrawer', () => {
     expect(screen.getByRole('button', { name: 'Close facility details' })).toHaveFocus()
   })
 
-  it('closes with Escape as well as the visible close button', async () => {
+  it('plays the sheet exit motion before closing with Escape', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()
     renderDrawer({}, onClose)
 
     await user.keyboard('{Escape}')
 
+    expect(screen.getByRole('dialog')).toHaveClass('appearance-sheet-exit')
+    expect(onClose).not.toHaveBeenCalled()
+
+    finishAnimation(screen.getByRole('dialog'))
+
     expect(onClose).toHaveBeenCalledOnce()
+  })
+
+  it('closes immediately without motion when reduced motion is preferred', async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    const matchMedia = vi.fn((query: string) =>
+      ({
+        matches: query === '(prefers-reduced-motion: reduce)',
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }) as MediaQueryList,
+    )
+    vi.stubGlobal('matchMedia', matchMedia)
+    renderDrawer({}, onClose)
+
+    await user.click(screen.getByRole('button', { name: 'Close facility details' }))
+
+    expect(matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)')
+    expect(onClose).toHaveBeenCalledOnce()
+    expect(screen.getByRole('dialog')).not.toHaveClass('appearance-sheet-exit')
   })
 
   it('saves the selected facility through the anonymous profile API', async () => {

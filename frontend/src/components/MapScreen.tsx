@@ -9,6 +9,7 @@ import {
   type ResolvedLocation,
 } from '../lib/facilities'
 import { splitByOpenStatus } from '../lib/facilitySplit'
+import { locationWithoutPrompt, useLocationSession } from '../lib/locationSession'
 import { setManualLocation } from '../lib/storage'
 import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 import { FacilityMap } from './FacilityMap'
@@ -69,16 +70,19 @@ function containsKorean(value: string): boolean {
 export interface MapScreenProps {
   /**
    * Whether the Map tab is the active tab. The shell keeps every screen mounted (so Chat state
-   * survives tab switches), which means this effect would otherwise run on the initial Chat-only
-   * load — prompting for location and spending the 1,000/day pharmacy quota before the user ever
-   * asks for nearby care. We gate on activation, and stay loaded once opened.
+   * survives tab switches), so facility fetching is gated until the user opens this tab and then
+   * stays loaded. Device location is requested only from the explicit button below.
    */
   active: boolean
 }
 
 export function MapScreen({ active }: MapScreenProps) {
+  const { location: sessionLocation, rememberLocation } = useLocationSession()
   const [everActive, setEverActive] = useState(active)
-  const [location, setLocation] = useState<ResolvedLocation | null>(null)
+  const [location, setLocation] = useState<ResolvedLocation>(
+    () => sessionLocation ?? locationWithoutPrompt(),
+  )
+  const [locating, setLocating] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [openNowOnly, setOpenNowOnly] = useState(false)
@@ -88,28 +92,21 @@ export function MapScreen({ active }: MapScreenProps) {
   const [hospitalUnavailable, setHospitalUnavailable] = useState(false)
 
   useEffect(() => {
-    if (active) setEverActive(true)
-  }, [active])
+    if (!active) return
+    setEverActive(true)
+    const nextLocation = sessionLocation ?? locationWithoutPrompt()
+    setLocation((current) =>
+      current.lat === nextLocation.lat &&
+      current.lng === nextLocation.lng &&
+      current.source === nextLocation.source &&
+      current.label === nextLocation.label
+        ? current
+        : nextLocation,
+    )
+  }, [active, sessionLocation])
 
   useEffect(() => {
     if (!everActive) return
-    let cancelled = false
-
-    resolveLocation()
-      .then((resolved) => {
-        if (!cancelled) setLocation(resolved)
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) setLocationError(errorMessage(error))
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [everActive])
-
-  useEffect(() => {
-    if (!location) return
 
     let cancelled = false
     const controller = new AbortController()
@@ -183,7 +180,21 @@ export function MapScreen({ active }: MapScreenProps) {
       cancelled = true
       controller.abort()
     }
-  }, [location, typeFilter])
+  }, [everActive, location, typeFilter])
+
+  async function handleUseDeviceLocation() {
+    setLocating(true)
+    setLocationError(null)
+    try {
+      const resolved = await resolveLocation()
+      if (resolved.source === 'device') rememberLocation(resolved)
+      setLocation(resolved)
+    } catch (error: unknown) {
+      setLocationError(errorMessage(error))
+    } finally {
+      setLocating(false)
+    }
+  }
 
   function selectType(nextType: TypeFilter) {
     if (nextType === typeFilter) return
@@ -209,21 +220,6 @@ export function MapScreen({ active }: MapScreenProps) {
   function clearManualLocation() {
     setManualLocation(null)
     setLocation({ ...SEOUL_CITY_HALL, source: 'fallback' })
-  }
-
-  if (!location) {
-    return (
-      <div className="flex flex-col gap-3 p-6">
-        <h1 className="text-2xl font-semibold text-primary">Map</h1>
-        {locationError ? (
-          <p role="alert" className="text-sm text-secondary">
-            {locationError}
-          </p>
-        ) : (
-          <p className="text-sm text-secondary">Finding your location…</p>
-        )}
-      </div>
-    )
   }
 
   const split = splitByOpenStatus(facilities)
@@ -252,36 +248,71 @@ export function MapScreen({ active }: MapScreenProps) {
     !(typeFilter === 'hospital' && hospitalUnavailable)
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <h1 className="text-2xl font-semibold text-primary">Map</h1>
-      {typeFilter === 'all' && !hospitalUnavailable && (
-        <p className="text-sm text-primary">Nearby pharmacies and hospitals will appear here.</p>
+    <div className="flex flex-col gap-3 px-3 pb-3">
+      <header className="-mx-3 flex min-h-11 items-center gap-2 border-b border-primary px-3.5">
+        <h1 className="text-sm font-semibold text-primary">Map</h1>
+        {location.source === 'device' && (
+          <span className="rounded-full border border-primary px-2 py-0.5 text-[10px] text-secondary">
+            Centred on you
+          </span>
+        )}
+      </header>
+
+      {location.source !== 'device' && (
+        <button
+          type="button"
+          disabled={locating}
+          className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary disabled:opacity-50"
+          onClick={() => void handleUseDeviceLocation()}
+        >
+          {locating ? 'Finding your location…' : 'Use my location'}
+        </button>
       )}
 
-      <div role="group" aria-label="Facility type" className="grid grid-cols-3 gap-1">
+      {locationError && (
+        <p role="alert" className="text-sm text-secondary">
+          {locationError}
+        </p>
+      )}
+
+      <div
+        role="group"
+        aria-label="Facility type"
+        className="grid grid-cols-4 overflow-hidden rounded-full border border-primary bg-surface"
+      >
         {TYPE_FILTERS.map((filter) => (
           <button
             key={filter.id}
             type="button"
             aria-pressed={typeFilter === filter.id}
-            className={`min-h-11 rounded border px-2 text-sm font-medium ${
+            className={`min-h-11 border-r border-primary px-2 text-xs font-medium ${
               typeFilter === filter.id
-                ? 'border-primary bg-primary text-surface'
-                : 'border-primary bg-surface text-primary'
+                ? 'bg-primary text-surface'
+                : 'bg-surface text-primary'
             }`}
             onClick={() => selectType(filter.id)}
           >
             {filter.label}
           </button>
         ))}
-        {/* Emergency rooms join this segment only after their backend adapter exists. */}
+        <button
+          type="button"
+          disabled
+          aria-describedby="er-results-unavailable"
+          className="min-h-11 bg-surface px-2 text-xs font-medium text-secondary disabled:cursor-not-allowed"
+        >
+          ER
+        </button>
+        <span id="er-results-unavailable" className="sr-only">
+          Emergency-room results are not available yet.
+        </span>
       </div>
 
       <button
         type="button"
         role="switch"
         aria-checked={openNowOnly}
-        className="flex min-h-11 items-center justify-between rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+        className="flex min-h-11 items-center justify-between rounded-full border border-primary bg-surface px-3 text-xs font-medium text-primary"
         onClick={() => setOpenNowOnly((current) => !current)}
       >
         <span>Open now</span>

@@ -1,6 +1,8 @@
 package com.mermaid.facility;
 
 import java.time.LocalDate;
+import java.util.function.Predicate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -10,14 +12,36 @@ import org.springframework.stereotype.Component;
  * dutyTime8s}/{@code dutyTime8c}; HIRA's {@code noTrmtHoli}). Getting this wrong means telling
  * someone a pharmacy is open on 설날.
  *
- * <p>TODO(team): back this with 한국천문연구원 특일 정보 API (data.go.kr 15012690,
- * {@code getRestDeInfo}), and cache a year at a time. Until then everything is a weekday, which is
- * wrong on ~15 days a year — acceptable for the demo, not for real use.
+ * <p>A calendar fetch failure propagates rather than using an older in-memory value. A temporary
+ * holiday can be declared after the cached value was fetched; using stale data would turn that
+ * uncertainty into an incorrect opening decision.
  */
 @Component
 public class HolidayCalendar {
 
+    /** Non-null in production; null for the test predicate seam. */
+    private final HolidayApiClient holidays;
+
+    /** Non-null only for tests that inject a deterministic calendar. */
+    private final Predicate<LocalDate> override;
+
+    @Autowired
+    public HolidayCalendar(HolidayApiClient holidays) {
+        this.holidays = holidays;
+        this.override = null;
+    }
+
+    /** Package-visible seam for facility tests that need a known calendar date. */
+    HolidayCalendar(Predicate<LocalDate> override) {
+        this.holidays = null;
+        this.override = override;
+    }
+
     public boolean isHoliday(LocalDate date) {
-        return false;
+        if (override != null) {
+            return override.test(date);
+        }
+
+        return holidays.holidaysFor(date.getYear()).isHoliday(date);
     }
 }

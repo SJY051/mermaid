@@ -45,10 +45,28 @@ lookup supplies a `ykiho`, and a per-hospital detail lookup supplies operating h
   advisory emergency-availability flags (`Y` → true, `N` → false, otherwise null).
 - **FR-004 (DEV-203c):** Hospital detail values MUST be cached by `ykiho` with a
   Redis-serializable representation. Cache values must round-trip through the configured
-  JSON serializer.
-- **FR-005 (DEV-203c):** The N+1 detail calls MUST use the existing `Parallel.map` pattern with
-  a bounded concurrency of **4**, preserving list order. Four matches the measured upstream limit
-  used by `DrugService` and avoids turning the first map load into an unbounded API fan-out.
+  JSON serializer. The hospital **list** MUST be cached on a ~100 m coordinate grid plus radius,
+  not exact coordinates, so neighbours and refreshes of the same view share one fetch (cold ~19 s,
+  warm 0.16 s, measured live 2026-07-14). To keep sharing safe the fetch MUST be centred on the grid
+  cell and its radius widened by one cell (`GRID_MARGIN_METERS`), so an edge-of-cell caller still
+  receives every hospital inside their own circle (§2-3 — a silently dropped in-radius hospital is
+  the same failure as rendering one closed). Per-card distance MUST be recomputed by Haversine from
+  the caller's own coordinate, never HIRA's origin-relative `distance` (which belongs to the cell
+  centre; it matched our Haversine within a mean 4 m on 100 live rows, so nothing is lost by it).
+- **FR-005 (DEV-203c):** The N+1 detail calls MUST use the existing `Parallel.map` pattern,
+  preserving list order, with a bounded concurrency of **16**. The earlier value of 4 was inherited
+  from `DrugService`, whose MFDS DUR endpoint throttles at four; HIRA's detail endpoint does not —
+  measured against the live endpoint (100 calls) it scales almost linearly: concurrency 4 ≈ 2.4 req/s,
+  8 ≈ 5.8, 16 ≈ 11.4, 32 ≈ 25 (2026-07-14). In-app, a cold `open_now=true` Seoul City Hall load went
+  from a ~57 s median (worst 86 s) at concurrency 4 to ~17 s (worst 25 s) at 16, both settings
+  alternated in one window. 16 rather than 32 is a manners bound on sustained sockets to a government
+  API, not a measured ceiling.
+  The HIRA list pages after the first MUST use the same bounded pattern: page 1 alone reports
+  `totalCount`, the rest are independent, and HIRA does not sort by distance — so every page must be
+  read. Reading the 8 pages of a 2 km Seoul City Hall radius one after another cost 23.9/35.0/25.0 s
+  cold, against 9.9/10.0/10.2 s concurrently (measured live 2026-07-14, both builds alternated inside
+  one window). HIRA's own latency drifts by more than these changes are worth, so any future
+  comparison MUST measure both sides in the same window — a single timing proves nothing here.
 - **FR-006 (DEV-203d):** `FacilityService.hospitals()` MUST replace `501` with filtered,
   distance-sorted `Facility` results using IDs in the
   `facility:hira:<base64url(ykiho)>` namespace. The encoded segment is required because raw HIRA

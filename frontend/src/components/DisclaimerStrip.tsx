@@ -5,7 +5,7 @@ const DISCLAIMER = 'General information, not medical advice · Emergency? Call 1
  */
 export function DisclaimerStrip() {
   return (
-    <p className="bg-surface px-3 py-2 text-center text-xs text-primary">
+    <p className="border-t border-primary bg-surface px-3 py-[7px] text-center text-[11px] leading-tight text-primary">
       {/* An unreadable disclaimer is no disclaimer; Review guidelines treat this as P1. */}
       {DISCLAIMER}
     </p>

@@ -7,9 +7,11 @@ import { FavoritesProvider } from '../lib/favorites'
 import { ChatScreen } from './ChatScreen'
 import { DisclaimerStrip } from './DisclaimerStrip'
 import { MapScreen } from './MapScreen'
+import { hasSeenOnboarding, Onboarding } from './Onboarding'
 import { SavedScreen } from './SavedScreen'
 import { SettingsScreen } from './SettingsScreen'
 import { TabBar } from './TabBar'
+import { LocationSessionProvider } from '../lib/locationSession'
 
 export type TabId = 'chat' | 'map' | 'saved' | 'settings'
 
@@ -17,12 +19,20 @@ export type TabId = 'chat' | 'map' | 'saved' | 'settings'
  * Keeps navigation and the safety disclaimer fixed while each screen owns its scroll position.
  */
 export function MobileShell() {
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding())
+
   return (
-    <ChatProvider>
-      <FavoritesProvider>
-        <MobileShellContent />
-      </FavoritesProvider>
-    </ChatProvider>
+    <LocationSessionProvider>
+      {showOnboarding ? (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      ) : (
+        <ChatProvider>
+          <FavoritesProvider>
+            <MobileShellContent />
+          </FavoritesProvider>
+        </ChatProvider>
+      )}
+    </LocationSessionProvider>
   )
 }
 
@@ -56,15 +66,15 @@ function MobileShellContent() {
           aria-label="Chat screen"
           hidden={activeTab !== 'chat'}
         >
-          <ChatScreen />
+          <ChatScreen showDisclaimer={activeTab === 'chat'} />
         </section>
         <section
           className={screenClassName}
           aria-label="Map screen"
           hidden={activeTab !== 'map'}
         >
-          {/* active gates the location prompt and facility fetch: the screen stays mounted for
-              scroll state, but must not spend the pharmacy quota until the user opens the tab. */}
+          {/* active gates facility setup and fetching: the screen stays mounted for scroll state,
+              but must not spend the pharmacy quota until the user opens the tab. */}
           <MapScreen active={activeTab === 'map'} />
         </section>
         {/* `active` matters as much as the scroll box: SavedScreen refreshes the profile when it
@@ -90,6 +100,7 @@ function MobileShellContent() {
       {emergencyActive && activeTab !== 'chat' && latestAnswer && (
         <div className="border-t border-primary p-3">
           <Banner
+            data-safety-surface
             status="error"
             data-testid="shell-emergency-alert"
             icon={<CircleAlert aria-hidden="true" size={20} />}
@@ -112,7 +123,7 @@ function MobileShellContent() {
           />
         </div>
       )}
-        <DisclaimerStrip />
+        {activeTab !== 'chat' && <DisclaimerStrip />}
         <TabBar active={activeTab} onSelect={setActiveTab} chatBusy={streaming} />
       </div>
     </div>

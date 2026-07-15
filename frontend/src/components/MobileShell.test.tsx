@@ -54,6 +54,10 @@ const validAnswer = JSON.stringify({
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  localStorage.setItem(
+    'mermaid.onboarding.v1',
+    JSON.stringify({ schemaVersion: '1.0', data: true }),
+  )
 })
 
 afterEach(() => {
@@ -65,17 +69,35 @@ afterEach(() => {
  * safety disclaimer remains visible regardless of navigation.
  */
 describe('MobileShell', () => {
-  it('renders four real tab buttons and marks Chat as the current page', () => {
+  it('renders four real tab buttons with decorative Lucide icons and marks Chat as current', () => {
     render(<MobileShell />)
 
+    const expectedIcons = {
+      Chat: 'lucide-message-circle',
+      Map: 'lucide-map-pin',
+      Saved: 'lucide-bookmark',
+      Settings: 'lucide-settings',
+    }
     const tabs = screen.getAllByRole('button', { name: /^(Chat|Map|Saved|Settings)$/ })
     expect(tabs).toHaveLength(4)
-    tabs.forEach((tab) => {
+    for (const [label, iconClass] of Object.entries(expectedIcons)) {
+      const tab = screen.getByRole('button', { name: label })
       expect(tab.tagName).toBe('BUTTON')
       expect(tab).toHaveAttribute('type', 'button')
-    })
+      const icon = tab.querySelector('svg')
+      expect(icon).toHaveClass(iconClass)
+      expect(tab.firstElementChild).toBe(icon)
+      expect(icon).toHaveAttribute('aria-hidden', 'true')
+      expect(icon).toHaveAttribute('width', '19')
+      expect(icon).toHaveAttribute('height', '19')
+    }
     expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveClass(
+      'font-bold',
+      'text-primary',
+    )
     expect(screen.getByRole('button', { name: 'Map' })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('button', { name: 'Map' })).toHaveClass('text-secondary')
   })
 
   it('defaults to Chat and switches screens by hiding rather than unmounting them', async () => {
@@ -92,10 +114,13 @@ describe('MobileShell', () => {
       for (const [name, section] of Object.entries(sections)) {
         if (name === label) {
           expect(section).not.toHaveAttribute('hidden')
-          expect(screen.getByRole('button', { name })).toHaveAttribute('aria-current', 'page')
+          expect(screen.getByRole('button', { name }))
+            .toHaveAttribute('aria-current', 'page')
+          expect(screen.getByRole('button', { name })).toHaveClass('font-bold', 'text-primary')
         } else {
           expect(section).toHaveAttribute('hidden')
           expect(screen.getByRole('button', { name })).not.toHaveAttribute('aria-current')
+          expect(screen.getByRole('button', { name })).toHaveClass('text-secondary')
         }
       }
     }
@@ -103,7 +128,10 @@ describe('MobileShell', () => {
     expectActive('Chat')
 
     await user.click(screen.getByRole('button', { name: 'Map' }))
-    expect(screen.getByText('Nearby pharmacies and hospitals will appear here.')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Map' })).toBeVisible()
+    expect(
+      screen.queryByText('Nearby pharmacies and hospitals will appear here.'),
+    ).not.toBeInTheDocument()
     expectActive('Map')
 
     await user.click(screen.getByRole('button', { name: 'Saved' }))
@@ -182,15 +210,34 @@ describe('MobileShell', () => {
     }
   })
 
-  it('keeps the disclaimer visible on every tab', async () => {
+  it('keeps exactly one disclaimer visible on every tab', async () => {
     const user = userEvent.setup()
     render(<MobileShell />)
     const copy = 'General information, not medical advice · Emergency? Call 119'
 
     for (const tab of ['Chat', 'Map', 'Saved', 'Settings']) {
       await user.click(screen.getByRole('button', { name: tab }))
-      expect(screen.getByText(copy)).toBeVisible()
+      const disclaimers = screen.getAllByText(copy)
+      expect(disclaimers).toHaveLength(1)
+      expect(disclaimers[0]).toBeVisible()
     }
+  })
+
+  it('puts the Chat disclaimer before the composer and keeps both before the tab bar', () => {
+    render(<MobileShell />)
+
+    const disclaimer = screen.getByText(
+      'General information, not medical advice · Emergency? Call 119',
+    )
+    const textbox = screen.getByRole('textbox', { name: 'Describe your symptoms' })
+    const tabBar = screen.getByRole('navigation', { name: 'Main' })
+
+    expect(disclaimer.compareDocumentPosition(textbox)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(textbox.compareDocumentPosition(tabBar)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
   })
 
   it('keeps each screen scroll position independent', async () => {
@@ -264,7 +311,13 @@ describe('MobileShell', () => {
     const alert = await screen.findByTestId('shell-emergency-alert')
     expect(alert).toHaveAttribute('role', 'alert')
     expect(alert).toHaveTextContent('Call 119 now')
-    expect(within(alert).getByRole('link', { name: 'Call 119' })).toHaveAttribute('href', 'tel:119')
+    const callLink = within(alert).getByRole('link', { name: 'Call 119' })
+    expect(callLink).toHaveAttribute('href', 'tel:119')
+    const phoneIcon = callLink.querySelector('svg')
+    expect(phoneIcon).toHaveClass('lucide-phone')
+    expect(phoneIcon).toHaveAttribute('aria-hidden', 'true')
+    expect(phoneIcon).toHaveAttribute('width', '16')
+    expect(phoneIcon).toHaveAttribute('height', '16')
 
     await user.click(within(alert).getByRole('button', { name: 'Open Chat' }))
     expect(screen.getByRole('button', { name: 'Chat' })).toHaveAttribute('aria-current', 'page')

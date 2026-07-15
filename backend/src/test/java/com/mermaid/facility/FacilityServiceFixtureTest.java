@@ -47,6 +47,10 @@ class FacilityServiceFixtureTest {
     private static final Clock FRIDAY_LUNCH =
             Clock.fixed(Instant.parse("2026-07-10T04:00:00Z"), ZoneId.of("UTC"));
 
+    /** 14:00 KST on 2026 어린이날, a captured official public holiday. */
+    private static final Clock CHILDRENS_DAY_AFTERNOON =
+            Clock.fixed(Instant.parse("2026-05-05T05:00:00Z"), ZoneId.of("UTC"));
+
     private FacilityService serviceAt(Clock clock) {
         var props =
                 new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
@@ -57,7 +61,7 @@ class FacilityServiceFixtureTest {
                 new HospitalApiClient(null, props, dataMode, loader),
                 new HospitalDetailApiClient(null, props, dataMode, loader),
                 new EmergencyRoomApiClient(null, props, dataMode, loader),
-                new HolidayCalendar(),
+                new HolidayCalendar(date -> false),
                 clock);
     }
 
@@ -66,7 +70,7 @@ class FacilityServiceFixtureTest {
             HospitalDetailApiClient.HospitalDetail detail,
             SourceRef.DataMode listOrigin,
             SourceRef.DataMode detailOrigin) {
-        return serviceWithDetail(clock, detail, listOrigin, detailOrigin, new HolidayCalendar());
+        return serviceWithDetail(clock, detail, listOrigin, detailOrigin, new HolidayCalendar(date -> false));
     }
 
     private FacilityService serviceWithDetail(
@@ -118,6 +122,14 @@ class FacilityServiceFixtureTest {
         return hospitals.stream().filter(f -> nameKo.equals(f.nameKo())).findFirst().orElseThrow();
     }
 
+    private HolidayCalendar officialFixtureCalendar() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        return new HolidayCalendar(
+                new HolidayApiClient(
+                        null, props, new DataModeProperties(DataModeProperties.DataMode.FIXTURE)));
+    }
+
     /**
      * A {@code hybrid} service whose upstream is guaranteed to fail (the base URL points at a closed
      * port), so every fetch falls back to fixtures the way it would during a government outage.
@@ -137,7 +149,7 @@ class FacilityServiceFixtureTest {
                 new HospitalApiClient(client, props, dataMode, loader),
                 new HospitalDetailApiClient(client, props, dataMode, loader),
                 new EmergencyRoomApiClient(client, props, dataMode, loader),
-                new HolidayCalendar(),
+                new HolidayCalendar(date -> false),
                 clock);
     }
 
@@ -271,13 +283,14 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("the radius filter drops hospitals beyond the bound, reading HIRA distance as metres (SC-002)")
+    @DisplayName("the radius filter drops hospitals beyond the bound, by Haversine from the caller (SC-002)")
     void hospitalRadiusExcludesByMetres() {
         var service = serviceAt(FRIDAY_AFTERNOON);
 
-        // The HIRA fixture rows sit at 903.8 m (아미나요양병원, 요양병원), 932.2 m (강북삼성병원),
-        // and 974.2 m (서울적십자병원). The default acute-care search excludes only the nursing
-        // category; a 950-m radius then retains 강북삼성병원 and drops 서울적십자병원 by metres.
+        // Distance is our Haversine from the caller, not HIRA's figure (the list is cached grid-centred
+        // and shared). From the fixture coordinates the rows sit at 901.1 m (아미나요양병원, 요양병원),
+        // 924.8 m (강북삼성병원), and 965.9 m (서울적십자병원). The default acute-care search excludes
+        // only the nursing category; a 950-m radius then retains 강북삼성병원 and drops 서울적십자병원.
         List<Facility> wide = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
         List<Facility> narrow = service.findNearby(LAT, LNG, 950, false, FacilityType.HOSPITAL);
 
@@ -289,7 +302,7 @@ class FacilityServiceFixtureTest {
         assertThat(wide)
                 .filteredOn(f -> "서울적십자병원".equals(f.nameKo()))
                 .singleElement()
-                .satisfies(f -> assertThat(f.distanceMeters()).isBetween(974.0, 975.0));
+                .satisfies(f -> assertThat(f.distanceMeters()).isBetween(965.0, 966.0));
     }
 
     @Test
@@ -380,7 +393,7 @@ class FacilityServiceFixtureTest {
                                 "YKIHO-1", Map.of(), Optional.empty(), false, true, null, null),
                         SourceRef.DataMode.LIVE,
                         SourceRef.DataMode.LIVE,
-                        new HolidayCalendar() {
+                        new HolidayCalendar(date -> false) {
                             @Override
                             public boolean isHoliday(java.time.LocalDate date) {
                                 return true;
@@ -395,14 +408,17 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("hospital detail fan-out uses the bounded concurrency of four")
-    void hospitalDetailFetchesAreBoundedAtFour() {
+    @DisplayName("hospital detail fan-out is bounded at sixteen in flight")
+    void hospitalDetailFetchesAreBoundedAtSixteen() {
         var props =
                 new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
+        // 20 rows, all within radius, so the fan-out could run 20 at once if it were unbounded — the
+        // latch below proves it plateaus at exactly 16, which fails if the bound reverts to 4 (the
+        // latch never reaches 0) or is lifted (the max climbs to 20).
         List<HospitalApiClient.RawHospital> hospitals =
-                IntStream.range(0, 8)
+                IntStream.range(0, 20)
                         .mapToObj(
                                 i ->
                                         new HospitalApiClient.RawHospital(
@@ -425,16 +441,16 @@ class FacilityServiceFixtureTest {
                 };
         var active = new AtomicInteger();
         var maximum = new AtomicInteger();
-        var firstFour = new CountDownLatch(4);
+        var firstSixteen = new CountDownLatch(16);
         var detailClient =
                 new HospitalDetailApiClient(null, props, dataMode, loader) {
                     @Override
                     public HospitalDetailBatch findByYkiho(String ykiho) {
                         int inFlight = active.incrementAndGet();
                         maximum.accumulateAndGet(inFlight, Math::max);
-                        firstFour.countDown();
+                        firstSixteen.countDown();
                         try {
-                            firstFour.await(1, TimeUnit.SECONDS);
+                            firstSixteen.await(1, TimeUnit.SECONDS);
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                             throw new AssertionError(e);
@@ -453,13 +469,13 @@ class FacilityServiceFixtureTest {
                         listClient,
                         detailClient,
                         new EmergencyRoomApiClient(null, props, dataMode, loader),
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
 
-        assertThat(found).hasSize(8);
-        assertThat(maximum).hasValue(4);
+        assertThat(found).hasSize(20);
+        assertThat(maximum).hasValue(16);
     }
 
     @Test
@@ -514,7 +530,7 @@ class FacilityServiceFixtureTest {
                         listClient,
                         detailClient,
                         new EmergencyRoomApiClient(null, props, dataMode, loader),
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 2000, false, FacilityType.HOSPITAL, 10);
@@ -586,7 +602,7 @@ class FacilityServiceFixtureTest {
                         listClient,
                         detailClient,
                         new EmergencyRoomApiClient(null, props, dataMode, loader),
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 2000, true, FacilityType.HOSPITAL, 10);
@@ -609,13 +625,8 @@ class FacilityServiceFixtureTest {
                         new HospitalApiClient(null, props, dataMode, loader),
                         new HospitalDetailApiClient(null, props, dataMode, loader),
                         new EmergencyRoomApiClient(null, props, dataMode, loader),
-                        new HolidayCalendar() {
-                            @Override
-                            public boolean isHoliday(java.time.LocalDate date) {
-                                return true;
-                            }
-                        },
-                        FRIDAY_AFTERNOON);
+                        officialFixtureCalendar(),
+                        CHILDRENS_DAY_AFTERNOON);
 
         Facility hospital =
                 hospitalNamed(

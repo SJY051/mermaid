@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Check, Phone, X } from 'lucide-react'
 import { useFavorites } from '../lib/favorites'
 import type { Facility } from '../lib/types'
@@ -53,8 +53,18 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   const address = facility.addressEn ?? facility.addressKo
   const { favorites, savingFacilityId, saveFacility } = useFavorites()
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [closing, setClosing] = useState(false)
   const saved = favorites.some((favorite) => favorite.facilityId === facility.id)
   const saving = savingFacilityId === facility.id
+
+  const requestClose = useCallback(() => {
+    if (closing) return
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      onClose()
+      return
+    }
+    setClosing(true)
+  }, [closing, onClose])
 
   async function save() {
     setSaveError(null)
@@ -69,11 +79,11 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
     closeButtonRef.current?.focus()
 
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') requestClose()
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
+  }, [requestClose])
 
   return (
     // `fixed` positions against the viewport, not the shell — so a drawer is exactly the way a
@@ -85,14 +95,17 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
       className="fixed inset-0 z-[10001] flex items-end justify-center bg-black/45"
       data-testid="detail-drawer-backdrop"
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose()
+        if (event.target === event.currentTarget) requestClose()
       }}
     >
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="appearance-sheet-enter max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
+        className={`${closing ? 'appearance-sheet-exit' : 'appearance-sheet-enter'} max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl`}
+        onAnimationEnd={(event) => {
+          if (closing && event.target === event.currentTarget) onClose()
+        }}
       >
         <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-muted" aria-hidden="true" />
 
@@ -108,7 +121,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
             type="button"
             aria-label="Close facility details"
             className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-primary text-xl text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
-            onClick={onClose}
+            onClick={requestClose}
           >
             <X aria-hidden="true" size={20} />
           </button>

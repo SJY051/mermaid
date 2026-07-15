@@ -290,6 +290,49 @@ export function FacilityMap({
         </p>
       )}
 
+      <div
+        role="group"
+        aria-label="Map marker legend"
+        className="flex flex-wrap gap-x-4 gap-y-1 rounded-full border border-primary bg-surface px-3 py-2 text-xs font-medium text-primary"
+      >
+        {displayedFacilityTypes.has('pharmacy') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="pharmacy"
+              aria-hidden="true"
+              className="grid h-4 w-4 place-items-center rounded-full border border-primary"
+            >
+              <Pill size={12} />
+            </span>
+            Pharmacy
+          </span>
+        )}
+        {displayedFacilityTypes.has('hospital') && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="hospital"
+              aria-hidden="true"
+              className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary"
+            >
+              <Cross size={12} />
+            </span>
+            Hospital
+          </span>
+        )}
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-green-ring bg-green-subtle text-[11px] font-bold text-green-vivid">✓</span>
+          Open now
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-yellow-ring bg-yellow-subtle text-[11px] font-bold text-yellow-vivid">?</span>
+          Hours unknown
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-strong bg-muted text-[11px] font-bold text-primary">×</span>
+          Closed
+        </span>
+      </div>
+
       {manualLocation && (
         <section aria-label="Set your location" className="space-y-2 rounded border border-primary p-3">
           <div className="flex flex-wrap gap-2">
@@ -378,49 +421,6 @@ export function FacilityMap({
           )}
         </section>
       )}
-
-      <div
-        role="group"
-        aria-label="Map marker legend"
-        className="flex flex-wrap gap-x-4 gap-y-1 rounded-full border border-primary bg-surface px-3 py-2 text-xs font-medium text-primary"
-      >
-        {displayedFacilityTypes.has('pharmacy') && (
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              data-legend-kind="pharmacy"
-              aria-hidden="true"
-              className="grid h-4 w-4 place-items-center rounded-full border border-primary"
-            >
-              <Pill size={12} />
-            </span>
-            Pharmacy
-          </span>
-        )}
-        {displayedFacilityTypes.has('hospital') && (
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              data-legend-kind="hospital"
-              aria-hidden="true"
-              className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary"
-            >
-              <Cross size={12} />
-            </span>
-            Hospital
-          </span>
-        )}
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-green-ring bg-green-subtle text-[11px] font-bold text-green-vivid">✓</span>
-          Open now
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-yellow-ring bg-yellow-subtle text-[11px] font-bold text-yellow-vivid">?</span>
-          Hours unknown
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-strong bg-muted text-[11px] font-bold text-primary">×</span>
-          Closed
-        </span>
-      </div>
 
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />

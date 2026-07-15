@@ -67,17 +67,41 @@ afterEach(() => {
 })
 
 describe('NearbyFacilities', () => {
-  it('says it is finding the location before anything else', () => {
-    resolveLocationMock.mockReturnValue(new Promise(() => {})) // never resolves
+  it('does not ask on mount and starts from the honest fallback centre', async () => {
+    fetchFacilitiesMock.mockResolvedValue([])
     render(<NearbyFacilities {...props} />)
 
-    expect(screen.getByText(/finding your location/i)).toBeInTheDocument()
+    expect(resolveLocationMock).not.toHaveBeenCalled()
+    expect(screen.queryByText('Finding your location…')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Use my location' })).toBeInTheDocument()
+    expect(await screen.findByTestId('stub-notice')).toHaveTextContent(
+      /could not read your location/i,
+    )
+  })
+
+  it('does not claim that no facilities were found while the request is pending', async () => {
+    let settleFetch!: (facilities: Facility[]) => void
+    fetchFacilitiesMock.mockReturnValue(
+      new Promise<Facility[]>((resolve) => {
+        settleFetch = resolve
+      }),
+    )
+    render(<NearbyFacilities {...props} />)
+
+    expect(await screen.findByText('Loading facilities…')).toBeVisible()
+    expect(screen.queryByText(/no pharmacies found/i)).not.toBeInTheDocument()
+
+    settleFetch([])
+    expect(await screen.findByText(/no pharmacies found within 1000m/i)).toBeVisible()
   })
 
   it('passes the fetched facilities to the map, with the request echoed as a caption', async () => {
+    const user = userEvent.setup()
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, source: 'device' })
     fetchFacilitiesMock.mockResolvedValue([pharmacy])
     render(<NearbyFacilities {...props} />)
+
+    await user.click(screen.getByRole('button', { name: 'Use my location' }))
 
     // The map renders as soon as the location resolves, with no facilities yet — the fetch lands a
     // microtask later. Awaiting the ELEMENT therefore races the data: findBy resolves on the empty

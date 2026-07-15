@@ -8,6 +8,7 @@ import {
   SEOUL_CITY_HALL,
   type ResolvedLocation,
 } from '../lib/facilities'
+import { locationWithoutPrompt, useLocationSession } from '../lib/locationSession'
 import { setManualLocation } from '../lib/storage'
 import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 
@@ -28,34 +29,28 @@ export interface NearbyFacilitiesProps {
  * map says which one the reader is looking at.
  */
 export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesProps) {
-  const [location, setLocation] = useState<ResolvedLocation | null>(null)
+  const { location: sessionLocation, rememberLocation } = useLocationSession()
+  const [location, setLocation] = useState<ResolvedLocation>(
+    () => sessionLocation ?? locationWithoutPrompt(),
+  )
+  const [locating, setLocating] = useState(false)
   const [facilities, setFacilities] = useState<Facility[]>([])
+  const [loadingFacilities, setLoadingFacilities] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   // `types` is a fresh array on every render; depending on it directly would refetch forever.
   const type = (types[0] ?? 'pharmacy') as FacilityType
 
   useEffect(() => {
-    let cancelled = false
-
-    resolveLocation()
-      .then((resolved) => {
-        if (!cancelled) setLocation(resolved)
-      })
-      .catch((e: Error) => {
-        if (!cancelled && e.name !== 'AbortError') setError(e.message)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
+    if (sessionLocation) setLocation(sessionLocation)
+  }, [sessionLocation])
 
   useEffect(() => {
     if (!location) return
     let cancelled = false
     const controller = new AbortController()
 
+    setLoadingFacilities(true)
     setFacilities([])
     setError(null)
     fetchFacilities(
@@ -68,6 +63,9 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       .catch((e: Error) => {
         if (!cancelled && e.name !== 'AbortError') setError(e.message)
       })
+      .finally(() => {
+        if (!cancelled) setLoadingFacilities(false)
+      })
 
     return () => {
       cancelled = true
@@ -75,12 +73,22 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
     }
   }, [location, type, radiusM, openNow])
 
-  if (!location) {
-    return <p className="text-sm text-secondary">Finding your location…</p>
-  }
-
   const plural = type === 'pharmacy' ? 'pharmacies' : 'hospitals'
   const caption = `${plural} within ${radiusM}m${openNow ? ', open now' : ''}`
+
+  async function handleUseDeviceLocation() {
+    setLocating(true)
+    setError(null)
+    try {
+      const resolved = await resolveLocation()
+      if (resolved.source === 'device') rememberLocation(resolved)
+      setLocation(resolved)
+    } catch (e: unknown) {
+      if (e instanceof Error && e.name !== 'AbortError') setError(e.message)
+    } finally {
+      setLocating(false)
+    }
+  }
 
   function useManualLocation(center: { lat: number; lng: number }, label = 'Chosen map spot') {
     setManualLocation({ ...center, label })
@@ -99,6 +107,17 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
 
   return (
     <div className="space-y-2">
+      {location.source !== 'device' && (
+        <button
+          type="button"
+          disabled={locating}
+          className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary disabled:opacity-50"
+          onClick={() => void handleUseDeviceLocation()}
+        >
+          {locating ? 'Finding your location…' : 'Use my location'}
+        </button>
+      )}
+
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
         facilities={facilities}
@@ -124,7 +143,11 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
         </p>
       )}
 
-      {!error && facilities.length === 0 && (
+      {/* The fallback centre exists before this request settles. Without a separate gate, the
+          empty array would claim "No facilities found" throughout the cold request. */}
+      {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}
+
+      {!loadingFacilities && !error && facilities.length === 0 && (
         <p className="text-sm text-secondary">
           No {plural} found within {radiusM}m
           {openNow ? ' that we know to be open right now' : ''}.

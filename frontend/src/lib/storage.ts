@@ -4,7 +4,8 @@
  * The original plan said LocalStorage made the chat "secure by design". It does not:
  * LocalStorage survives the tab, is readable by anyone with the device, and is exposed
  * to XSS. Medical consultation transcripts therefore live in `sessionStorage` and die
- * with the tab. Only the saved-places list — which is not sensitive — persists.
+ * with the tab. Saved places and UI preferences may persist; reviewed allergy ingredient keys do
+ * so only behind the explicit, separately deletable consent record below.
  *
  * Every stored value carries a `schemaVersion`. A corrupted or future-version blob must
  * never crash the app; we reset that one key and carry on.
@@ -27,6 +28,7 @@ const CHAT_SESSION_KEY = 'mermaid.chatSession.v2'
 const CHAT_SESSION_KEY_V1 = 'mermaid.chatSession.v1'
 const SAVED_FACILITIES_KEY = 'mermaid.savedFacilities.v1'
 const PREFERENCES_KEY = 'mermaid.preferences.v1'
+const ALLERGY_MEMORY_KEY = 'mermaid.allergyMemory.v1'
 
 interface Versioned<T> {
   schemaVersion: string
@@ -199,13 +201,18 @@ export function saveSavedFacilities(items: SavedFacility[]): void {
   write(localStorage, SAVED_FACILITIES_KEY, items)
 }
 
-// --- preferences: allergy memory is opt-in, default OFF (spec §2-5) -----------
+// --- preferences: UI state and separately consented allergy memory -----------
 
+export type AppearancePreference = 'light' | 'dark' | 'device'
+
+/** Backward-compatible save input. Legacy allergy fields are accepted but never written here. */
 export interface Preferences {
-  rememberAllergies: boolean
-  allergies: string[]
   defaultRadiusM: number
   manualLocation: ManualLocation | null
+  appearance?: AppearancePreference
+  rememberAllergies?: boolean
+  allergies?: unknown[]
+  unverifiedAllergens?: unknown[]
 }
 
 export interface ManualLocation {
@@ -214,23 +221,202 @@ export interface ManualLocation {
   label: string
 }
 
-const DEFAULT_PREFERENCES: Preferences = {
-  rememberAllergies: false,
-  allergies: [],
-  defaultRadiusM: 1000,
-  manualLocation: null,
+interface StoredPreferences {
+  defaultRadiusM: number
+  manualLocation: ManualLocation | null
+  appearance: AppearancePreference
 }
 
-export function loadPreferences(): Preferences {
-  const stored = read(localStorage, PREFERENCES_KEY, DEFAULT_PREFERENCES)
-  // Preferences written before DEV-206 have no manualLocation field.
-  const prefs = { ...stored, manualLocation: stored.manualLocation ?? null }
-  // Invariant: allergies are only kept when the user said so.
-  return prefs.rememberAllergies ? prefs : { ...prefs, allergies: [] }
+const DEFAULT_PREFERENCES: StoredPreferences = {
+  defaultRadiusM: 1000,
+  manualLocation: null,
+  appearance: 'device',
+}
+
+function isAppearancePreference(value: unknown): value is AppearancePreference {
+  return value === 'light' || value === 'dark' || value === 'device'
+}
+
+function isManualLocation(value: unknown): value is ManualLocation {
+  return (
+    isRecord(value) &&
+    typeof value.lat === 'number' &&
+    typeof value.lng === 'number' &&
+    typeof value.label === 'string'
+  )
+}
+
+function normalizePreferences(value: Record<string, unknown> | Preferences): StoredPreferences {
+  return {
+    defaultRadiusM:
+      typeof value.defaultRadiusM === 'number'
+        ? value.defaultRadiusM
+        : DEFAULT_PREFERENCES.defaultRadiusM,
+    manualLocation: isManualLocation(value.manualLocation) ? value.manualLocation : null,
+    appearance: isAppearancePreference(value.appearance)
+      ? value.appearance
+      : DEFAULT_PREFERENCES.appearance,
+  }
+}
+
+function readAllergyMemoryKey(): string[] | null {
+  return read<string[] | null>(
+    localStorage,
+    ALLERGY_MEMORY_KEY,
+    null,
+    (value): value is string[] =>
+      Array.isArray(value) && value.every((item) => typeof item === 'string'),
+  )
+}
+
+/**
+ * Moves the old mixed preferences shape once, then scrubs every allergy field from that key.
+ *
+ * The old opt-in is honoured only for reviewed string ingredient keys. Typed, unreviewed names
+ * stay session-only under the replacement contract for 009; they are deliberately not migrated.
+ */
+function migrateLegacyPreferences(): StoredPreferences {
+  if (localStorage.getItem(PREFERENCES_KEY) === null) return DEFAULT_PREFERENCES
+
+  const stored = read<Record<string, unknown> | null>(
+    localStorage,
+    PREFERENCES_KEY,
+    null,
+    (value): value is Record<string, unknown> | null => value === null || isRecord(value),
+  )
+  if (!stored) return DEFAULT_PREFERENCES
+
+  const preferences = normalizePreferences(stored)
+  const hasLegacyAllergyFields =
+    Object.hasOwn(stored, 'rememberAllergies') ||
+    Object.hasOwn(stored, 'allergies') ||
+    Object.hasOwn(stored, 'unverifiedAllergens')
+
+  if (!hasLegacyAllergyFields) return preferences
+
+  const existing = readAllergyMemoryKey()
+  if (stored.rememberAllergies === true) {
+    if (existing === null) {
+      const reviewedKeys =
+        Array.isArray(stored.allergies) &&
+        stored.allergies.every((item): item is string => typeof item === 'string')
+          ? stored.allergies
+          : []
+      write(localStorage, ALLERGY_MEMORY_KEY, reviewedKeys)
+    }
+  }
+
+  write(localStorage, PREFERENCES_KEY, preferences)
+  return preferences
+}
+
+const appearanceListeners = new Set<() => void>()
+const allergyMemoryListeners = new Set<() => void>()
+
+function notifyAppearanceListeners(): void {
+  appearanceListeners.forEach((listener) => listener())
+}
+
+function notifyAllergyMemoryListeners(): void {
+  allergyMemoryListeners.forEach((listener) => listener())
+}
+
+export function loadPreferences(): StoredPreferences {
+  return migrateLegacyPreferences()
 }
 
 export function savePreferences(prefs: Preferences): void {
-  write(localStorage, PREFERENCES_KEY, prefs.rememberAllergies ? prefs : { ...prefs, allergies: [] })
+  // Migrate before overwriting so an appearance/location update cannot erase an old consented list.
+  migrateLegacyPreferences()
+  write(localStorage, PREFERENCES_KEY, normalizePreferences(prefs))
+  notifyAppearanceListeners()
+}
+
+/** `null` is the consent state OFF; an empty array is ON with no reviewed ingredients yet. */
+export function loadAllergyMemory(): string[] | null {
+  migrateLegacyPreferences()
+  return readAllergyMemoryKey()
+}
+
+export function saveAllergyMemory(allergies: string[]): void {
+  migrateLegacyPreferences()
+  write(localStorage, ALLERGY_MEMORY_KEY, [...allergies])
+  notifyAllergyMemoryListeners()
+}
+
+/** Keeps an existing opt-in copy current without turning an absent (OFF) key back on. */
+export function syncAllergyMemory(allergies: string[]): void {
+  if (loadAllergyMemory() === null) return
+  write(localStorage, ALLERGY_MEMORY_KEY, [...allergies])
+  notifyAllergyMemoryListeners()
+}
+
+export function forgetAllergyMemory(): void {
+  localStorage.removeItem(ALLERGY_MEMORY_KEY)
+  notifyAllergyMemoryListeners()
+}
+
+export function getAllergyMemoryEnabled(): boolean {
+  return loadAllergyMemory() !== null
+}
+
+/**
+ * Stable primitive snapshot for React external-store consumers.
+ *
+ * A boolean snapshot misses an ON -> ON content change made by another tab. Returning the reviewed
+ * keys as JSON lets an open tab merge that stricter allergy state into its session as well.
+ */
+export function getAllergyMemorySnapshot(): string | null {
+  const allergies = loadAllergyMemory()
+  return allergies === null ? null : JSON.stringify(allergies)
+}
+
+export function subscribeAllergyMemory(listener: () => void): () => void {
+  allergyMemoryListeners.add(listener)
+  const onStorage = (event: StorageEvent) => {
+    if (
+      event.storageArea === localStorage &&
+      (event.key === ALLERGY_MEMORY_KEY || event.key === null)
+    ) {
+      listener()
+    }
+  }
+  window.addEventListener('storage', onStorage)
+
+  return () => {
+    allergyMemoryListeners.delete(listener)
+    window.removeEventListener('storage', onStorage)
+  }
+}
+
+export function getAppearancePreference(): AppearancePreference {
+  return loadPreferences().appearance
+}
+
+export function applyAppearancePreference(appearance: AppearancePreference): void {
+  if (typeof document === 'undefined') return
+  document.documentElement.style.colorScheme =
+    appearance === 'device' ? 'light dark' : appearance
+}
+
+export function setAppearancePreference(appearance: AppearancePreference): void {
+  savePreferences({ ...loadPreferences(), appearance })
+  applyAppearancePreference(appearance)
+}
+
+export function subscribeAppearancePreference(listener: () => void): () => void {
+  appearanceListeners.add(listener)
+  const onStorage = (event: StorageEvent) => {
+    if (event.storageArea === localStorage && (event.key === PREFERENCES_KEY || event.key === null)) {
+      listener()
+    }
+  }
+  window.addEventListener('storage', onStorage)
+
+  return () => {
+    appearanceListeners.delete(listener)
+    window.removeEventListener('storage', onStorage)
+  }
 }
 
 export function setManualLocation(manualLocation: ManualLocation | null): void {

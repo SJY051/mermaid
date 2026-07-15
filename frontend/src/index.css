@@ -56,6 +56,21 @@ body {
   animation-timing-function: linear !important;
 }
 
+.chat-composer-input textarea {
+  min-height: 2.25rem;
+  height: 2.25rem;
+  resize: none;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
+.chat-composer-input-waiting textarea {
+  opacity: 0;
+}
+
+.chat-composer-send {
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+
 @keyframes appearance-sheet-enter {
   from {
     transform: translateY(1rem);
@@ -78,12 +93,31 @@ body {
   }
 }
 
+@keyframes appearance-sheet-exit {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(1rem);
+    opacity: 0;
+  }
+}
+
 .appearance-sheet-enter {
   animation: appearance-sheet-enter var(--duration-medium) var(--ease-standard) both;
 }
 
+.appearance-sheet-exit {
+  animation: appearance-sheet-exit var(--duration-medium) var(--ease-standard) both;
+}
+
+.appearance-tab-transition {
+  transition: color var(--duration-fast) var(--ease-standard);
+}
+
 /* A safety surface is present immediately. It never waits for a tab transition to finish. */
-.appearance-section-enter:not([hidden]):not(:has([data-allergy-state])):not(:has([role='alert'])) {
+.appearance-section-enter:not([hidden]):not(:has([data-allergy-state])):not(:has([data-safety-surface])):not(:has([role='alert'])) {
   animation: appearance-section-enter var(--duration-fast) var(--ease-standard) both;
 }
 

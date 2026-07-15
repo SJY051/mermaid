@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.SourceRef;
+import com.mermaid.facility.EmergencyRoomApiClient;
 import com.mermaid.facility.HospitalApiClient;
 import com.mermaid.facility.HospitalDetailApiClient;
-import com.mermaid.facility.EmergencyRoomApiClient;
+import com.mermaid.facility.HolidayApiClient;
 import com.mermaid.facility.PharmacyApiClient;
 import com.mermaid.facility.domain.DutyTable;
 import java.nio.ByteBuffer;
+import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Map;
@@ -114,5 +116,17 @@ class CacheConfigTest {
         assertThat(back).isEqualTo(batch);
         assertThat(((EmergencyRoomApiClient.EmergencyRoomBatch) back).origin())
                 .isEqualTo(SourceRef.DataMode.FIXTURE);
+    }
+
+    @Test
+    @DisplayName("the yearly public-holiday cache value round-trips through JSON")
+    void holidayYearRoundTrips() {
+        var year =
+                new HolidayApiClient.HolidayYear(
+                        java.util.Set.of(LocalDate.of(2026, 5, 5), LocalDate.of(2026, 10, 5)));
+
+        Object restored = pair().read(pair().write(year));
+
+        assertThat(restored).isEqualTo(year);
     }
 }

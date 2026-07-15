@@ -370,6 +370,31 @@ describe('facility details (UI-03, DEV-207)', () => {
 })
 
 describe('manual location selection', () => {
+  it('orders the legend before the location panel and the location panel before the map', () => {
+    installNaverStub()
+    render(
+      <FacilityMap
+        center={centre}
+        manualLocation={{
+          canClear: false,
+          onUseSpot: vi.fn(),
+          onSearchAddress: vi.fn().mockResolvedValue([]),
+          onUseAddress: vi.fn(),
+          onClear: vi.fn(),
+        }}
+      />,
+    )
+
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    const locationPanel = screen.getByRole('region', { name: 'Set your location' })
+    const map = screen.getByTestId('naver-map')
+
+    expect(legend.compareDocumentPosition(locationPanel) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy()
+    expect(locationPanel.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy()
+  })
+
   it('moves the existing map when the resolved centre changes', async () => {
     const { setCenter } = installNaverStub()
     const { rerender } = render(<FacilityMap center={centre} />)

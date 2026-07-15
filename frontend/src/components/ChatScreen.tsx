@@ -2,7 +2,6 @@ import { useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import {
-  ChatComposer,
   ChatLayout,
   ChatMessage,
   ChatMessageBubble,
@@ -11,10 +10,11 @@ import {
 } from '@astryxdesign/core/Chat'
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
-import { CircleAlert, Ellipsis } from 'lucide-react'
+import { CircleAlert, Ellipsis, Send } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
 import type { MermAidAnswer } from '../lib/types'
 import { AllergenPicker } from './AllergenPicker'
+import { DisclaimerStrip } from './DisclaimerStrip'
 import { DrugCard } from './DrugCard'
 import { NearbyFacilities } from './NearbyFacilities'
 
@@ -30,10 +30,16 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
       aria-live="polite"
       className="chat-waiting-indicator flex flex-col gap-2"
     >
-      <ProgressBar isIndeterminate variant="accent" label="Waiting for the answer" />
       <p className="text-sm text-primary">
-        Checking your symptoms against verified government drug data and writing an answer.
+        Checking government drug data and writing your answer.
       </p>
+      <ProgressBar
+        isIndeterminate
+        isLabelHidden
+        variant="neutral"
+        label="Waiting for the answer"
+      />
+      {' '}
       <p className="text-sm text-secondary">
         {/* tabular-nums: the counter must not jitter as digits change. */}
         <span className="tabular-nums">{elapsedS}s</span> — a first answer can take a minute or
@@ -143,6 +149,7 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
     <section className="flex flex-col gap-3">
       {emergency && (
         <Banner
+          data-safety-surface
           status="error"
           icon={<CircleAlert aria-hidden="true" size={20} />}
           title={answer.urgency.title}
@@ -158,6 +165,7 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
       {answer.warnings.length > 0 && (
         <div
           role="status"
+          data-safety-surface
           className="flex flex-col gap-1 rounded border border-yellow-ring bg-yellow-subtle p-3 text-sm text-yellow-vivid"
         >
           {answer.warnings.map((warning, index) => (
@@ -185,18 +193,11 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
           />
         ) : null,
       )}
-
-      {/* Provenance. Never present fixture data as live (spec §2-14). */}
-      {answer.dataStatus === 'fixture' && (
-        <p className="text-xs text-secondary">
-          Showing sample data — the live government data source was unavailable.
-        </p>
-      )}
     </section>
   )
 }
 
-export function ChatScreen() {
+export function ChatScreen({ showDisclaimer = true }: { showDisclaimer?: boolean }) {
   const {
     turns,
     streaming,
@@ -265,7 +266,7 @@ export function ChatScreen() {
       : 'Ask again — the allergens you typed are checked by name only, not avoided.'
     : allergies.length
       ? 'Ask your question again — answers will avoid your selected ingredients.'
-      : "I have a sore throat and a fever, and it's 11pm."
+      : 'Describe your symptoms…'
 
   // `retryable: false` means "this exact request will not succeed if resent" — so the block
   // lifts the moment the question is edited. Locking Ask outright would trap the user whose
@@ -371,9 +372,12 @@ export function ChatScreen() {
   )
 
   const composerPanel = (
-    <div className="flex flex-col gap-2 pb-2">
+    <div
+      data-testid="chat-composer"
+      className="-mx-2 flex flex-col gap-1 bg-surface px-3 pb-1 pt-2"
+    >
       {(allergies.length > 0 || unverifiedAllergens.length > 0) && (
-        <div className="flex justify-end px-3">
+        <div className="flex justify-end">
           <Button
             label="Edit allergy list"
             variant="secondary"
@@ -382,68 +386,89 @@ export function ChatScreen() {
         </div>
       )}
       {/* SA-04: nudge people away from typing identifying details into a chat box. */}
-      <div className="px-3">
-        <ChatComposer
-          density="compact"
-          value={input}
-          onChange={setInput}
-          onSubmit={submit}
-          placeholder={composerPlaceholder}
-          input={
-            /* Locked while the answer is in flight. The box holds the question that was asked, and
-               for the ~100s a cold answer takes it must keep holding exactly that — an editable box
-               is a draft, and a draft is what the six review findings were all made of. It unlocks
-               on the answer (empty) or on the failure (the question, ready to edit or resend). */
-            <TextArea
-              ref={composerRef}
-              label="Describe your symptoms"
-              description="Please do not enter your passport number or date of birth."
-              placeholder={composerPlaceholder}
-              rows={3}
-              value={input}
-              onChange={setInput}
-              isDisabled={streaming}
-              // Not a bare `disabled`: with a message, astryx keeps the field focusable and marks
-              // it aria-disabled, so a keyboard or screen-reader user is told WHY it will not take
-              // their text. A silently dead box during a 100-second wait reads as a broken app.
-              disabledMessage="Your question is being answered. The box unlocks when the answer arrives."
-            />
-          }
-          sendButton={
-            <Button
-              label={streaming ? 'Working…' : 'Ask'}
-              variant="primary"
-              isLoading={streaming}
-              isDisabled={submitBlocked}
-              onClick={() => void submit(input)}
-            />
-          }
-        />
+      <p className="text-[11px] leading-tight text-secondary">
+        Please do not include identifying information, such as a passport number or date of birth.
+      </p>
+      <div className="flex items-center gap-2">
+        <div className="relative min-w-0 flex-1">
+          {/* Locked while the answer is in flight. The box holds the question that was asked, and
+              for the ~100s a cold answer takes it must keep holding exactly that — an editable box
+              is a draft, and a draft is what the six review findings were all made of. It unlocks
+              on the answer (empty) or on the failure (the question, ready to edit or resend). */}
+          <TextArea
+            ref={composerRef}
+            label="Describe your symptoms"
+            isLabelHidden
+            placeholder={composerPlaceholder}
+            rows={1}
+            size="sm"
+            width="100%"
+            className={`chat-composer-input ${streaming ? 'chat-composer-input-waiting' : ''}`}
+            value={input}
+            onChange={setInput}
+            isDisabled={streaming}
+            // Not a bare `disabled`: with a message, astryx keeps the field focusable and marks
+            // it aria-disabled, so a keyboard or screen-reader user is told WHY it will not take
+            // their text. A silently dead box during a 100-second wait reads as a broken app.
+            disabledMessage="Your question is being answered. The box unlocks when the answer arrives."
+          />
+          {streaming && (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-xs text-secondary"
+            >
+              Working…
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          aria-label={streaming ? 'Working…' : 'Ask'}
+          className="chat-composer-send flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-surface focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={submitBlocked}
+          onClick={() => void submit(input)}
+        >
+          {/* Decorative: the button's accessible name is the aria-label ("Ask" / "Working…"). */}
+          <Send aria-hidden="true" size={18} />
+        </button>
       </div>
     </div>
   )
 
-  const composer = unverifiableAllergy
+  const activeComposer = unverifiableAllergy
     ? unverifiableNotice
     : pickerOpen
       ? pickerPanel
       : composerPanel
+  const composer = (
+    <>
+      {showDisclaimer && (
+        <div className="-mx-2">
+          <DisclaimerStrip />
+        </div>
+      )}
+      {activeComposer}
+    </>
+  )
+  // The chip is a view over server-authored answer state. Keep it while any fixture answer remains
+  // visible in this tab; otherwise a later live turn would relabel older sample content as live.
+  const hasFixtureAnswer = turns.some((turn) => turn.answer?.dataStatus === 'fixture')
 
   return (
     <main className="flex h-full flex-col">
-      <header className="flex items-start justify-between gap-3 px-4 py-3">
-        <div>
-          <h1 className="text-lg font-semibold text-primary">mermAid</h1>
-          <p className="text-xs text-secondary">
-            Find care and understand Korean medicines — in English, without signing in.
-          </p>
-        </div>
-        <div className="relative">
+      <header className="flex min-h-11 items-center gap-2 border-b border-primary px-3.5">
+        <h1 className="text-sm font-semibold text-primary">mermAid</h1>
+        {hasFixtureAnswer && (
+          <span className="rounded-full border border-primary px-2 py-0.5 text-[10px] text-secondary">
+            sample data
+          </span>
+        )}
+        <div className="relative ml-auto">
           <button
             type="button"
             aria-label="Conversation menu"
             aria-expanded={menuOpen}
-            className="grid min-h-11 min-w-11 place-items-center rounded border border-primary px-2 text-primary"
+            className="grid h-11 w-11 place-items-center rounded text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
             onClick={() => setMenuOpen((open) => !open)}
           >
             <Ellipsis aria-hidden="true" size={20} />
