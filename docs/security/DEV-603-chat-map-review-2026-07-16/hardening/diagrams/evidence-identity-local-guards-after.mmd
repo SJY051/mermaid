@@ -1,0 +1,13 @@
+flowchart LR
+  Q["Query / product ID / coordinates"] --> A["Government adapter\nrequest-response binding"]
+  A -->|explicit fallback| F["Fixture or hybrid fallback\nmarked fixture"]
+  A --> R["Domain record + source metadata"]
+  F --> R
+  R --> C["Redis cache\nmode + origin + identity keys"]
+  C --> S["Service preserves source/time"]
+  S --> G["Grounding by stable IDs"]
+  G --> UI["Card / map / model context"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class Q,A,F untrusted
+  class C,S,G control

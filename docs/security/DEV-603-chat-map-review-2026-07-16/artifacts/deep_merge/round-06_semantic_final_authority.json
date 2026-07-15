@@ -1,0 +1,566 @@
+{
+  "schema_version": "deep-security-round-06-semantic-authority-v1",
+  "target": {
+    "commit": "654f906e00e81648d1482210b6a9171747dddd75",
+    "tree": "a14388f597c0c2a17e0dbcfc2d951a390c877214"
+  },
+  "strict_merge_rule": "Merge only when complete remediation subsumption is proven; related-only context never creates a merge edge or recurrence receipt.",
+  "audit_inputs": [
+    {
+      "role": "recurrence_parts_01_07",
+      "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+      "bytes": 126325,
+      "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+    },
+    {
+      "role": "recurrence_parts_08_14",
+      "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+      "bytes": 129829,
+      "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+    },
+    {
+      "role": "novel_residues",
+      "path": "artifacts/deep_merge/round-06_novel_residue_audit_a.json",
+      "bytes": 23743,
+      "sha256": "27a706201f0473570957fa7693006ff3395c167c6c350519abfa266a63e09d84"
+    },
+    {
+      "role": "suppressions",
+      "path": "artifacts/deep_merge/round-06_suppression_audit.json",
+      "bytes": 45538,
+      "sha256": "5af885a247d3b2e7d93116a779ea8e1214f31f0f28f52204fe54d6800572eb90"
+    }
+  ],
+  "phase_boundary": {
+    "centralized_validation_performed": false,
+    "centralized_attack_path_analysis_performed": false
+  },
+  "terminal_decision": {
+    "state": "capped",
+    "reason": "capped_by_user_deadline_after_round_06",
+    "completed_round": "round-06",
+    "saturation_proven": false,
+    "centralized_validation_may_begin": true
+  },
+  "source_row_count": 131,
+  "classification_counts": {
+    "prior_canonical_recurrence": 114,
+    "partial_recurrence_with_new_residue": 1,
+    "new_cluster_member": 3,
+    "suppression": 13
+  },
+  "effective_classification_counts": {
+    "prior_canonical_recurrence": 115,
+    "partial_recurrence_with_new_residue": 0,
+    "new_cluster_member": 3,
+    "suppression": 13
+  },
+  "recurrence_edge_count": 136,
+  "partial_recurrence_edge_count": 6,
+  "recurrence_overrides": [
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-021",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-081"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-078",
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-022",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-080"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-078",
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-023",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-075"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-024",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-074"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-025",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-074"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-026",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-073"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-07",
+      "candidate_id": "R06-W03-027",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-073"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-072"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact independently reachable canonical closes the complete tuple. The broader shared/composite canonicals include sibling instances intentionally kept separate, so they are context-only rather than recurrence edges. Classification remains recurrence and no residue remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+        "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2"
+      }
+    },
+    {
+      "part_id": "part-09",
+      "candidate_id": "R06W04-C008-unbounded-chat-work",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-022",
+        "R01-CAN-023"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-024",
+        "R01-CAN-025"
+      ],
+      "new_residue_keys": [],
+      "reason": "The exact current-target input-amplification and aggregate-admission instances are R01-CAN-022 and R01-CAN-023. R01-CAN-024 and R01-CAN-025 are overlapping nested/broad context and remain pinned related-only, matching the independently confirmed Part03 composite boundary.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+        "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+      }
+    },
+    {
+      "part_id": "part-09",
+      "candidate_id": "R06W04-C012-pharmacy-open-now-fanout",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-082"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-083"
+      ],
+      "new_residue_keys": [],
+      "reason": "R01-CAN-082 already closes the current-target public request, up-to-100 weekly-hours fanout, quota impact, and shared-budget remediation. R01-CAN-083 is the narrower nested analogue and remains pinned related-only.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+        "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+      }
+    },
+    {
+      "part_id": "part-10",
+      "candidate_id": "R06W04-C015-pharmacy-origin-cache-confusion",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-097"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-101"
+      ],
+      "new_residue_keys": [],
+      "reason": "R01-CAN-097 exactly closes the current-target rounded-key and first-origin-distance tuple. R01-CAN-101 is the nested-worktree analogue whose canonical boundary keeps it separate unless that second instance is proved.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+        "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+      }
+    },
+    {
+      "part_id": "part-10",
+      "candidate_id": "R06W04-C023-invalid-allergy-value-log",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-064"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-065"
+      ],
+      "new_residue_keys": [],
+      "reason": "R01-CAN-064 exactly closes the current-target rejected-value log sink. R01-CAN-065 is the nested analogue and remains pinned related-only, matching Part11's independently authored boundary.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+        "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+      }
+    },
+    {
+      "part_id": "part-12",
+      "candidate_id": "R06W05-C009",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-059",
+        "R02-CAN-005"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [],
+      "new_residue_keys": [],
+      "reason": "The claimed Round-06 residue repeats the full Round-04 source/control/sink/impact tuple: a legitimate path-borne deviceId is retained in request/application logs and replayed against deviceId-only profile authorization. Round 04 already classified that exact tuple as complete union recurrence and both frozen canonical ledgers carry its receipt. No new Round-06 cluster remains.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_novel_residue_audit_a.json",
+        "sha256": "27a706201f0473570957fa7693006ff3395c167c6c350519abfa266a63e09d84"
+      }
+    },
+    {
+      "part_id": "part-14",
+      "candidate_id": "R06W06-CAND-012",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-070"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-061",
+        "R01-CAN-063"
+      ],
+      "new_residue_keys": [],
+      "reason": "The source is the independently reachable pharmacy adapter instance, whose exact canonical is R01-CAN-070. The broader R01-CAN-061 composite remains related-only, consistent with Part10 and the authoritative Round-05 pharmacy-only recurrence.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+        "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+      }
+    },
+    {
+      "part_id": "part-14",
+      "candidate_id": "R06W06-CAND-014",
+      "classification": "prior_canonical_recurrence",
+      "prior_canonical_ids": [
+        "R01-CAN-071"
+      ],
+      "partially_recurrent_to": [],
+      "related_not_subsuming_prior": [
+        "R01-CAN-061",
+        "R01-CAN-062"
+      ],
+      "new_residue_keys": [],
+      "reason": "The source is the independently reachable hospital adapter instance, whose exact canonical is R01-CAN-071. The broader R01-CAN-061 composite remains related-only, consistent with Part10 and the authoritative Round-05 hospital-only recurrence.",
+      "independent_audit": {
+        "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+        "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e"
+      }
+    }
+  ],
+  "residue_dispositions": [
+    {
+      "part_id": "part-05",
+      "candidate_id": "R06-W03-009",
+      "residue_key": "negated-emergency-context-forces-emergency-only-response",
+      "decision": "promote",
+      "canonical_id": "R06-CAN-001",
+      "reason": "Independent novel-residue audit confirmed a remediation-distinct tuple and rejected every same-round merge.",
+      "independently_reviewed": true
+    },
+    {
+      "part_id": "part-06",
+      "candidate_id": "R06-W03-014",
+      "residue_key": "allergy-form-qualifier-authority:backend/src/main/java/com/mermaid/drug/IngredientNormalizer.java:62",
+      "decision": "promote",
+      "canonical_id": "R06-CAN-002",
+      "reason": "Independent novel-residue audit confirmed a remediation-distinct tuple and rejected every same-round merge.",
+      "independently_reviewed": true
+    },
+    {
+      "part_id": "part-11",
+      "candidate_id": "R06W05-C003",
+      "residue_key": "outer-malformed-chat-json-catch-all-log",
+      "decision": "promote",
+      "canonical_id": "R06-CAN-003",
+      "reason": "Independent novel-residue audit confirmed a remediation-distinct tuple and rejected every same-round merge.",
+      "independently_reviewed": true
+    },
+    {
+      "part_id": "part-12",
+      "candidate_id": "R06W05-C009",
+      "residue_key": "profile-bearer-in-valid-request-targets",
+      "decision": "do_not_promote",
+      "canonical_id": null,
+      "reason": "The claimed Round-06 residue repeats the full Round-04 source/control/sink/impact tuple: a legitimate path-borne deviceId is retained in request/application logs and replayed against deviceId-only profile authorization. Round 04 already classified that exact tuple as complete union recurrence and both frozen canonical ledgers carry its receipt. No new Round-06 cluster remains.",
+      "independently_reviewed": true
+    }
+  ],
+  "canonical_clusters": [
+    {
+      "canonical_id": "R06-CAN-001",
+      "semantic_cluster_id": "R06-NEW-001",
+      "title": "Negated or non-current red-flag text can lock a conversation into emergency-only responses",
+      "residue_refs": [
+        {
+          "part_id": "part-05",
+          "candidate_id": "R06-W03-009",
+          "residue_key": "negated-emergency-context-forces-emergency-only-response"
+        }
+      ],
+      "instance_key": "emergency-negation:backend/src/main/java/com/mermaid/chat/EmergencyTriage.java:36",
+      "proof_tuple": {
+        "source": "Anonymous consultation text contains a denial, resolved history, quotation, hypothetical, or other non-current mention of a lexical red flag.",
+        "control": "EmergencyTriage applies context-free matcher.find() patterns to every concatenated user turn.",
+        "sink": "Any match returns the server-authored 119 response before retrieval or model processing; retained history can repeat the short circuit on later turns.",
+        "impact": "Ordinary care information can remain unavailable and the user can be repeatedly directed to unnecessary emergency-service use."
+      },
+      "remediation_boundary": "Use a server-owned, clinically reviewed context decision that preserves affirmative and mixed-clause escalation while distinguishing clearly non-affirmative context; do not delegate the decision to the model or screen only the newest turn.",
+      "rationale": "Emergency-context interpretation is a distinct server-owned control; fixes to omitted affirmative patterns or generic rescue copy do not address context-driven false escalation.",
+      "partial_prior_ids": [],
+      "related_not_subsuming_ids": [
+        "R01-CAN-030"
+      ],
+      "affected_locations": [
+        {
+          "path": "backend/src/main/java/com/mermaid/chat/EmergencyTriage.java",
+          "lines": "22-24,36-67",
+          "label": "documented tradeoff and root control"
+        },
+        {
+          "path": "backend/src/main/java/com/mermaid/chat/ChatProxyService.java",
+          "lines": "151-163",
+          "label": "all-turn context collapse"
+        },
+        {
+          "path": "backend/src/main/java/com/mermaid/chat/ChatProxyController.java",
+          "lines": "84-98",
+          "label": "emergency-only short circuit"
+        },
+        {
+          "path": "frontend/src/lib/chatSession.tsx",
+          "lines": "272-279",
+          "label": "retained user-turn replay"
+        }
+      ],
+      "counterevidence": [
+        "The target explicitly prefers false positives because a false negative can be much more harmful."
+      ],
+      "taxonomy": {
+        "CWE": [
+          "CWE-20",
+          "CWE-754"
+        ]
+      },
+      "taxonomy_variants": [
+        {
+          "taxonomy": {
+            "cwe_ids": [
+              "CWE-20",
+              "CWE-754"
+            ]
+          }
+        }
+      ],
+      "validation_recommended": true,
+      "independent_approval": {
+        "approved": true,
+        "independent_of_part_authors": true,
+        "review_artifact": "artifacts/deep_merge/round-06_semantic_final_review.md",
+        "review_artifact_sha256": "c6b0ac9e24cde6b256ae951dbc960d884d355134b55c270eb44008de66a70f61",
+        "decision_reason": "The sealed independent novel-residue audit confirms strict non-subsumption and the review rejects every same-round merge."
+      }
+    },
+    {
+      "canonical_id": "R06-CAN-002",
+      "semantic_cluster_id": "R06-NEW-002",
+      "title": "Unreviewed in-code form qualifiers collapse into exact blocking identity",
+      "residue_refs": [
+        {
+          "part_id": "part-06",
+          "candidate_id": "R06-W03-014",
+          "residue_key": "allergy-form-qualifier-authority:backend/src/main/java/com/mermaid/drug/IngredientNormalizer.java:62"
+        }
+      ],
+      "instance_key": "allergy-form-authority:backend/src/main/java/com/mermaid/drug/IngredientNormalizer.java:62",
+      "proof_tuple": {
+        "source": "Government ingredient text or user input contains a token in the in-code FORM_QUALIFIERS set.",
+        "control": "Qualifier stripping runs outside the human-signed synonym metadata before identity classification.",
+        "sink": "The collapsed value compares as EXACT and AllergyChecker can author BLOCKED.",
+        "impact": "A clinically invalid equivalence can create a false high-authority allergy block; an incorrect omission can leave a real equivalence unmatched."
+      },
+      "remediation_boundary": "Put qualifier equivalence behind human-reviewed, source-backed metadata or retain transformation provenance so an unreviewed qualifier cannot independently yield EXACT or BLOCKED; use WARNING or UNKNOWN until review is complete.",
+      "rationale": "FORM_QUALIFIERS authority remains outside the human-signed synonym boundary; fixing signed synonym handling does not remove this in-code exact/blocking path.",
+      "partial_prior_ids": [],
+      "related_not_subsuming_ids": [
+        "R01-CAN-039"
+      ],
+      "affected_locations": [
+        {
+          "path": "backend/src/main/java/com/mermaid/drug/IngredientNormalizer.java",
+          "lines": "62-92",
+          "label": "unreviewed qualifier authority"
+        },
+        {
+          "path": "backend/src/main/java/com/mermaid/drug/IngredientNormalizer.java",
+          "lines": "118-135,182-207,245-255",
+          "label": "collapse and exact identity"
+        },
+        {
+          "path": "backend/src/main/java/com/mermaid/drug/AllergyChecker.java",
+          "lines": "50-68",
+          "label": "server-authored block sink"
+        }
+      ],
+      "counterevidence": [
+        "The code documents concrete false-negative reasons for physical-form stripping and deliberately excludes salts.",
+        "The worker probe proves EXACT/BLOCKED behavior, not clinical incorrectness of any current qualifier."
+      ],
+      "taxonomy": {
+        "CWE": [
+          "CWE-180",
+          "CWE-807"
+        ]
+      },
+      "taxonomy_variants": [
+        {
+          "taxonomy": {
+            "cwe_ids": [
+              "CWE-180",
+              "CWE-807"
+            ]
+          }
+        }
+      ],
+      "validation_recommended": true,
+      "independent_approval": {
+        "approved": true,
+        "independent_of_part_authors": true,
+        "review_artifact": "artifacts/deep_merge/round-06_semantic_final_review.md",
+        "review_artifact_sha256": "c6b0ac9e24cde6b256ae951dbc960d884d355134b55c270eb44008de66a70f61",
+        "decision_reason": "The sealed independent novel-residue audit confirms strict non-subsumption and the review rejects every same-round merge."
+      }
+    },
+    {
+      "canonical_id": "R06-CAN-003",
+      "semantic_cluster_id": "R06-NEW-003",
+      "title": "Outer malformed chat JSON reaches the catch-all logger with attacker health text",
+      "residue_refs": [
+        {
+          "part_id": "part-11",
+          "candidate_id": "R06W05-C003",
+          "residue_key": "outer-malformed-chat-json-catch-all-log"
+        }
+      ],
+      "instance_key": "outer:malformed-chat-json-catch-all-log",
+      "proof_tuple": {
+        "source": "Anonymous chat sends malformed JSON whose unquoted token contains symptom or identifying text.",
+        "control": "HttpMessageNotReadableException is absent from the sanitized invalid-request handler.",
+        "sink": "The outer catch-all logs the full Spring/Jackson exception and cause, including the attacker token.",
+        "impact": "Health-text fragments can persist in application, container, or aggregated logs and widen access to consultation data."
+      },
+      "remediation_boundary": "Classify HttpMessageNotReadableException in the outer handler and log only value-free structured metadata, or otherwise prevent parser messages and Throwable stacks from reaching logs.",
+      "rationale": "The outer malformed-body handler is independently reachable; remediating the nested-worktree handler in R01-CAN-066 does not change this log sink.",
+      "partial_prior_ids": [],
+      "related_not_subsuming_ids": [
+        "R01-CAN-066"
+      ],
+      "affected_locations": [
+        {
+          "path": "backend/src/main/java/com/mermaid/chat/ChatProxyController.java",
+          "lines": "84-99",
+          "label": "raw JSON boundary"
+        },
+        {
+          "path": "backend/src/main/java/com/mermaid/common/GlobalExceptionHandler.java",
+          "lines": "79-89",
+          "label": "missing malformed-body classification"
+        },
+        {
+          "path": "backend/src/main/java/com/mermaid/common/GlobalExceptionHandler.java",
+          "lines": "99-102",
+          "label": "full Throwable log sink"
+        }
+      ],
+      "counterevidence": [
+        "The client receives a generic INTERNAL_ERROR response; this protects the response only, not server-side log persistence."
+      ],
+      "taxonomy": {
+        "CWE": [
+          "CWE-532"
+        ]
+      },
+      "taxonomy_variants": [
+        {
+          "category": "CWE-532 / sensitive information in log files"
+        }
+      ],
+      "validation_recommended": true,
+      "independent_approval": {
+        "approved": true,
+        "independent_of_part_authors": true,
+        "review_artifact": "artifacts/deep_merge/round-06_semantic_final_review.md",
+        "review_artifact_sha256": "c6b0ac9e24cde6b256ae951dbc960d884d355134b55c270eb44008de66a70f61",
+        "decision_reason": "The sealed independent novel-residue audit confirms strict non-subsumption and the review rejects every same-round merge."
+      }
+    }
+  ]
+}

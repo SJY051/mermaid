@@ -1,0 +1,274 @@
+{
+  "schema_version": "deep-security-round-06-authority-check-reaudit-v1",
+  "audit_id": "round-06-authority-check-reaudit",
+  "audit_date": "2026-07-16",
+  "status": "pass",
+  "errors": [],
+  "target": {
+    "commit": "654f906e00e81648d1482210b6a9171747dddd75",
+    "tree": "a14388f597c0c2a17e0dbcfc2d951a390c877214"
+  },
+  "scope": "Independent byte-level re-audit of the sealed Round-06 semantic authority and CHECK-ONLY merge plan. No --write invocation and no canonical, ledger, or repository mutation.",
+  "sealed_gate": {
+    "manifest": {
+      "path": "artifacts/deep_merge/round-06_semantic_final_authority_manifest.json",
+      "bytes": 4897,
+      "sha256": "6d040b4494fd6e4c2581d98cfedbf8287650e7a70206b76ac0849bb8a10b5e88"
+    },
+    "authority": {
+      "path": "artifacts/deep_merge/round-06_semantic_final_authority.json",
+      "bytes": 25191,
+      "sha256": "93ef34ade615c54c6069f6c53115576b0090c8574b786f5ebccb63b323605b5a"
+    },
+    "independent_review": {
+      "path": "artifacts/deep_merge/round-06_semantic_final_review.md",
+      "bytes": 7732,
+      "sha256": "c6b0ac9e24cde6b256ae951dbc960d884d355134b55c270eb44008de66a70f61"
+    },
+    "builder": {
+      "path": "artifacts/deep_merge/build_round06_merge.mjs",
+      "bytes": 80954,
+      "sha256": "5a57edb93821bc486727b942e9256071f660513429a5fb8967dbe3e536530449"
+    },
+    "check_only_plan": {
+      "path": "artifacts/deep_merge/round-06_merge_check_only_plan.json",
+      "bytes": 7126,
+      "sha256": "4f9e35f614bbb236e335481cba0ea78b702e7f159a329ec8fd2daa33d4b0fefc"
+    }
+  },
+  "audit_inputs": [
+    {
+      "role": "recurrence_parts_01_07",
+      "path": "artifacts/deep_merge/round-06_recurrence_audit_01_07.json",
+      "bytes": 126325,
+      "sha256": "c03efb97f000e7096c2b45a20e8e7b04d032fa118a507b54ec8cfe0ccf861eb2",
+      "status_verified": "complete_with_authority_overlay"
+    },
+    {
+      "role": "recurrence_parts_08_14",
+      "path": "artifacts/deep_merge/round-06_recurrence_audit_08_14.json",
+      "bytes": 129829,
+      "sha256": "a98377960a7a039765f00448f68c5543188ce5316a1a35554e8612b02e2a980e",
+      "status_verified": "complete_with_binding_authority_overlay"
+    },
+    {
+      "role": "novel_residues",
+      "path": "artifacts/deep_merge/round-06_novel_residue_audit_a.json",
+      "bytes": 23743,
+      "sha256": "27a706201f0473570957fa7693006ff3395c167c6c350519abfa266a63e09d84",
+      "status_verified": "accounted_once_3_promote_0_merge_1_suppress"
+    },
+    {
+      "role": "suppressions",
+      "path": "artifacts/deep_merge/round-06_suppression_audit.json",
+      "bytes": 45538,
+      "sha256": "5af885a247d3b2e7d93116a779ea8e1214f31f0f28f52204fe54d6800572eb90",
+      "status_verified": "complete_all_suppressions_confirmed"
+    }
+  ],
+  "semantic_parts": [
+    {"part_id":"part-01","path":"artifacts/deep_merge/round-06_semantic_parts/part-01.jsonl","bytes":28319,"rows":7,"sha256":"9756f769bd9eb30933c27d0b98fd1e0b9e7df3715907e17498f71d658ccb6aa6"},
+    {"part_id":"part-02","path":"artifacts/deep_merge/round-06_semantic_parts/part-02.jsonl","bytes":25099,"rows":7,"sha256":"3fad14f07c5082cdb61734d71f77fef20cd57aa22ea318e1e18193b7a6588343"},
+    {"part_id":"part-03","path":"artifacts/deep_merge/round-06_semantic_parts/part-03.jsonl","bytes":45763,"rows":12,"sha256":"f6f6d5bbc9a4ebeb884b8781057e7651ca931d354456edc5221947890eeba2a9"},
+    {"part_id":"part-04","path":"artifacts/deep_merge/round-06_semantic_parts/part-04.jsonl","bytes":43752,"rows":11,"sha256":"eab0b2b23c48effe0547c1b261f2bc5d85a1b271d20f3c2f5d3599d2511be3b0"},
+    {"part_id":"part-05","path":"artifacts/deep_merge/round-06_semantic_parts/part-05.jsonl","bytes":32456,"rows":10,"sha256":"1cb48f76ae06d7c701108f4f8084a9a241882bf5fc29cd863a78e4632c1691f6"},
+    {"part_id":"part-06","path":"artifacts/deep_merge/round-06_semantic_parts/part-06.jsonl","bytes":40612,"rows":10,"sha256":"effdb89ee99215013cb162860b7ef2a4490ddf75c15d407fa644174db8887194"},
+    {"part_id":"part-07","path":"artifacts/deep_merge/round-06_semantic_parts/part-07.jsonl","bytes":44348,"rows":10,"sha256":"f89980d24e7247d87882549f1697939801329563776c3c8348dd0f3163d60b63"},
+    {"part_id":"part-08","path":"artifacts/deep_merge/round-06_semantic_parts/part-08.jsonl","bytes":30527,"rows":9,"sha256":"34d3b747894f99dc195d7044e420efd70d5f97cc5adee18fd3dbb7b0f4eac4fb"},
+    {"part_id":"part-09","path":"artifacts/deep_merge/round-06_semantic_parts/part-09.jsonl","bytes":47193,"rows":12,"sha256":"eaf4675335981a58137783c165f9ae4cd2178eb2ac55459bab17e792220ca33f"},
+    {"part_id":"part-10","path":"artifacts/deep_merge/round-06_semantic_parts/part-10.jsonl","bytes":52125,"rows":12,"sha256":"5e545a4a2a1e2f4b2e8bae695cb57658c908d8b4c4272912e5f2878a6ee54f2c"},
+    {"part_id":"part-11","path":"artifacts/deep_merge/round-06_semantic_parts/part-11.jsonl","bytes":31749,"rows":8,"sha256":"95d3fb5c106d739a594d3570d91653a08311c60d4af8dc9f03f956e3634c1c95"},
+    {"part_id":"part-12","path":"artifacts/deep_merge/round-06_semantic_parts/part-12.jsonl","bytes":33133,"rows":8,"sha256":"5b700a2dacffa3564751323ed180cafae9cccaba2b5af2e3f7d6ad430bd0fb8a"},
+    {"part_id":"part-13","path":"artifacts/deep_merge/round-06_semantic_parts/part-13.jsonl","bytes":29575,"rows":8,"sha256":"d112269aadb8f78a2d301a773bbedf6d7a8736e761cd7b28896b3fc438e51c05"},
+    {"part_id":"part-14","path":"artifacts/deep_merge/round-06_semantic_parts/part-14.jsonl","bytes":31417,"rows":7,"sha256":"1a7abd5c247760a5841e3c0be32d5b696dd7cc2611e0ccd1044e6d2ce0c2165b"}
+  ],
+  "authority_reconciliation": {
+    "source_rows": 131,
+    "materialized_classifications": {
+      "prior_canonical_recurrence": 114,
+      "partial_recurrence_with_new_residue": 1,
+      "new_cluster_member": 3,
+      "suppression": 13
+    },
+    "effective_classifications": {
+      "prior_canonical_recurrence": 115,
+      "partial_recurrence_with_new_residue": 0,
+      "new_cluster_member": 3,
+      "suppression": 13
+    },
+    "recurrence_edges": {
+      "direct": 130,
+      "partial": 6,
+      "total": 136
+    },
+    "overrides": {
+      "total": 14,
+      "parts_01_07": 7,
+      "parts_08_14": 7,
+      "audit_backings": {
+        "recurrence_parts_01_07": 7,
+        "recurrence_parts_08_14": 6,
+        "novel_residues": 1,
+        "suppressions": 0
+      },
+      "prior_context_sets_preserved_for_all_overrides": true,
+      "keys": [
+        "part-07|R06-W03-021",
+        "part-07|R06-W03-022",
+        "part-07|R06-W03-023",
+        "part-07|R06-W03-024",
+        "part-07|R06-W03-025",
+        "part-07|R06-W03-026",
+        "part-07|R06-W03-027",
+        "part-09|R06W04-C008-unbounded-chat-work",
+        "part-09|R06W04-C012-pharmacy-open-now-fanout",
+        "part-10|R06W04-C015-pharmacy-origin-cache-confusion",
+        "part-10|R06W04-C023-invalid-allergy-value-log",
+        "part-12|R06W05-C009",
+        "part-14|R06W06-CAND-012",
+        "part-14|R06W06-CAND-014"
+      ]
+    },
+    "residue_dispositions": {
+      "source_residues": 4,
+      "promoted": 3,
+      "not_promoted": 1,
+      "canonical_clusters": [
+        {"canonical_id":"R06-CAN-001","semantic_cluster_id":"R06-NEW-001","part_id":"part-05","candidate_id":"R06-W03-009","residue_key":"negated-emergency-context-forces-emergency-only-response"},
+        {"canonical_id":"R06-CAN-002","semantic_cluster_id":"R06-NEW-002","part_id":"part-06","candidate_id":"R06-W03-014","residue_key":"allergy-form-qualifier-authority:backend/src/main/java/com/mermaid/drug/IngredientNormalizer.java:62"},
+        {"canonical_id":"R06-CAN-003","semantic_cluster_id":"R06-NEW-003","part_id":"part-11","candidate_id":"R06W05-C003","residue_key":"outer-malformed-chat-json-catch-all-log"}
+      ],
+      "not_promoted_residue": {"part_id":"part-12","candidate_id":"R06W05-C009","residue_key":"profile-bearer-in-valid-request-targets","canonical_union":["R01-CAN-059","R02-CAN-005"]}
+    }
+  },
+  "frozen_preservation": {
+    "canonical_prefix": {
+      "rows": 185,
+      "bytes": 3954212,
+      "sha256": "0d5b39b868863b55edc96ff71ef2126b01917b102c1aa7c3ff6c1a49c16bc8a8",
+      "planned_merge_method": "byte-concatenate frozen prefix then three new JSONL rows",
+      "builder_evidence": "build_round06_merge.mjs:345-351,1026-1028"
+    },
+    "prior_canonical_ledgers": {
+      "files": 185,
+      "rows": 1268,
+      "bytes": 8444259,
+      "manifest_sha256": "6636f5b33e3ac8909631b442e8f82c2bed540d8436c2f0aad9d6845c7c214096",
+      "planned_merge_method": "append deterministic Round-06 receipts to each verified frozen base",
+      "builder_evidence": "build_round06_merge.mjs:362-391,1072-1078"
+    }
+  },
+  "check_only_reexecution": {
+    "command": "node artifacts/deep_merge/build_round06_merge.mjs --authority-manifest=artifacts/deep_merge/round-06_semantic_final_authority_manifest.json --authority-manifest-sha256=6d040b4494fd6e4c2581d98cfedbf8287650e7a70206b76ac0849bb8a10b5e88 --check-only",
+    "write_flag_present": false,
+    "exit_code": 0,
+    "stderr_empty": true,
+    "stdout_bytes": 5376,
+    "stdout_sha256": "89c0eed894f7b820e4666b9063d8b7fd32e26cf7960410557784064a1898b10c",
+    "sealed_runs": [
+      {"path":"artifacts/deep_merge/round-06_merge_check_only_postfix_run-01.json","bytes":5376,"sha256":"89c0eed894f7b820e4666b9063d8b7fd32e26cf7960410557784064a1898b10c"},
+      {"path":"artifacts/deep_merge/round-06_merge_check_only_postfix_run-02.json","bytes":5376,"sha256":"89c0eed894f7b820e4666b9063d8b7fd32e26cf7960410557784064a1898b10c"}
+    ],
+    "independent_run_equals_both_sealed_runs": true,
+    "independent_run_equals_plan_result": true,
+    "planned_result": {
+      "canonical_rows": 188,
+      "canonical_sha256": "274fd61156b7ae3ebeadb1c905258fbe001a5f81380891b9d2491b44652477b8",
+      "recurrence_receipts": 136,
+      "partial_recurrence_receipts": 6,
+      "touched_prior_ledgers": 54,
+      "new_ledgers": 3,
+      "central_validation_receipts": 0,
+      "central_attack_path_receipts": 0,
+      "planned_output_files": 66,
+      "would_change_files": 66
+    },
+    "canonical_write_performed": false
+  },
+  "postwrite_assertion_correction": {
+    "status": "pass",
+    "trigger": "The first coordinator write attempt reached the postwrite proof and correctly rolled back after the old proof scanned all planned ledger rows, including legitimate earlier-round central receipts.",
+    "historical_counterexample": {
+      "candidate_id": "R04-CAN-005",
+      "ledger_path": "artifacts/05_findings/R04-CAN-005/candidate_ledger.jsonl",
+      "rows": 7,
+      "bytes": 63664,
+      "sha256": "cd878f900949cf7a0f4d15283450fa03bef58f38353e5bc17b99cbebfb765ff2",
+      "legitimate_central_receipts": [
+        {"line":2,"event":"canonical_validation_receipt","round":"round-04"},
+        {"line":3,"event":"canonical_attack_path_receipt","round":"round-04"}
+      ],
+      "existing_round_06_rows": 0,
+      "planned_new_round_06_receipts": 1,
+      "planned_source": "part-03|R06W02-008"
+    },
+    "corrected_scope": {
+      "builder_evidence": "build_round06_merge.mjs:1384-1392",
+      "historical_row_count_source": "verified priorLedgerBases entry, or zero for a new Round-06 ledger",
+      "rows_inspected": "rows.slice(historicalRowCount)",
+      "new_suffix_must_be_round_06": true,
+      "central_validation_or_attack_receipts_forbidden_only_in_new_suffix": true,
+      "historical_central_receipts_preserved": true,
+      "base_only_rewrite_for_obsolete_round_06_suffix_preserved": true,
+      "predicate_negative_controls": {
+        "historical_plus_legitimate_round_06_recurrence_passes": true,
+        "new_round_06_canonical_validation_receipt_fails": true,
+        "new_non_round_06_suffix_row_fails": true,
+        "historical_base_only_obsolete_suffix_removal_passes": true
+      }
+    },
+    "rollback_verification": {
+      "canonical_rows": 185,
+      "canonical_sha256": "0d5b39b868863b55edc96ff71ef2126b01917b102c1aa7c3ff6c1a49c16bc8a8",
+      "new_round_06_ledgers_absent": ["R06-CAN-001","R06-CAN-002","R06-CAN-003"],
+      "frozen_prior_ledger_manifest_sha256": "6636f5b33e3ac8909631b442e8f82c2bed540d8436c2f0aad9d6845c7c214096",
+      "repository_tracked_diff_empty": true,
+      "repository_staged_diff_empty": true
+    }
+  },
+  "deadline_cap": {
+    "state": "capped",
+    "reason": "capped_by_user_deadline_after_round_06",
+    "completed_round": "round-06",
+    "saturation_proven": false,
+    "centralized_validation_may_begin": true,
+    "public_wording_verified": "Discovery is capped by the user deadline. Semantic saturation is not proven.",
+    "manifest_authority_plan_parity": true
+  },
+  "repository_and_surface_preservation": {
+    "repository_status_sha256_before": "fe8eac918422bb1837f7aed2d4dead8adb21cb942bbfe69bb7ae5ab60ed8acd1",
+    "repository_status_sha256_after": "fe8eac918422bb1837f7aed2d4dead8adb21cb942bbfe69bb7ae5ab60ed8acd1",
+    "repository_status_exact": true,
+    "tracked_diff_empty": true,
+    "staged_diff_empty": true,
+    "untracked_paths_and_bytes_exact": true,
+    "preexisting_untracked_paths": [
+      "?? .pnpm-store/v11/index.db",
+      "?? .pnpm-store/v11/projects/9d01a1a061aff6fc1dbc9def9af6f6d5",
+      "?? docs/specs/worker-briefs/A2-wireframe-parity.md",
+      "?? docs/specs/worker-briefs/DIAG-chat-map-failures.md",
+      "?? docs/specs/worker-briefs/mermaid-recovery-wave-plan-2026-07-15.md"
+    ],
+    "untracked_surface_sha256_before": "619e9df0bb75550d3341fa38f4a7d76f57dda1621b4c71020f38964ebf0f8833",
+    "untracked_surface_sha256_after": "619e9df0bb75550d3341fa38f4a7d76f57dda1621b4c71020f38964ebf0f8833",
+    "sealed_input_surface_sha256_before": "f498188125d5ccc9a12aa12718177b675fb86fc9c8d0caf25b8599423b3326b3",
+    "sealed_input_surface_sha256_after": "f498188125d5ccc9a12aa12718177b675fb86fc9c8d0caf25b8599423b3326b3",
+    "planned_write_surface_sha256_before": "6b38ab2067a5a79d02fca9ca47b7b67456611850e076eaa68b190febe58e9d0e",
+    "planned_write_surface_sha256_after": "6b38ab2067a5a79d02fca9ca47b7b67456611850e076eaa68b190febe58e9d0e",
+    "all_185_prior_ledgers_surface_sha256_before": "4afaf72ce53faf182c6fe8b087a8dd950994f45802b01f413e3c8a46ea28799d",
+    "all_185_prior_ledgers_surface_sha256_after": "4afaf72ce53faf182c6fe8b087a8dd950994f45802b01f413e3c8a46ea28799d",
+    "canonical_sha256_before": "0d5b39b868863b55edc96ff71ef2126b01917b102c1aa7c3ff6c1a49c16bc8a8",
+    "canonical_sha256_after": "0d5b39b868863b55edc96ff71ef2126b01917b102c1aa7c3ff6c1a49c16bc8a8"
+  },
+  "static_builder_gate": {
+    "check_only_branch": "build_round06_merge.mjs:1359-1361",
+    "write_branch_begins": "build_round06_merge.mjs:1361-1363",
+    "mutation_calls_only_reachable_from_write_branch": true,
+    "canonical_prefix_append_only": true,
+    "prior_ledger_base_append_only": true,
+    "postwrite_central_receipt_check_is_new_suffix_only": true,
+    "historical_central_receipts_are_not_rejected": true,
+    "repository_status_postwrite_guard_present": true
+  },
+  "conclusion": "PASS AFTER NARROW POSTWRITE ASSERTION CORRECTION. The sealed authority, corrected builder, deterministic CHECK-ONLY plan, rollback state, and historical-receipt boundary satisfy all requested gates. This re-audit did not invoke --write."
+}
