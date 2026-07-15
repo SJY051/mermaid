@@ -11,6 +11,7 @@ import com.mermaid.facility.HolidayApiClient;
 import com.mermaid.facility.PharmacyApiClient;
 import com.mermaid.facility.domain.DutyTable;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -49,18 +50,45 @@ class CacheConfigTest {
     @Test
     @DisplayName("the pharmacy-batch cache value round-trips, provenance included")
     void pharmacyBatchRoundTrips() {
+        Instant retrievedAt = Instant.parse("2026-07-16T00:00:00Z");
         var raw =
                 new PharmacyApiClient.RawPharmacy(
                         "C1110693", "청실약국", "서울 중구", "02-000-0000", 37.5, 126.9, 0.14, "0900", "1900");
         var batch =
-                new PharmacyApiClient.PharmacyBatch(List.of(raw), SourceRef.DataMode.FIXTURE);
+                new PharmacyApiClient.PharmacyBatch(
+                        List.of(raw),
+                        SourceRef.DataMode.LIVE,
+                        PharmacyApiClient.PharmacyProvider.HIRA,
+                        retrievedAt);
 
         RedisSerializationContext.SerializationPair<Object> pair = pair();
         Object back = pair.read(pair.write(batch));
 
         assertThat(back).isEqualTo(batch);
         assertThat(((PharmacyApiClient.PharmacyBatch) back).origin())
-                .isEqualTo(SourceRef.DataMode.FIXTURE);
+                .isEqualTo(SourceRef.DataMode.LIVE);
+        assertThat(((PharmacyApiClient.PharmacyBatch) back).provider())
+                .isEqualTo(PharmacyApiClient.PharmacyProvider.HIRA);
+        assertThat(((PharmacyApiClient.PharmacyBatch) back).retrievedAt())
+                .isEqualTo(retrievedAt);
+    }
+
+    @Test
+    @DisplayName("the HIRA pharmacy identity cache value round-trips, including a missing match")
+    void hiraPharmacyIdentityRoundTrips() {
+        Instant retrievedAt = Instant.parse("2026-07-16T00:00:00Z");
+        var raw =
+                new PharmacyApiClient.RawPharmacy(
+                        "YKIHO-1", "약국", "서울 중구", null, 37.5, 126.9, null, null, null);
+        var found =
+                new PharmacyApiClient.HiraIdentityBatch(
+                        raw, SourceRef.DataMode.LIVE, retrievedAt);
+        var missing =
+                new PharmacyApiClient.HiraIdentityBatch(
+                        null, SourceRef.DataMode.LIVE, retrievedAt);
+
+        assertThat(pair().read(pair().write(found))).isEqualTo(found);
+        assertThat(pair().read(pair().write(missing))).isEqualTo(missing);
     }
 
     @Test

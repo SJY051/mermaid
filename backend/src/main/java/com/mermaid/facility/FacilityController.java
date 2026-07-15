@@ -46,11 +46,10 @@ public class FacilityController {
     /**
      * A single facility by its namespaced id (UI-03, DEV-205), e.g. {@code facility:nmc:C1110693}.
      *
-     * <p>Pharmacies ({@code facility:nmc:<hpid>}) are reconstructed in full from one {@code
-     * getParmacyBassInfoInqire} call. Hospitals ({@code facility:hira:<ykiho>}) still answer <b>501
-     * NOT_IMPLEMENTED</b>: HIRA's detail service exposes hours by {@code ykiho} but not the name,
-     * address or coordinates, which come only from the coordinate-and-radius list. An unknown id is a
-     * 404. See {@link FacilityService#detail}.
+     * <p>NMC pharmacies use a raw {@code hpid}; HIRA pharmacies use a canonical token containing
+     * their {@code ykiho} and name so the server can reconstruct identity from the HIRA directory.
+     * Hospitals ({@code facility:hira:<ykiho>}) still answer <b>501 NOT_IMPLEMENTED</b>. An unknown id
+     * is a 404. See {@link FacilityService#detail}.
      */
     @GetMapping("/{id}")
     public Facility detail(@PathVariable String id) {

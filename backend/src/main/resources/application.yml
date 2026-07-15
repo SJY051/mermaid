@@ -123,6 +123,10 @@ mermaid:
     # See PublicApiUriBuilder for why, and .env.example for the trap.
     service-key: ${DATA_GO_KR_SERVICE_KEY:}
 
+    # 건강보험심사평가원 약국정보서비스 — primary pharmacy directory. Unlike NMC's fallback
+    # operation, getParmacyBasisList accepts xPos/yPos plus an explicit radius in metres.
+    hira-pharmacy-base-url: https://apis.data.go.kr/B551182/pharmacyInfoService
+
     # 국립중앙의료원 전국 약국 정보 조회 서비스 (data.go.kr 15000576)
     # NOTE: getParmacyLcinfoInqire has NO radius param. We clip by distance ourselves.
     pharmacy-base-url: https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService

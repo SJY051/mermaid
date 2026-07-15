@@ -1,0 +1,15 @@
+flowchart LR
+  Q["Query contract\nidentity + mode + origin"] --> A["Government adapter"]
+  A -->|live evidence| E["Provenanced envelope"]
+  A -->|fallback evidence| F["Fixture envelope\nnever live"]
+  F --> E
+  E --> C["Typed cache\nkeyed by evidence identity"]
+  C --> V["Identity/freshness verifier"]
+  V --> G["Evidence registry\nstable sourceRef"]
+  G --> UI["Card / map / model context"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  classDef safe fill:#dcfce7,stroke:#15803d,color:#111827
+  class Q,A,F untrusted
+  class C,V,G control
+  class E safe
