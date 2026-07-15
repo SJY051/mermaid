@@ -61,6 +61,13 @@ describe('DetailDrawer', () => {
     expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('✓')
   })
 
+  it('does not present an unavailable distance as zero metres', () => {
+    renderDrawer({ distanceMeters: null })
+
+    expect(screen.getByText('Distance unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('0 m from map centre')).not.toBeInTheDocument()
+  })
+
   it('offers a telephone link when the facility has a phone number', () => {
     renderDrawer()
 
