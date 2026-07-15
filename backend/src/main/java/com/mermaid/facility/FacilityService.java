@@ -29,8 +29,8 @@ import org.springframework.stereotype.Service;
 /**
  * Answers "what is open near me, right now" (FR-02, TC-02).
  *
- * <p>Neither the radius filter nor the open-now filter exists upstream — no public API offers them
- * (spec §2-9). Both are implemented here, which makes this class the one place TC-02 can fail.
+ * <p>HIRA accepts a pharmacy radius and a hospital radius, but neither provider exposes a trustworthy
+ * open-now flag. We still recompute distance from the caller and calculate status from schedules here.
  */
 @Service
 @RequiredArgsConstructor
@@ -40,7 +40,8 @@ public class FacilityService {
     /** The public timetables are all local Korean time. Never use the server's default zone. */
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
-    private static final String PHARMACY_PROVIDER = "nmc"; // 국립중앙의료원
+    private static final String NMC_PHARMACY_PROVIDER = "nmc";
+    private static final String HIRA_PHARMACY_PROVIDER = "hira-pharmacy";
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
     private static final String EMERGENCY_ROOM_PROVIDER = "nmc-emergency";
     /** NMC 기관ID (HPID): one letter + seven digits, e.g. {@code C1110693}. Widen only if a real id is rejected. */
@@ -54,27 +55,26 @@ public class FacilityService {
      * the nearest confirmed-open results. Looking only as far as the returned pin limit would hide a
      * farther open facility behind nearer closed ones.
      *
-     * <p>100 is the pharmacy location endpoint's own row cap, so for pharmacies it drops nothing. HIRA
-     * supplies more — the Seoul City Hall fixture reports {@code totalCount: 440} — so for hospitals
-     * this is a deliberate cap, and an open hospital ranked 101st or farther stays invisible.
+     * <p>100 is the NMC fallback's row cap. Both HIRA directory endpoints can supply more — the Seoul
+     * City Hall hospital fixture reports {@code totalCount: 440} — so for HIRA pharmacies and
+     * hospitals this is a deliberate cap on per-record detail calls.
      *
-     * <p>Quota is not what bounds this. The daily budgets are 1,000 calls for the pharmacy APIs — the
-     * tightest we hold — and 10,000 for HIRA; both detail lookups are cached per id ({@code @Cacheable}),
-     * so a second map load over the same area re-spends nothing. Hospitals share the pharmacy's cap
-     * because latency is the binding constraint, not because HIRA is scarce: with 10x the headroom it
-     * has no reason to be the more conservative of the two.
+     * <p>Quota is not what bounds this. HIRA allows 10,000 pharmacy calls while the NMC fallback allows
+     * 1,000; both detail lookups are cached per id ({@code @Cacheable}), so a second map load over the
+     * same area re-spends nothing. Latency remains the binding constraint.
      *
      * <p>Lowering this cap is the obvious lever for that latency and the wrong one to reach for blind:
-     * it trades away the farther open hospital this constant exists to find. The levers that do not are
-     * {@link #HOSPITAL_DETAIL_CONCURRENCY the detail concurrency} and the grid-shared list cache in
-     * {@link HospitalApiClient#findNear} — reach for those first, and take timings there several at a
-     * time in one window, because HIRA's detail latency swings by 3x between identical runs.
+     * it trades away the farther open facility this constant exists to find. The levers that do not are
+     * {@link #HOSPITAL_DETAIL_CONCURRENCY the detail concurrency} and the grid-shared directory caches
+     * — reach for those first, and take timings there several at a time in one window, because HIRA's
+     * detail latency swings by 3x between identical runs.
      */
     private static final int MAX_OPEN_NOW_CANDIDATES = 100;
     /**
      * How many HIRA detail calls may be in flight at once. This is the dominant cost of an
-     * {@code open_now=true} hospital load — 100 per-ykiho lookups, each ~1.4 s against HIRA's slow
-     * detail server (the pharmacy timetable endpoint answers the same shape in ~40 ms).
+     * {@code open_now=true} HIRA facility load — up to 100 per-ykiho lookups, each ~1.4 s against
+     * HIRA's slow detail server. The NMC fallback's separate pharmacy timetable endpoint answers in
+     * ~40 ms and retains its lower concurrency above.
      *
      * <p>16, not 4. Four was inherited from {@code DrugService}, whose MFDS DUR endpoint throttles at
      * four; HIRA does not — it scales almost linearly. Measured against the live detail endpoint,
@@ -117,9 +117,10 @@ public class FacilityService {
     /**
      * A single facility by its namespaced id (UI-03, DEV-205), e.g. {@code facility:nmc:C1110693}.
      *
-     * <p>A pharmacy is fully reconstructable from its {@code hpid} alone: one basis call carries name,
-     * address, phone, coordinates and the official timetable. A detail-by-id request has no origin
-     * point, so {@code distanceMeters} is genuinely unknown here — {@code null}, never a fabricated 0.
+     * <p>An NMC pharmacy is fully reconstructable from its {@code hpid}. A HIRA pharmacy id carries
+     * canonical encodings of its {@code ykiho} and name; the server searches by name and accepts only
+     * the matching {@code ykiho}. A detail-by-id request has no origin point, so {@code
+     * distanceMeters} is genuinely unknown — {@code null}, never a fabricated 0.
      *
      * <p>A hospital is not: HIRA exposes treatment hours by {@code ykiho} but not identity, so name,
      * address and coordinates can only be read from the geo list ({@code getHospBasisList}), which
@@ -138,7 +139,7 @@ public class FacilityService {
         String provider = parts[1];
         String recordId = parts[2];
 
-        if (PHARMACY_PROVIDER.equals(provider)) {
+        if (NMC_PHARMACY_PROVIDER.equals(provider)) {
             if (!HPID_PATTERN.matcher(recordId).matches()) {
                 // Reject a malformed HPID here, before any upstream call: otherwise every distinct
                 // bogus id would spend one of the 1,000/day pharmacy calls and cache a negative
@@ -146,6 +147,10 @@ public class FacilityService {
                 throw new NotFoundException("malformed pharmacy id: " + recordId);
             }
             return pharmacyDetail(recordId);
+        }
+        if (HIRA_PHARMACY_PROVIDER.equals(provider)) {
+            HiraPharmacyId pharmacyId = parseHiraPharmacyId(recordId);
+            return hiraPharmacyDetail(pharmacyId);
         }
         if (HOSPITAL_PROVIDER.equals(provider)) {
             if (!isWellFormedHospitalId(recordId)) {
@@ -172,6 +177,38 @@ public class FacilityService {
             if (!Facility.urlSafeSegment(ykiho).equals(recordId)) {
                 return false;
             }
+            return isWellFormedHiraYkiho(ykiho);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private static HiraPharmacyId parseHiraPharmacyId(String recordId) {
+        String[] encoded = recordId.split("\\.", -1);
+        if (encoded.length != 2 || encoded[0].isEmpty() || encoded[1].isEmpty()) {
+            throw new NotFoundException("malformed HIRA pharmacy id");
+        }
+        try {
+            String ykiho = Facility.decodeSegment(encoded[0]);
+            String name = Facility.decodeSegment(encoded[1]);
+            boolean canonical =
+                    Facility.urlSafeSegment(ykiho).equals(encoded[0])
+                            && Facility.urlSafeSegment(name).equals(encoded[1]);
+            boolean validName =
+                    !name.isBlank()
+                            && name.length() <= 100
+                            && name.chars().noneMatch(Character::isISOControl);
+            if (!canonical || !isWellFormedHiraYkiho(ykiho) || !validName) {
+                throw new NotFoundException("malformed HIRA pharmacy id");
+            }
+            return new HiraPharmacyId(ykiho, name);
+        } catch (IllegalArgumentException ignored) {
+            throw new NotFoundException("malformed HIRA pharmacy id");
+        }
+    }
+
+    private static boolean isWellFormedHiraYkiho(String ykiho) {
+        try {
             String decodedYkiho =
                     new String(Base64.getDecoder().decode(ykiho), StandardCharsets.UTF_8);
             return HIRA_YKIHO_PATTERN.matcher(decodedYkiho).matches();
@@ -179,6 +216,12 @@ public class FacilityService {
             return false;
         }
     }
+
+    private static String hiraPharmacySegment(String ykiho, String name) {
+        return Facility.urlSafeSegment(ykiho) + "." + Facility.urlSafeSegment(name);
+    }
+
+    private record HiraPharmacyId(String ykiho, String name) {}
 
     private Facility pharmacyDetail(String hpid) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
@@ -192,7 +235,7 @@ public class FacilityService {
         }
 
         return new Facility(
-                Facility.idOf(PHARMACY_PROVIDER, hpid),
+                Facility.idOf(NMC_PHARMACY_PROVIDER, hpid),
                 FacilityType.PHARMACY,
                 detail.name(),
                 null, // the pharmacy API publishes no English name
@@ -204,7 +247,7 @@ public class FacilityService {
                 null, // a detail-by-id request has no origin coordinate, so distance is unknown
                 weeklyOperation(detail.weeklyHours(), now, holiday, retrievedAt),
                 new SourceRef(
-                        "src:" + PHARMACY_PROVIDER + ":" + hpid,
+                        "src:" + NMC_PHARMACY_PROVIDER + ":" + hpid,
                         "국립중앙의료원 전국 약국 정보",
                         hpid,
                         retrievedAt,
@@ -214,27 +257,78 @@ public class FacilityService {
                 null);
     }
 
+    private Facility hiraPharmacyDetail(HiraPharmacyId id) {
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
+        boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
+        PharmacyApiClient.HiraIdentityBatch batch =
+                pharmacyApiClient.hiraIdentity(id.ykiho(), id.name());
+        PharmacyApiClient.RawPharmacy raw = batch.pharmacy();
+        if (raw == null) {
+            throw new NotFoundException("no HIRA pharmacy found for supplied id");
+        }
+        PharmacyOperationEvidence evidence =
+                hiraPharmacyEvidence(raw, batch.origin(), now, holiday, now.toInstant());
+        return new Facility(
+                Facility.idOf(
+                        HIRA_PHARMACY_PROVIDER,
+                        hiraPharmacySegment(raw.hpid(), raw.name())),
+                FacilityType.PHARMACY,
+                raw.name(),
+                null,
+                raw.address(),
+                null,
+                raw.phone(),
+                raw.latitude(),
+                raw.longitude(),
+                null,
+                evidence.operation(),
+                sourceOf(
+                        raw,
+                        PharmacyApiClient.PharmacyProvider.HIRA,
+                        batch.retrievedAt(),
+                        evidence.origin()),
+                null,
+                null);
+    }
+
     private List<Facility> pharmacies(
             double lat, double lng, int radiusMeters, boolean openNow, int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
-        Instant retrievedAt = now.toInstant();
+        Instant operationRetrievedAt = now.toInstant();
 
-        PharmacyApiClient.PharmacyBatch batch = pharmacyApiClient.findNear(lat, lng);
+        PharmacyApiClient.PharmacyBatch batch =
+                pharmacyApiClient.findNear(lat, lng, radiusMeters);
         int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
         List<PharmacyApiClient.RawPharmacy> candidates =
                 batch.pharmacies().stream()
-                // The location API has no radius parameter and can return 100 rows. Filter before
-                // toFacility() so an out-of-radius pharmacy never spends an HPID detail call.
+                // HIRA accepts a radius while NMC does not, but both batches are grid-cached. Recheck
+                // from this caller before any per-record schedule request.
                 .filter(raw -> distanceMetres(raw, lat, lng) <= radiusMeters)
-                .sorted(Comparator.comparingDouble(raw -> distanceMetres(raw, lat, lng)))
+                .sorted(
+                        Comparator.comparingDouble(
+                                raw -> distanceMetres(raw, lat, lng)))
                 .limit(candidateLimit)
                 .toList();
 
+        int scheduleConcurrency =
+                batch.provider() == PharmacyApiClient.PharmacyProvider.HIRA
+                        ? HOSPITAL_DETAIL_CONCURRENCY
+                        : PHARMACY_WEEKLY_HOURS_CONCURRENCY;
         return Parallel.map(
                         candidates,
-                        PHARMACY_WEEKLY_HOURS_CONCURRENCY,
-                        raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
+                        scheduleConcurrency,
+                        raw ->
+                                toFacility(
+                                        raw,
+                                        batch.origin(),
+                                        batch.provider(),
+                                        lat,
+                                        lng,
+                                        now,
+                                        holiday,
+                                        operationRetrievedAt,
+                                        batch.retrievedAt()))
                 .stream()
                 // `open_now=true` returns only status=open. A pharmacy whose timetable we could not
                 // read is excluded rather than guessed at, in either direction (spec §2-13).
@@ -247,12 +341,48 @@ public class FacilityService {
     private Facility toFacility(
             PharmacyApiClient.RawPharmacy raw,
             SourceRef.DataMode listOrigin,
+            PharmacyApiClient.PharmacyProvider provider,
             double originLat,
             double originLng,
             ZonedDateTime now,
             boolean holiday,
-            Instant retrievedAt) {
+            Instant operationRetrievedAt,
+            Instant sourceRetrievedAt) {
 
+        PharmacyOperationEvidence evidence =
+                provider == PharmacyApiClient.PharmacyProvider.HIRA
+                        ? hiraPharmacyEvidence(
+                                raw, listOrigin, now, holiday, operationRetrievedAt)
+                        : nmcPharmacyEvidence(
+                                raw, listOrigin, now, holiday, operationRetrievedAt);
+        String recordSegment =
+                provider == PharmacyApiClient.PharmacyProvider.HIRA
+                        ? hiraPharmacySegment(raw.hpid(), raw.name())
+                        : raw.hpid();
+
+        return new Facility(
+                Facility.idOf(provider.key(), recordSegment),
+                FacilityType.PHARMACY,
+                raw.name(),
+                null, // neither pharmacy directory publishes an English name
+                raw.address(),
+                null,
+                raw.phone(),
+                raw.latitude(),
+                raw.longitude(),
+                distanceMetres(raw, originLat, originLng),
+                evidence.operation(),
+                sourceOf(raw, provider, sourceRetrievedAt, evidence.origin()),
+                null, // pharmacy directories have no emergency-room flags
+                null);
+    }
+
+    private PharmacyOperationEvidence nmcPharmacyEvidence(
+            PharmacyApiClient.RawPharmacy raw,
+            SourceRef.DataMode listOrigin,
+            ZonedDateTime now,
+            boolean holiday,
+            Instant retrievedAt) {
         DutyTable weekly;
         boolean weeklyHoursLookupFailed = false;
         try {
@@ -274,34 +404,61 @@ public class FacilityService {
                         ? SourceRef.DataMode.FIXTURE
                         : SourceRef.DataMode.LIVE;
 
-        return new Facility(
-                Facility.idOf(PHARMACY_PROVIDER, raw.hpid()),
-                FacilityType.PHARMACY,
-                raw.name(),
-                null, // the pharmacy API publishes no English name
-                raw.address(),
-                null,
-                raw.phone(),
-                raw.latitude(),
-                raw.longitude(),
-                distanceMetres(raw, originLat, originLng),
+        FacilityOperation operation =
                 weeklyHoursLookupFailed
                         ? FacilityOperation.unknown(retrievedAt)
-                        : operationOf(raw, weekly, now, holiday, retrievedAt),
-                sourceOf(raw, retrievedAt, origin),
-                null, // the pharmacy API has no emergency-room flags
-                null);
+                        : operationOf(raw, weekly, now, holiday, retrievedAt);
+        return new PharmacyOperationEvidence(operation, origin);
     }
 
+    private PharmacyOperationEvidence hiraPharmacyEvidence(
+            PharmacyApiClient.RawPharmacy raw,
+            SourceRef.DataMode listOrigin,
+            ZonedDateTime now,
+            boolean holiday,
+            Instant retrievedAt) {
+        try {
+            HospitalDetailApiClient.HospitalDetailBatch detailBatch =
+                    hospitalDetailApiClient.findByYkiho(raw.hpid());
+            HospitalDetailApiClient.HospitalDetail detail = detailBatch.detail();
+            boolean detailWasUsed =
+                    !detail.weekdayHours().isEmpty()
+                            || detail.lunchBreak().isPresent()
+                            || detail.sundayClosed()
+                            || detail.holidayClosed();
+            SourceRef.DataMode origin =
+                    listOrigin == SourceRef.DataMode.FIXTURE
+                                    || (detailWasUsed
+                                            && detailBatch.origin() == SourceRef.DataMode.FIXTURE)
+                            ? SourceRef.DataMode.FIXTURE
+                            : SourceRef.DataMode.LIVE;
+            return new PharmacyOperationEvidence(
+                    hospitalOperation(
+                            detail, now, holiday, detailBatch.retrievedAt()),
+                    origin);
+        } catch (PublicApiException e) {
+            // HIRA's directory row is still verified and map-worthy. Detail is optional; a failure
+            // makes hours unknown without discarding the pin, matching the NMC fallback behavior.
+            log.warn(
+                    "HIRA pharmacy detail lookup failed for {}; retaining directory row",
+                    raw.hpid());
+            return new PharmacyOperationEvidence(
+                    FacilityOperation.unknown(retrievedAt), listOrigin);
+        }
+    }
+
+    private record PharmacyOperationEvidence(
+            FacilityOperation operation, SourceRef.DataMode origin) {}
+
     /**
-     * The API's own {@code distance} is in kilometres. Trust it when present — it is the same figure
-     * the service sorted by — and fall back to Haversine when a row omits it.
+     * Always recompute from the current caller. HIRA batches are grid-cached, and issue #97 proved a
+     * successful NMC response can ignore the requested location; neither upstream distance is a safe
+     * filter for this request.
      */
     private double distanceMetres(
-            PharmacyApiClient.RawPharmacy raw, double originLat, double originLng) {
-        if (raw.distanceKm() != null) {
-            return raw.distanceKm() * METRES_PER_KM;
-        }
+            PharmacyApiClient.RawPharmacy raw,
+            double originLat,
+            double originLng) {
         return GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
     }
 
@@ -352,14 +509,17 @@ public class FacilityService {
     }
 
     private SourceRef sourceOf(
-            PharmacyApiClient.RawPharmacy raw, Instant retrievedAt, SourceRef.DataMode origin) {
+            PharmacyApiClient.RawPharmacy raw,
+            PharmacyApiClient.PharmacyProvider provider,
+            Instant retrievedAt,
+            SourceRef.DataMode origin) {
         return new SourceRef(
-                "src:" + PHARMACY_PROVIDER + ":" + raw.hpid(),
-                "국립중앙의료원 전국 약국 정보",
+                "src:" + provider.key() + ":" + raw.hpid(),
+                provider.sourceName(),
                 raw.hpid(),
                 retrievedAt,
                 origin,
-                "National Medical Center — pharmacy directory");
+                provider.sourceDescription());
     }
 
     private List<Facility> hospitals(

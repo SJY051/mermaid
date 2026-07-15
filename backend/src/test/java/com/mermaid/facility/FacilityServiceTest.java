@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,6 +29,9 @@ class FacilityServiceTest {
 
     private static final Clock CHILDRENS_DAY_AFTERNOON =
             Clock.fixed(Instant.parse("2026-05-05T05:00:00Z"), ZoneId.of("UTC"));
+
+    private static final Instant HIRA_DIRECTORY_RETRIEVED_AT =
+            Instant.parse("2026-07-09T00:00:00Z");
 
     @Test
     void excludesOutOfRadiusPharmaciesBeforeLoadingTheirWeeklyHours() {
@@ -142,6 +146,47 @@ class FacilityServiceTest {
         assertThat(found.operation().isOpenNow()).isFalse();
         assertThat(found.operation().statusConfidence())
                 .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+    }
+
+    @Test
+    void hiraPrimaryKeepsProviderIdentityAndUsesHiraDetailHours() {
+        String ykiho =
+                "JDQ4MTg4MSM1MSMkMSMkNCMkMDMkMzgxMTkxIzIxIyQxIyQ1IyQ4OSQzNjE0ODEjNzEjJDEjJDgjJDgz";
+        var pharmacyClient = new HiraPharmacyClient(List.of(pharmacy(ykiho, 0.1, null, null)));
+        var detailClient = new HiraPharmacyDetailClient();
+        var service =
+                new FacilityService(
+                        pharmacyClient,
+                        new HospitalApiClient(null, null, null, null),
+                        detailClient,
+                        new EmergencyRoomApiClient(null, null, null, null),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        Facility found =
+                service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY).getFirst();
+
+        String recordSegment =
+                Facility.urlSafeSegment(ykiho)
+                        + "."
+                        + Facility.urlSafeSegment(ykiho + " pharmacy");
+        assertThat(found.id())
+                .isEqualTo("facility:hira-pharmacy:" + recordSegment);
+        assertThat(found.source().provider()).isEqualTo("건강보험심사평가원 약국정보서비스");
+        assertThat(found.source().recordId()).isEqualTo(ykiho);
+        assertThat(found.source().retrievedAt()).isEqualTo(HIRA_DIRECTORY_RETRIEVED_AT);
+        assertThat(found.operation().isOpenNow()).isTrue();
+        assertThat(found.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+        assertThat(detailClient.requestedYkiho).isEqualTo(ykiho);
+        assertThat(pharmacyClient.requestedRadiusMeters).isEqualTo(1000);
+        assertThat(pharmacyClient.weeklyHoursRequests).hasValue(0);
+
+        Facility detail = service.detail(found.id());
+        assertThat(detail.nameKo()).isEqualTo(found.nameKo());
+        assertThat(detail.addressKo()).isEqualTo(found.addressKo());
+        assertThat(detail.source().recordId()).isEqualTo(ykiho);
+        assertThat(detail.source().retrievedAt()).isEqualTo(HIRA_DIRECTORY_RETRIEVED_AT);
     }
 
     private static FacilityService pharmacyService(PharmacyApiClient client) {
@@ -275,7 +320,7 @@ class FacilityServiceTest {
                 hpid + " pharmacy",
                 "Seoul",
                 "02-000-0000",
-                37.5663,
+                37.5663 + distanceKm / 111.32,
                 126.9779,
                 distanceKm,
                 startTime,
@@ -284,8 +329,9 @@ class FacilityServiceTest {
 
     private static class CountingPharmacyClient extends PharmacyApiClient {
 
-        private List<RawPharmacy> pharmacies;
-        private final AtomicInteger weeklyHoursRequests = new AtomicInteger();
+        protected List<RawPharmacy> pharmacies;
+        protected final AtomicInteger weeklyHoursRequests = new AtomicInteger();
+        protected int requestedRadiusMeters;
 
         private CountingPharmacyClient(List<RawPharmacy> pharmacies) {
             super(null, null, null, null);
@@ -293,7 +339,8 @@ class FacilityServiceTest {
         }
 
         @Override
-        public PharmacyBatch findNear(double lat, double lng) {
+        public PharmacyBatch findNear(double lat, double lng, int radiusMeters) {
+            requestedRadiusMeters = radiusMeters;
             return new PharmacyBatch(pharmacies, SourceRef.DataMode.LIVE);
         }
 
@@ -311,7 +358,7 @@ class FacilityServiceTest {
         }
 
         @Override
-        public PharmacyBatch findNear(double lat, double lng) {
+        public PharmacyBatch findNear(double lat, double lng, int radiusMeters) {
             return new PharmacyBatch(
                     List.of(
                             pharmacy("failed", 0.1, null, null),
@@ -330,6 +377,59 @@ class FacilityServiceTest {
                 return DutyTable.empty(SourceRef.DataMode.LIVE);
             }
             return new DutyTable(Map.of(5, List.of("0900", "1900")), SourceRef.DataMode.LIVE);
+        }
+    }
+
+    private static final class HiraPharmacyClient extends CountingPharmacyClient {
+
+        private HiraPharmacyClient(List<RawPharmacy> pharmacies) {
+            super(pharmacies);
+        }
+
+        @Override
+        public PharmacyBatch findNear(double lat, double lng, int radiusMeters) {
+            requestedRadiusMeters = radiusMeters;
+            return new PharmacyBatch(
+                    pharmacies,
+                    SourceRef.DataMode.LIVE,
+                    PharmacyProvider.HIRA,
+                    HIRA_DIRECTORY_RETRIEVED_AT);
+        }
+
+        @Override
+        public HiraIdentityBatch hiraIdentity(String ykiho, String name) {
+            RawPharmacy match =
+                    pharmacies.stream()
+                            .filter(row -> ykiho.equals(row.hpid()) && name.equals(row.name()))
+                            .findFirst()
+                            .orElse(null);
+            return new HiraIdentityBatch(
+                    match, SourceRef.DataMode.LIVE, HIRA_DIRECTORY_RETRIEVED_AT);
+        }
+    }
+
+    private static final class HiraPharmacyDetailClient extends HospitalDetailApiClient {
+
+        private String requestedYkiho;
+
+        private HiraPharmacyDetailClient() {
+            super(null, null, null, null);
+        }
+
+        @Override
+        public HospitalDetailBatch findByYkiho(String ykiho) {
+            requestedYkiho = ykiho;
+            return new HospitalDetailBatch(
+                    new HospitalDetail(
+                            ykiho,
+                            Map.of(5, List.of("0900", "1900")),
+                            Optional.empty(),
+                            false,
+                            false,
+                            null,
+                            null),
+                    SourceRef.DataMode.LIVE,
+                    FRIDAY_AFTERNOON.instant());
         }
     }
 
