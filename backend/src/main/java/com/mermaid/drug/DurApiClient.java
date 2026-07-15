@@ -154,16 +154,20 @@ public class DurApiClient {
         }
         requireConfigured(operationCode);
 
+        JsonNode raw;
         List<DurWarning> rows;
         try {
-            rows = parse(fetchLive(OPERATIONS.get(kind), Map.of("itemSeq", itemSeq)), kind);
+            raw = fetchLive(OPERATIONS.get(kind), Map.of("itemSeq", itemSeq));
+            rows = parse(raw, kind);
         } catch (RuntimeException failure) {
             if (dataMode.allowsFallback()) {
                 return fixtureKind(itemSeq, kind, operationCode, true);
             }
             throw unavailable(operationCode, "UPSTREAM_FAILURE");
         }
-        if (rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
+        PublicApiResponse response = PublicApiResponse.of(raw).requireOk();
+        if (!response.hasConsistentItemCount()
+                || rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
             throw payloadInvalid(operationCode);
         }
         return new DurKindBatch(rows, SourceRef.DataMode.LIVE, now());
