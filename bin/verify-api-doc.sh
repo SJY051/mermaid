@@ -63,7 +63,25 @@ echo "$hospital" | grep -q '"type":"hospital"'
 check "GET /facilities?type=hospital returns hospital facilities" $?
 echo "$hospital" | grep -q '"id":"facility:hira:'
 check "GET /facilities?type=hospital is not an empty legacy 200 response" $?
-expect GET "/facilities/facility:nmc:C1110693"                 501
+expect GET "/facilities/facility:nmc:C1110693"                 200   # 약국 단건 상세
+# Captured HIRA ykiho wrapped once more in base64url for a path-safe facility id.
+HIRA_FIXTURE_ID="facility:hira:SkRRNE1UZzRNU00xTVNNa01TTWtNQ01rT0Rra016Z3hNelV4SXpFeEl5UXhJeVF6SXlRM09TUTBOakV3TURJak5qRWpKREVqSkRRakpEZ3o"
+expect GET "/facilities/$HIRA_FIXTURE_ID"                     501   # 병원 단건은 미구현
+expect GET "/facilities/facility:nmc:not-an-hpid"              404   # 잘못된 형식 → 상류 호출 0
+expect GET "/facilities/facility:nmc:C9999999"                 404   # 형식은 맞지만 상류에 없음
+expect GET "/facilities/facility:unknownprovider:C1110693"    404   # 미지 provider
+detail=$(curl -s "$BASE/facilities/facility:nmc:C1110693")
+# 단건 응답 계약: 필드 이름, distanceMeters=null(nullable), fixture 출처
+echo "$detail" | grep -q '"type":"pharmacy"'
+check "단건 상세: type=pharmacy" $?
+echo "$detail" | grep -q '"nameKo":"청실약국"'
+check "단건 상세: nameKo 복원" $?
+echo "$detail" | grep -qE '"latitude":[0-9]' && echo "$detail" | grep -qE '"longitude":[0-9]'
+check "단건 상세: 응답은 latitude/longitude (요청 파라미터 lat/lng와 다른 이름)" $?
+echo "$detail" | grep -q '"distanceMeters":null'
+check "단건 상세: distanceMeters=null (기준 좌표 없음 — nullable 계약)" $?
+echo "$detail" | grep -q '"dataMode":"fixture"'
+check "단건 상세: fixture provenance (source.dataMode=fixture)" $?
 expect GET "/facilities?lat=999&lng=127.0"                     400
 expect GET "/facilities?lng=127.0"                             400   # lat is required
 expect GET "/facilities?lat=37.5&lng=127.0&type=clinic"        400   # closed enum
