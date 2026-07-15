@@ -1,6 +1,7 @@
 package com.mermaid.facility;
 
 import com.mermaid.common.GeoUtils;
+import com.mermaid.common.NotFoundException;
 import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
@@ -101,6 +102,78 @@ public class FacilityService {
             case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow, limit);
             case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow, limit);
         };
+    }
+
+    /**
+     * A single facility by its namespaced id (UI-03, DEV-205), e.g. {@code facility:nmc:C1110693}.
+     *
+     * <p>A pharmacy is fully reconstructable from its {@code hpid} alone: one basis call carries name,
+     * address, phone, coordinates and the official timetable. A detail-by-id request has no origin
+     * point, so {@code distanceMeters} is genuinely unknown here — {@code null}, never a fabricated 0.
+     *
+     * <p>A hospital is not: HIRA exposes treatment hours by {@code ykiho} but not identity, so name,
+     * address and coordinates can only be read from the geo list ({@code getHospBasisList}), which
+     * needs a coordinate and a radius. Until that gap is bridged, {@code facility:hira:…} answers 501 —
+     * the honest "we cannot look it up this way", not a blank or invented card.
+     *
+     * @throws NotFoundException the id is malformed, names an unknown provider, or no such pharmacy
+     *     exists upstream (→ 404)
+     * @throws UnsupportedOperationException a hospital id, whose detail-by-id path is not built (→ 501)
+     */
+    public Facility detail(String id) {
+        String[] parts = id.split(":", 3);
+        if (parts.length != 3 || !"facility".equals(parts[0]) || parts[2].isEmpty()) {
+            throw new NotFoundException("malformed facility id: " + id);
+        }
+        String provider = parts[1];
+        String recordId = parts[2];
+
+        if (PHARMACY_PROVIDER.equals(provider)) {
+            return pharmacyDetail(recordId);
+        }
+        if (HOSPITAL_PROVIDER.equals(provider)) {
+            // TODO(team): hospital detail-by-id (DEV-205) needs a HIRA by-ykiho identity source. The
+            // detail service (getDtlInfo2.8) returns hours but no name/address/coordinates; those come
+            // only from the coordinate-and-radius list. Until that gap is bridged this is an honest 501.
+            throw new UnsupportedOperationException(
+                    "Hospital detail-by-id is not built — HIRA exposes hours by ykiho but not identity"
+                            + " (name/address/coordinates); see FacilityService#detail");
+        }
+        throw new NotFoundException("unknown facility provider: " + provider);
+    }
+
+    private Facility pharmacyDetail(String hpid) {
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
+        boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
+        Instant retrievedAt = now.toInstant();
+
+        PharmacyApiClient.PharmacyDetailBatch batch = pharmacyApiClient.basisDetail(hpid);
+        PharmacyApiClient.PharmacyDetail detail = batch.detail();
+        if (detail == null) {
+            throw new NotFoundException("no pharmacy found for hpid " + hpid);
+        }
+
+        return new Facility(
+                Facility.idOf(PHARMACY_PROVIDER, hpid),
+                FacilityType.PHARMACY,
+                detail.name(),
+                null, // the pharmacy API publishes no English name
+                detail.address(),
+                null,
+                detail.phone(),
+                detail.latitude(),
+                detail.longitude(),
+                null, // a detail-by-id request has no origin coordinate, so distance is unknown
+                weeklyOperation(detail.weeklyHours(), now, holiday, retrievedAt),
+                new SourceRef(
+                        "src:" + PHARMACY_PROVIDER + ":" + hpid,
+                        "국립중앙의료원 전국 약국 정보",
+                        hpid,
+                        retrievedAt,
+                        batch.origin(),
+                        "National Medical Center — pharmacy directory"),
+                null, // the pharmacy API has no emergency-room flags
+                null);
     }
 
     private List<Facility> pharmacies(
@@ -209,13 +282,7 @@ public class FacilityService {
             Instant retrievedAt) {
 
         if (!weekly.byDay().isEmpty()) {
-            WeeklyHours hours = WeeklyHours.fromDutyTimes(weekly.byDay());
-            if (!hours.hasAnySchedule()) {
-                return FacilityOperation.unknown(retrievedAt);
-            }
-            return hours.isOpenAt(now, holiday)
-                    ? FacilityOperation.open(retrievedAt)
-                    : FacilityOperation.closed(retrievedAt);
+            return weeklyOperation(weekly, now, holiday, retrievedAt);
         }
 
         OpenInterval today = OpenInterval.of(raw.startTime(), raw.endTime());
@@ -225,6 +292,25 @@ public class FacilityService {
         LocalTime at = now.toLocalTime();
         boolean open = today.containsStartingToday(at) || today.carriesInto(at);
         return FacilityOperation.inferred(open, retrievedAt);
+    }
+
+    /**
+     * Open-now from a published weekly table alone — {@code OFFICIAL_SCHEDULE}, or {@code UNKNOWN}
+     * when the table holds no usable interval. Unlike {@link #operationOf} there is no single
+     * start/end pair to infer from, so a missing schedule stays honestly unknown, never guessed.
+     */
+    private FacilityOperation weeklyOperation(
+            DutyTable weekly, ZonedDateTime now, boolean holiday, Instant retrievedAt) {
+        if (weekly.byDay().isEmpty()) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        WeeklyHours hours = WeeklyHours.fromDutyTimes(weekly.byDay());
+        if (!hours.hasAnySchedule()) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        return hours.isOpenAt(now, holiday)
+                ? FacilityOperation.open(retrievedAt)
+                : FacilityOperation.closed(retrievedAt);
     }
 
     private SourceRef sourceOf(

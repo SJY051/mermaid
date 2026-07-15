@@ -240,7 +240,7 @@ flowchart LR
 | DEV-203d | `FacilityService.hospitals()` 연결 — `501` 제거 | P0 | M | BE-2 | ⛔ 203a~c. 기존 반경·영업중 계산(DEV-204) 재사용. 시간표 없는 기관은 `isOpenNow: null` — `false` 금지(§2-3) |
 | DEV-203e | 병원 테스트·fixture 검증 + 발표 노트 3줄 | P0 | S | BE-2 | ⛔ 203d. 여기까지 오면 지도에서 병원 핀이 뜹니다 — **30초 시연 장면** |
 | DEV-204 | 거리·영업중 필터 + `is_open_now` **nullable** | P0 | M | BE-2 | ✅ (주간시간표 붙이면 `INFERRED`→`OFFICIAL_SCHEDULE`) |
-| DEV-205 | `GET /facilities` + provider namespace ID | P0 | M | BE-2 | ✅ 목록. 단건(`/{id}`)은 남음 |
+| DEV-205 | `GET /facilities` + provider namespace ID | P0 | M | BE-2 | ✅ 목록 + 약국 단건(`/{id}`). 병원 단건은 HIRA가 ykiho로 식별정보(이름·주소·좌표) 미제공 → 상류 한계로 501, 잘못된 id는 404 |
 | DEV-206 | 지도·목록 UI + GPS 거부 시 수동 위치 | P0 | L | FE-2 | 🔧 지도·목록·핀·폴백 완료. **수동 위치 입력 남음** |
 | DEV-207 | 상세 드로어 (UI-03) + **바텀시트 직접 조립** | P0 | M | FE-2 | 🔧 미착수. DEV-106이 끝나 막힌 것은 없습니다 |
 | DEV-208 | 공휴일 캘린더 (특일 정보 API) | P1 | M | BE-2 | 🔧 지금은 늘 평일 |
@@ -387,7 +387,7 @@ rg 'TODO\(team\)' backend/src frontend/src
 |---|---|---|
 | `PharmacyApiClient#weeklyHours` | DEV-202 | BE-2 |
 | `FacilityService#hospitals` | DEV-203 (심평원 403 대기) | BE-2 |
-| `FacilityController#detail` | DEV-205 | BE-2 |
+| `FacilityService#detail` (병원 단건 — HIRA ykiho 식별정보 소스 대기) | DEV-205 | BE-2 |
 | `HolidayCalendar#isHoliday` | DEV-208 | BE-2 |
 | `DrugService#search`, `#detail` | DEV-301, DEV-307 | BE-1 |
 | `ChatProxyService#prepare` (response_format — glm-5.2는 지원함) | DEV-102 | BE-1 |

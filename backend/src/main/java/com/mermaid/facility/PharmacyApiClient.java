@@ -213,6 +213,91 @@ public class PharmacyApiClient {
     }
 
     /**
+     * A single pharmacy's full basis record for the detail-by-id path (DEV-205, UI-03).
+     *
+     * <p>{@code getParmacyBassInfoInqire?HPID=…} is the one pharmacy call that echoes name, address,
+     * phone, {@code wgs84Lat}/{@code wgs84Lon} and the weekly timetable together — so unlike a hospital
+     * (whose HIRA detail omits identity entirely), a pharmacy is fully reconstructable from its {@code
+     * hpid} alone, with no origin coordinate and no list lookup. {@link #weeklyHours} hits the same
+     * endpoint but keeps only the timetable; the detail path needs the identity fields too.
+     *
+     * <p>Returns a batch whose {@code detail} is {@code null} when no row matches the requested {@code
+     * hpid} — the caller turns that into a 404 rather than a blank card. Cached per {@code hpid}; a
+     * negative result is cached too, which spares the 1,000/day quota a repeated lookup of an id that
+     * upstream does not know.
+     */
+    @Cacheable(value = "pharmacyBasisDetail", key = "#hpid")
+    public PharmacyDetailBatch basisDetail(String hpid) {
+        if (dataMode.isFixtureOnly()) {
+            return fixtureDetail(hpid);
+        }
+        if (!properties.isConfigured()) {
+            log.warn("DATA_GO_KR_SERVICE_KEY is not set — falling back to fixture pharmacy detail");
+            return fixtureDetail(hpid);
+        }
+
+        try {
+            JsonNode raw =
+                    publicApiWebClient
+                            .get()
+                            .uri(weeklyHoursUriFor(hpid))
+                            .retrieve()
+                            .bodyToMono(JsonNode.class)
+                            .block();
+            return new PharmacyDetailBatch(
+                    parseBasisDetail(raw, hpid, SourceRef.DataMode.LIVE), SourceRef.DataMode.LIVE);
+        } catch (Exception e) {
+            if (dataMode.allowsFallback()) {
+                log.warn(
+                        "pharmacy detail lookup failed for {}, falling back to fixture: {}",
+                        hpid,
+                        e.getMessage());
+                return fixtureDetail(hpid);
+            }
+            throw new PublicApiException("Pharmacy detail lookup failed for " + hpid, e);
+        }
+    }
+
+    private PharmacyDetailBatch fixtureDetail(String hpid) {
+        return new PharmacyDetailBatch(
+                parseBasisDetail(fixtures.load(BASIS_FIXTURE), hpid, SourceRef.DataMode.FIXTURE),
+                SourceRef.DataMode.FIXTURE);
+    }
+
+    /**
+     * Reads the identity fields and the weekly timetable for one pharmacy. Returns {@code null} when
+     * no row carries the requested {@code hpid}, so the detail path can answer 404 instead of guessing.
+     */
+    private PharmacyDetail parseBasisDetail(JsonNode raw, String hpid, SourceRef.DataMode origin) {
+        PublicApiResponse response = PublicApiResponse.of(raw).requireOk();
+
+        for (JsonNode row : response.items()) {
+            if (!hpid.equals(PublicApiResponse.text(row, "hpid"))) {
+                continue;
+            }
+
+            Map<Integer, List<String>> hours = new HashMap<>();
+            for (int day = 1; day <= 8; day++) {
+                String start = PublicApiResponse.text(row, "dutyTime" + day + "s");
+                String end = PublicApiResponse.text(row, "dutyTime" + day + "c");
+                if (start != null && end != null) {
+                    hours.put(day, List.of(start, end));
+                }
+            }
+            return new PharmacyDetail(
+                    hpid,
+                    PublicApiResponse.text(row, "dutyName"),
+                    PublicApiResponse.text(row, "dutyAddr"),
+                    PublicApiResponse.text(row, "dutyTel1"),
+                    PublicApiResponse.number(row, "wgs84Lat"),
+                    PublicApiResponse.number(row, "wgs84Lon"),
+                    new DutyTable(Map.copyOf(hours), origin));
+        }
+
+        return null;
+    }
+
+    /**
      * Extracts dutyTime1s/dutyTime1c through dutyTime8s/dutyTime8c for the requested pharmacy.
      * Missing day fields must remain absent so WeeklyHours treats those days as closed.
      */
@@ -266,4 +351,28 @@ public class PharmacyApiClient {
      *     app-wide mode (§2-14).
      */
     public record PharmacyBatch(List<RawPharmacy> pharmacies, SourceRef.DataMode origin) {}
+
+    /**
+     * One pharmacy's full basis record: everything the detail-by-id path needs from a single call.
+     *
+     * @param latitude {@code wgs84Lat} — the basis endpoint's coordinate field, not the location
+     *     endpoint's {@code latitude}. Null when the row omits it.
+     * @param weeklyHours the official 1..8 duty table (1=Mon … 7=Sun, 8=공휴일)
+     */
+    public record PharmacyDetail(
+            String hpid,
+            String name,
+            String address,
+            String phone,
+            Double latitude,
+            Double longitude,
+            DutyTable weeklyHours) {}
+
+    /**
+     * A pharmacy detail lookup and its provenance.
+     *
+     * @param detail {@code null} when no row matched the requested {@code hpid}; the caller answers
+     *     404 rather than presenting an empty card as a fact about the world.
+     */
+    public record PharmacyDetailBatch(PharmacyDetail detail, SourceRef.DataMode origin) {}
 }

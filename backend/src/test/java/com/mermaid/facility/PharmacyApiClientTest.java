@@ -68,4 +68,31 @@ class PharmacyApiClientTest {
         assertThat(uri.getQuery()).contains("HPID=C1110693");
         assertThat(uri.getQuery()).contains("_type=json");
     }
+
+    @Test
+    @DisplayName("basisDetail reads identity, coordinates and the timetable for the requested HPID")
+    void basisDetailReadsFullRecord() {
+        var batch = fixtureClient().basisDetail("C1110693");
+
+        assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+        var detail = batch.detail();
+        assertThat(detail).isNotNull();
+        assertThat(detail.name()).isEqualTo("청실약국");
+        assertThat(detail.address()).contains("무교로");
+        assertThat(detail.phone()).isEqualTo("02-3789-6953");
+        // wgs84Lat/wgs84Lon on the basis endpoint, not the location endpoint's latitude/longitude.
+        assertThat(detail.latitude()).isEqualTo(37.5672818668855);
+        assertThat(detail.longitude()).isEqualTo(126.978921749794);
+        assertThat(detail.weeklyHours().byDay().get(1)).containsExactly("0900", "1900");
+        assertThat(detail.weeklyHours().byDay().get(6)).containsExactly("1000", "1400");
+    }
+
+    @Test
+    @DisplayName("basisDetail returns a null detail for an HPID the fixture does not carry")
+    void basisDetailMissingHpidIsNull() {
+        var batch = fixtureClient().basisDetail("C1107705");
+
+        assertThat(batch.detail()).isNull();
+        assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+    }
 }

@@ -3,6 +3,7 @@ package com.mermaid.common;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -88,13 +89,37 @@ class ErrorContractTest {
     @Test
     @DisplayName("an unbuilt endpoint is 501 NOT_IMPLEMENTED, not a 500 that reads like a crash")
     void unbuiltEndpointIsNotImplemented() throws Exception {
-        // GET /facilities/{id} is a TODO(team) stub. Reported as INTERNAL_ERROR it sent the caller
-        // hunting a bug that does not exist, and hid from us that the feature was simply missing.
-        mvc.perform(get("/api/v1/facilities/facility:nmc:C1110693"))
+        // Hospital detail-by-id is not built: HIRA gives hours by ykiho but not name/address/coords,
+        // so facility:hira:… cannot yet be reconstructed. Reported as INTERNAL_ERROR it would send the
+        // caller hunting a bug that does not exist and hide that the feature is simply missing.
+        // (Pharmacy detail — facility:nmc:… — is built now; see pharmacyDetailReturnsTheFacility.)
+        mvc.perform(get("/api/v1/facilities/facility:hira:JDQ4MTg4MSM1MSM"))
                 .andExpect(status().isNotImplemented())
                 .andExpect(jsonPath("$.error.code").value("NOT_IMPLEMENTED"))
                 .andExpect(jsonPath("$.error.retryable").value(false))
                 .andExpect(jsonPath("$.error.message").value("That feature is not built yet."));
+    }
+
+    @Test
+    @DisplayName("pharmacy detail-by-id reconstructs the facility from its hpid alone (DEV-205)")
+    void pharmacyDetailReturnsTheFacility() throws Exception {
+        mvc.perform(get("/api/v1/facilities/facility:nmc:C1110693"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("facility:nmc:C1110693"))
+                .andExpect(jsonPath("$.type").value("pharmacy"))
+                .andExpect(jsonPath("$.nameKo").value("청실약국"))
+                // No origin coordinate on a detail-by-id request: distance is unknown, not a fake 0.
+                .andExpect(jsonPath("$.distanceMeters").value(nullValue()))
+                .andExpect(jsonPath("$.source.dataMode").value("fixture"));
+    }
+
+    @Test
+    @DisplayName("a pharmacy id upstream does not know is 404 RESOURCE_NOT_FOUND, not a blank card")
+    void unknownPharmacyIsNotFound() throws Exception {
+        mvc.perform(get("/api/v1/facilities/facility:nmc:NO_SUCH_HPID"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.retryable").value(false));
     }
 
     @Test

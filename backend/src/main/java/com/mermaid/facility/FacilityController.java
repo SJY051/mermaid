@@ -44,16 +44,16 @@ public class FacilityController {
     }
 
     /**
-     * TODO(team): single-facility detail (UI-03).
+     * A single facility by its namespaced id (UI-03, DEV-205), e.g. {@code facility:nmc:C1110693}.
      *
-     * <p>{@code id} contains an {@code hpid} for a pharmacy ({@code getParmacyBassInfoInqire}) or a
-     * URL-safe encoded {@code ykiho} for a hospital ({@code MadmDtlInfoService2.8/getDtlInfo2.8}).
-     *
-     * <p>Until it is written this answers <b>501 NOT_IMPLEMENTED</b>, which is the honest status: our
-     * fault, but nothing is broken.
+     * <p>Pharmacies ({@code facility:nmc:<hpid>}) are reconstructed in full from one {@code
+     * getParmacyBassInfoInqire} call. Hospitals ({@code facility:hira:<ykiho>}) still answer <b>501
+     * NOT_IMPLEMENTED</b>: HIRA's detail service exposes hours by {@code ykiho} but not the name,
+     * address or coordinates, which come only from the coordinate-and-radius list. An unknown id is a
+     * 404. See {@link FacilityService#detail}.
      */
     @GetMapping("/{id}")
     public Facility detail(@PathVariable String id) {
-        throw new UnsupportedOperationException("Not implemented — see FacilityController#detail");
+        return facilityService.detail(id);
     }
 }
