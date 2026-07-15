@@ -5,12 +5,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import com.mermaid.drug.DrugService.RetrievalQuery;
 import com.mermaid.drug.DrugService.RetrievedContext;
 import com.mermaid.drug.domain.Drug;
-import com.mermaid.drug.domain.DurWarning;
 import com.mermaid.drug.domain.PrescriptionStatus;
 import java.time.Clock;
 import java.time.Instant;
@@ -21,7 +21,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.DisplayName;
@@ -394,28 +393,40 @@ class DrugRetrievalTest {
 
         var permission = new DrugPermissionApiClient(null, props, mode, loader) {
             @Override
-            public List<Permitted> findByName(String itemName) {
+            public PermissionBatch findByNameBatch(String itemName) {
                 world.calls.incrementAndGet();
-                return permitted(world.byName.getOrDefault(itemName, List.of()));
+                return new PermissionBatch(
+                        permitted(world.byName.getOrDefault(itemName, List.of())),
+                        SourceRef.DataMode.FIXTURE,
+                        CLOCK.instant());
             }
 
             @Override
-            public List<Permitted> findByIngredient(String ingredientEn) {
+            public PermissionBatch findByIngredientBatch(String ingredientEn) {
                 world.calls.incrementAndGet();
-                return permitted(world.byIngredient.getOrDefault(ingredientEn, List.of()));
+                return new PermissionBatch(
+                        permitted(world.byIngredient.getOrDefault(ingredientEn, List.of())),
+                        SourceRef.DataMode.FIXTURE,
+                        CLOCK.instant());
             }
 
             @Override
-            public Optional<PermittedDetail> detail(String itemSeq) {
+            public PermissionDetailBatch detailBatch(String itemSeq) {
                 world.calls.incrementAndGet();
                 Row r = world.find(itemSeq);
                 if (r == null) {
-                    return Optional.empty();
+                    return new PermissionDetailBatch(
+                            null, SourceRef.DataMode.FIXTURE, CLOCK.instant());
                 }
                 List<String> ingredients = world.detailIngredients.getOrDefault(itemSeq, r.ingredientsEn());
-                return Optional.of(new PermittedDetail(
-                        r.itemSeq(), r.nameKo(), "제조사", ingredients, "성분",
-                        r.otc() ? PrescriptionStatus.OTC : PrescriptionStatus.PRESCRIPTION));
+                return new PermissionDetailBatch(
+                        new PermittedDetail(
+                                r.itemSeq(), r.nameKo(), "제조사", ingredients, "성분",
+                                r.otc()
+                                        ? PrescriptionStatus.OTC
+                                        : PrescriptionStatus.PRESCRIPTION),
+                        SourceRef.DataMode.FIXTURE,
+                        CLOCK.instant());
             }
 
             private List<Permitted> permitted(List<Row> rows) {
@@ -432,24 +443,39 @@ class DrugRetrievalTest {
 
         var easyDrug = new EasyDrugApiClient(null, props, mode, loader) {
             @Override
-            public Optional<Narrated> findBySeq(String itemSeq) {
+            public NarratedDetailBatch findBySeqBatch(String itemSeq) {
                 world.calls.incrementAndGet();
                 if (world.withoutGuidance.contains(itemSeq)) {
-                    return Optional.empty();
+                    return new NarratedDetailBatch(
+                            null, SourceRef.DataMode.FIXTURE, CLOCK.instant());
                 }
                 Row r = world.find(itemSeq);
-                return r == null
-                        ? Optional.empty()
-                        : Optional.of(new Narrated(itemSeq, r.nameKo(), "제조사",
-                                new Drug.Narrative("해열, 진통", "1일 3회", null, null, null, null, null)));
+                Narrated narrated =
+                        r == null
+                                ? null
+                                : new Narrated(
+                                        itemSeq,
+                                        r.nameKo(),
+                                        "제조사",
+                                        new Drug.Narrative(
+                                                "해열, 진통",
+                                                "1일 3회",
+                                                null,
+                                                null,
+                                                null,
+                                                null,
+                                                null));
+                return new NarratedDetailBatch(
+                        narrated, SourceRef.DataMode.FIXTURE, CLOCK.instant());
             }
         };
 
         var dur = new DurApiClient(null, props, mode, loader) {
             @Override
-            public List<DurWarning> warningsFor(String itemSeq) {
+            public DurBatch warningsForBatch(String itemSeq) {
                 world.calls.incrementAndGet();
-                return List.of();
+                return new DurBatch(
+                        List.of(), SourceRef.DataMode.FIXTURE, CLOCK.instant());
             }
         };
 
