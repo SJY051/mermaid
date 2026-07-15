@@ -47,6 +47,10 @@ class FacilityServiceFixtureTest {
     private static final Clock FRIDAY_LUNCH =
             Clock.fixed(Instant.parse("2026-07-10T04:00:00Z"), ZoneId.of("UTC"));
 
+    /** 14:00 KST on 2026 어린이날, a captured official public holiday. */
+    private static final Clock CHILDRENS_DAY_AFTERNOON =
+            Clock.fixed(Instant.parse("2026-05-05T05:00:00Z"), ZoneId.of("UTC"));
+
     private FacilityService serviceAt(Clock clock) {
         var props =
                 new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
@@ -56,7 +60,7 @@ class FacilityServiceFixtureTest {
                 new PharmacyApiClient(null, props, dataMode, loader),
                 new HospitalApiClient(null, props, dataMode, loader),
                 new HospitalDetailApiClient(null, props, dataMode, loader),
-                new HolidayCalendar(),
+                new HolidayCalendar(date -> false),
                 clock);
     }
 
@@ -65,7 +69,7 @@ class FacilityServiceFixtureTest {
             HospitalDetailApiClient.HospitalDetail detail,
             SourceRef.DataMode listOrigin,
             SourceRef.DataMode detailOrigin) {
-        return serviceWithDetail(clock, detail, listOrigin, detailOrigin, new HolidayCalendar());
+        return serviceWithDetail(clock, detail, listOrigin, detailOrigin, new HolidayCalendar(date -> false));
     }
 
     private FacilityService serviceWithDetail(
@@ -116,6 +120,14 @@ class FacilityServiceFixtureTest {
         return hospitals.stream().filter(f -> nameKo.equals(f.nameKo())).findFirst().orElseThrow();
     }
 
+    private HolidayCalendar officialFixtureCalendar() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        return new HolidayCalendar(
+                new HolidayApiClient(
+                        null, props, new DataModeProperties(DataModeProperties.DataMode.FIXTURE)));
+    }
+
     /**
      * A {@code hybrid} service whose upstream is guaranteed to fail (the base URL points at a closed
      * port), so every fetch falls back to fixtures the way it would during a government outage.
@@ -133,7 +145,7 @@ class FacilityServiceFixtureTest {
                 new PharmacyApiClient(client, props, dataMode, loader),
                 new HospitalApiClient(client, props, dataMode, loader),
                 new HospitalDetailApiClient(client, props, dataMode, loader),
-                new HolidayCalendar(),
+                new HolidayCalendar(date -> false),
                 clock);
     }
 
@@ -376,7 +388,7 @@ class FacilityServiceFixtureTest {
                                 "YKIHO-1", Map.of(), Optional.empty(), false, true, null, null),
                         SourceRef.DataMode.LIVE,
                         SourceRef.DataMode.LIVE,
-                        new HolidayCalendar() {
+                        new HolidayCalendar(date -> false) {
                             @Override
                             public boolean isHoliday(java.time.LocalDate date) {
                                 return true;
@@ -448,7 +460,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         listClient,
                         detailClient,
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 1000, false, FacilityType.HOSPITAL);
@@ -508,7 +520,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         listClient,
                         detailClient,
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 2000, false, FacilityType.HOSPITAL, 10);
@@ -579,7 +591,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         listClient,
                         detailClient,
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         List<Facility> found = service.findNearby(LAT, LNG, 2000, true, FacilityType.HOSPITAL, 10);
@@ -601,13 +613,8 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         new HospitalApiClient(null, props, dataMode, loader),
                         new HospitalDetailApiClient(null, props, dataMode, loader),
-                        new HolidayCalendar() {
-                            @Override
-                            public boolean isHoliday(java.time.LocalDate date) {
-                                return true;
-                            }
-                        },
-                        FRIDAY_AFTERNOON);
+                        officialFixtureCalendar(),
+                        CHILDRENS_DAY_AFTERNOON);
 
         Facility hospital =
                 hospitalNamed(

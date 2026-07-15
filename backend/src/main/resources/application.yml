@@ -127,6 +127,10 @@ mermaid:
     # NOTE: getParmacyLcinfoInqire has NO radius param. We clip by distance ourselves.
     pharmacy-base-url: https://apis.data.go.kr/B552657/ErmctInsttInfoInqireService
 
+    # 한국천문연구원 특일 정보 (data.go.kr 15012690). getRestDeInfo is XML, not JSON.
+    # It supplies the official `isHoliday=Y` dates used for pharmacy row 8 and HIRA noTrmtHoli.
+    holiday-base-url: https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService
+
     # 건강보험심사평가원 병원정보서비스 — getHospBasisList(xPos/yPos/radius) is its ONLY operation,
     # and it is the only place a ykiho comes from. Approved 2026-07-10; see fixtures/hospital_list.json.
     #
