@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
+import com.mermaid.config.DataModeProperties;
+import com.mermaid.config.PublicApiProperties;
 import com.mermaid.facility.domain.DutyTable;
 import com.mermaid.facility.domain.Facility;
 import com.mermaid.facility.domain.FacilityOperation;
@@ -24,6 +26,9 @@ class FacilityServiceTest {
     private static final Clock FRIDAY_AFTERNOON =
             Clock.fixed(Instant.parse("2026-07-10T05:00:00Z"), ZoneId.of("UTC"));
 
+    private static final Clock CHILDRENS_DAY_AFTERNOON =
+            Clock.fixed(Instant.parse("2026-05-05T05:00:00Z"), ZoneId.of("UTC"));
+
     @Test
     void excludesOutOfRadiusPharmaciesBeforeLoadingTheirWeeklyHours() {
         var client =
@@ -36,7 +41,7 @@ class FacilityServiceTest {
                         client,
                         new HospitalApiClient(null, null, null, null),
                         new HospitalDetailApiClient(null, null, null, null),
-                        new HolidayCalendar(),
+                        new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
         var found = service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY);
@@ -109,13 +114,50 @@ class FacilityServiceTest {
         assertThat(client.maximumConcurrentRequests).hasValue(4);
     }
 
+    @Test
+    void officialHolidayCalendarSelectsThePharmacyHolidayRow() {
+        var client =
+                new CountingPharmacyClient(List.of(pharmacy("holiday-pharmacy", 0.1))) {
+                    @Override
+                    public DutyTable weeklyHours(String hpid) {
+                        return new DutyTable(
+                                Map.of(2, List.of("0900", "1900")), SourceRef.DataMode.LIVE);
+                    }
+                };
+        var service =
+                new FacilityService(
+                        client,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        officialFixtureCalendar(),
+                        CHILDRENS_DAY_AFTERNOON);
+
+        Facility found =
+                service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY).getFirst();
+
+        // 2026-05-05 is Tuesday and the weekday row is open; only the official calendar makes the
+        // absent holiday row win. Replacing the calendar predicate with false turns this red.
+        assertThat(found.operation().isOpenNow()).isFalse();
+        assertThat(found.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+    }
+
     private static FacilityService pharmacyService(PharmacyApiClient client) {
         return new FacilityService(
                 client,
                 new HospitalApiClient(null, null, null, null),
                 new HospitalDetailApiClient(null, null, null, null),
-                new HolidayCalendar(),
+                new HolidayCalendar(date -> false),
                 FRIDAY_AFTERNOON);
+    }
+
+    private static HolidayCalendar officialFixtureCalendar() {
+        return new HolidayCalendar(
+                new HolidayApiClient(
+                        null,
+                        new PublicApiProperties(
+                                "", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x"),
+                        new DataModeProperties(DataModeProperties.DataMode.FIXTURE)));
     }
 
     @Test
