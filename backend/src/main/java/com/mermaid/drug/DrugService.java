@@ -1,12 +1,13 @@
 package com.mermaid.drug;
 
 import com.mermaid.chat.dto.AllergyCheck;
+import com.mermaid.common.ApiException;
 import com.mermaid.common.NotFoundException;
 import com.mermaid.common.Parallel;
+import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.drug.domain.Drug;
-import com.mermaid.drug.domain.DurWarning;
 import com.mermaid.drug.domain.PrescriptionStatus;
 import java.time.Clock;
 import java.time.Instant;
@@ -22,6 +23,7 @@ import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
@@ -45,7 +47,7 @@ import reactor.core.publisher.Mono;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
+@RequiredArgsConstructor(onConstructor_ = @Autowired)
 public class DrugService {
 
     private static final String PROVIDER = "mfds"; // 식품의약품안전처
@@ -86,8 +88,17 @@ public class DrugService {
     private final DurApiClient durClient;
     private final AllergyChecker allergyChecker;
     private final IngredientNormalizer normalizer;
-    private final DataModeProperties dataMode;
-    private final Clock clock;
+
+    public DrugService(
+            DrugPermissionApiClient permissionClient,
+            EasyDrugApiClient easyDrugClient,
+            DurApiClient durClient,
+            AllergyChecker allergyChecker,
+            IngredientNormalizer normalizer,
+            DataModeProperties ignoredDataMode,
+            Clock ignoredClock) {
+        this(permissionClient, easyDrugClient, durClient, allergyChecker, normalizer);
+    }
 
     /**
      * Search by product name. Ingredients and the allergy verdict come back with every row; the
@@ -96,9 +107,10 @@ public class DrugService {
      * @param avoidedKeys normalised ingredient keys the user must avoid; empty when they gave none
      */
     public List<Drug> searchByName(String itemName, Set<String> avoidedKeys) {
-        return permissionClient.findByName(itemName).stream()
+        DrugPermissionApiClient.PermissionBatch batch = permissionClient.findByNameBatch(itemName);
+        return batch.rows().stream()
                 .filter(DrugPermissionApiClient.Permitted::licenceCurrent)
-                .map(p -> summary(p, avoidedKeys))
+                .map(p -> summary(p, avoidedKeys, batch.origin(), batch.retrievedAt()))
                 .toList();
     }
 
@@ -118,9 +130,10 @@ public class DrugService {
         if (term.isEmpty()) {
             return List.of();
         }
-        return permissionClient.findByIngredient(term).stream()
+        DrugPermissionApiClient.PermissionBatch batch = permissionClient.findByIngredientBatch(term);
+        return batch.rows().stream()
                 .filter(DrugPermissionApiClient.Permitted::licenceCurrent)
-                .map(p -> summary(p, avoidedKeys))
+                .map(p -> summary(p, avoidedKeys, batch.origin(), batch.retrievedAt()))
                 .toList();
     }
 
@@ -136,22 +149,37 @@ public class DrugService {
         // round-trip instead of three, and the DUR call is itself four more, also concurrent.
         var fetched =
                 Mono.zip(
-                                Parallel.async(() -> permissionClient.detail(itemSeq)),
-                                Parallel.async(() -> easyDrugClient.findBySeq(itemSeq)),
-                                Parallel.async(() -> durClient.warningsFor(itemSeq)))
+                                Parallel.async(() -> permissionClient.detailBatch(itemSeq)),
+                                Parallel.async(() -> easyDrugClient.findBySeqBatch(itemSeq)),
+                                Parallel.async(() -> durClient.warningsForBatch(itemSeq)))
                         .block();
         if (fetched == null) {
             throw new NotFoundException("No drug with ITEM_SEQ " + itemSeq);
         }
 
-        DrugPermissionApiClient.PermittedDetail permitted =
-                fetched.getT1().orElseThrow(() -> new NotFoundException("No drug with ITEM_SEQ " + itemSeq));
-        Optional<EasyDrugApiClient.Narrated> narrated = fetched.getT2();
-        List<DurWarning> warnings = fetched.getT3();
+        DrugPermissionApiClient.PermissionDetailBatch permission = fetched.getT1();
+        DrugPermissionApiClient.PermittedDetail permitted = permission.row();
+        if (permitted == null) {
+            throw new NotFoundException("No drug with ITEM_SEQ " + itemSeq);
+        }
+        EasyDrugApiClient.NarratedDetailBatch easy = fetched.getT2();
+        DurApiClient.DurBatch dur = fetched.getT3();
+        Optional<EasyDrugApiClient.Narrated> narrated = Optional.ofNullable(easy.row());
+        String actualItemSeq = permitted.itemSeq();
+        SourceRef.DataMode origin =
+                permission.origin() == SourceRef.DataMode.FIXTURE
+                                || easy.origin() == SourceRef.DataMode.FIXTURE
+                                || dur.origin() == SourceRef.DataMode.FIXTURE
+                        ? SourceRef.DataMode.FIXTURE
+                        : SourceRef.DataMode.LIVE;
+        Instant retrievedAt =
+                List.of(permission.retrievedAt(), easy.retrievedAt(), dur.retrievedAt()).stream()
+                        .min(Instant::compareTo)
+                        .orElseThrow();
 
         return new Drug(
-                Drug.idOf(itemSeq),
-                itemSeq,
+                Drug.idOf(actualItemSeq),
+                actualItemSeq,
                 permitted.nameKo(),
                 null, // the detail op publishes no English product name
                 permitted.manufacturerKo(),
@@ -159,9 +187,9 @@ public class DrugService {
                 permitted.mainIngredientKo(),
                 permitted.prescriptionStatus(),
                 narrated.map(EasyDrugApiClient.Narrated::narrative).orElse(Drug.Narrative.EMPTY),
-                warnings,
+                dur.warnings(),
                 allergyChecker.check(permitted.ingredientsEn(), avoidedKeys),
-                source(itemSeq));
+                source(actualItemSeq, origin, retrievedAt));
     }
 
     /**
@@ -227,14 +255,17 @@ public class DrugService {
 
             // Cheap probe before the six-call detail assembly. Cached, so detail() re-reads it free.
             List<Boolean> hasGuidance =
-                    Parallel.map(batch, UPSTREAM_CONCURRENCY, d -> easyDrugClient.findBySeq(d.itemSeq()).isPresent());
+                    Parallel.map(
+                            batch,
+                            UPSTREAM_CONCURRENCY,
+                            d -> easyDrugClient.findBySeqBatch(d.itemSeq()).row() != null);
 
             List<Drug> groundable = new ArrayList<>();
             for (int i = 0; i < batch.size(); i++) {
                 if (hasGuidance.get(i)) {
                     groundable.add(batch.get(i));
                 } else {
-                    log.debug("Skipping {} — no e약은요 guidance to ground on", batch.get(i).nameKo());
+                    log.debug("drug_context_skipped reason=GUIDANCE_UNAVAILABLE");
                 }
             }
 
@@ -258,12 +289,15 @@ public class DrugService {
         try {
             Drug full = detail(itemSeq, avoidedKeys);
             if (!userNamedIt && full.allergyCheck().status() == AllergyCheck.Status.BLOCKED) {
-                log.info("Dropping {} from context — MAIN_INGR_ENG revealed an avoided ingredient", itemSeq);
+                log.info("drug_context_dropped reason=DETAIL_ALLERGY_BLOCKED");
                 return Optional.empty();
             }
             return Optional.of(full);
         } catch (RuntimeException e) {
-            log.warn("Could not assemble {} for the drug context: {}", itemSeq, e.getMessage());
+            if (e instanceof PublicApiException || e instanceof ApiException) {
+                throw e;
+            }
+            log.warn("drug_context_skipped reason=ASSEMBLY_FAILED");
             return Optional.empty();
         }
     }
@@ -336,7 +370,11 @@ public class DrugService {
         }
     }
 
-    private Drug summary(DrugPermissionApiClient.Permitted p, Set<String> avoidedKeys) {
+    private Drug summary(
+            DrugPermissionApiClient.Permitted p,
+            Set<String> avoidedKeys,
+            SourceRef.DataMode origin,
+            Instant retrievedAt) {
         return new Drug(
                 Drug.idOf(p.itemSeq()),
                 p.itemSeq(),
@@ -349,16 +387,16 @@ public class DrugService {
                 Drug.Narrative.EMPTY, // a search result carries no guidance text
                 List.of(), // nor DUR warnings; ask for the detail
                 allergyChecker.check(p.ingredientsEn(), avoidedKeys),
-                source(p.itemSeq()));
+                source(p.itemSeq(), origin, retrievedAt));
     }
 
-    private SourceRef source(String itemSeq) {
+    private SourceRef source(String itemSeq, SourceRef.DataMode origin, Instant retrievedAt) {
         return new SourceRef(
                 "src:" + PROVIDER + ":" + itemSeq,
                 "식품의약품안전처 의약품 제품 허가정보",
                 itemSeq,
-                Instant.now(clock),
-                dataMode.isFixtureOnly() ? SourceRef.DataMode.FIXTURE : SourceRef.DataMode.LIVE,
+                retrievedAt,
+                origin,
                 "MFDS — drug product licence information");
     }
 
@@ -378,10 +416,15 @@ public class DrugService {
             if (drugs.isEmpty()) {
                 return EMPTY;
             }
+
+            // Identity is owned by the detail record, not by the list-row id that led us to it.
+            // Fixture mode deliberately ignores query parameters, so several list probes can resolve
+            // to the same captured detail record.
+            List<Drug> uniqueDrugs = drugs.stream().filter(distinctBy(Drug::itemSeq)).toList();
             return new RetrievedContext(
-                    List.copyOf(drugs),
-                    drugs.stream().map(Drug::nameKo).collect(Collectors.toUnmodifiableSet()),
-                    drugs.stream().map(Drug::source).toList());
+                    List.copyOf(uniqueDrugs),
+                    uniqueDrugs.stream().map(Drug::nameKo).collect(Collectors.toUnmodifiableSet()),
+                    uniqueDrugs.stream().map(Drug::source).toList());
         }
 
         public boolean isEmpty() {
