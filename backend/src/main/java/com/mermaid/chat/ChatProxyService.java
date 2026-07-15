@@ -37,6 +37,9 @@ public class ChatProxyService {
 
     private static final String RESPONSE_FORMAT = "response_format";
 
+    /** Application-owned output ceiling; this is a spend/surface bound, not a provider maximum. */
+    private static final int MAX_OUTPUT_TOKENS = 8192;
+
     /**
      * OpenAI-compatible streams terminate with this literal. It is not JSON.
      *
@@ -190,13 +193,13 @@ public class ChatProxyService {
      * already in force when the model reads it.
      */
     ObjectNode prepare(JsonNode clientRequest, boolean stream, List<String> extraSystemMessages) {
-        ObjectNode req = clientRequest.deepCopy();
-
+        ObjectNode req = objectMapper.createObjectNode();
         req.put("model", llmProperties.model());
         req.put("stream", stream);
-        // Our own extension field (see MermaidRequestExtension). Upstream providers reject unknown
-        // top-level keys, and it is nobody's business but ours.
-        req.remove(MermaidRequestExtension.FIELD);
+        req.put("n", 1);
+        req.put("max_tokens", MAX_OUTPUT_TOKENS);
+        req.put("store", false);
+        // Tool fields are intentionally absent because this service does not expose provider tools.
 
         ArrayNode sanitized = objectMapper.createArrayNode();
         sanitized.add(systemMessage(systemPromptProvider.get()));
@@ -205,7 +208,7 @@ public class ChatProxyService {
         }
 
         int dropped = 0;
-        for (JsonNode message : req.path("messages")) {
+        for (JsonNode message : clientRequest.path("messages")) {
             String role = message.path("role").asText();
             if (!"user".equals(role) && !"assistant".equals(role)) {
                 // Only conversation roles cross this boundary. Developer, tool, malformed, and
@@ -213,7 +216,10 @@ public class ChatProxyService {
                 dropped++;
                 continue;
             }
-            sanitized.add(message);
+            sanitized.add(objectMapper
+                    .createObjectNode()
+                    .put("role", role)
+                    .put("content", messageText(message.path("content"))));
         }
         if (dropped > 0) {
             log.warn("Dropped {} client message(s) with a disallowed role before proxying", dropped);
@@ -228,7 +234,6 @@ public class ChatProxyService {
         } else {
             log.debug("Model '{}' is not on the structured-output allowlist; relying on the prompt",
                     llmProperties.model());
-            req.remove(RESPONSE_FORMAT); // the client does not get to ask for one either
         }
 
         return req;

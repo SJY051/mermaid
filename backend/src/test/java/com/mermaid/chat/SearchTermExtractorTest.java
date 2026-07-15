@@ -2,11 +2,20 @@ package com.mermaid.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.drug.DrugService.RetrievalQuery;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 /**
  * What the extractor emits is a query, not a fact — but it is a query we hand to a government API and
@@ -150,11 +159,140 @@ class SearchTermExtractorTest {
             assertThat(parse("{\"ingredients\": [], \"productNames\": [\"타이\\u0000레놀\"]}")
                     .productNamesKo()).isEmpty();
         }
+
+        @Test
+        @DisplayName("rejected terms are logged only as stable codes and aggregate counts")
+        void rejectedTermsDoNotLeakIntoLogs() {
+            Logger logger = (Logger) LoggerFactory.getLogger(SearchTermExtractor.class);
+            Level previousLevel = logger.getLevel();
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            logger.setLevel(Level.DEBUG);
+            logger.addAppender(appender);
+            try {
+                RetrievalQuery query = parse(
+                        "{\"ingredients\":[\"Ibuprofen 200mg\",\"LEAK_SENTINEL\\r\\nFORGED_INGREDIENT\"],"
+                                + "\"productNames\":[\"PRIVATE_PRODUCT_VALUE_THAT_MUST_NOT_APPEAR\","
+                                + "\"LEAK_SENTINEL\\r\\nFORGED_PRODUCT\"]}");
+
+                assertThat(query.ingredientsEn()).isEmpty();
+                assertThat(query.productNamesKo()).isEmpty();
+            } finally {
+                logger.detachAppender(appender);
+                logger.setLevel(previousLevel);
+                appender.stop();
+            }
+
+            List<ILoggingEvent> rejectionEvents = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.DEBUG)
+                    .toList();
+            assertThat(rejectionEvents).hasSize(2);
+            assertThat(rejectionEvents)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("INGREDIENT_WRONG_SHAPE")
+                            .contains("count=2"))
+                    .anySatisfy(message -> assertThat(message)
+                            .contains("PRODUCT_NAME_WRONG_SHAPE")
+                            .contains("count=2"));
+            assertThat(appender.list).allSatisfy(event -> {
+                assertSafeLogText(event.getFormattedMessage());
+                assertSafeLogText(Arrays.deepToString(event.getArgumentArray()));
+            });
+        }
+
+        private void assertSafeLogText(String text) {
+            assertThat(text)
+                    .doesNotContain(
+                            "Ibuprofen 200mg",
+                            "PRIVATE_PRODUCT_VALUE_THAT_MUST_NOT_APPEAR",
+                            "LEAK_SENTINEL",
+                            "FORGED_INGREDIENT",
+                            "FORGED_PRODUCT",
+                            "\r",
+                            "\n");
+        }
     }
 
     @Nested
     @DisplayName("an empty context is a safe context")
     class FailsClosed {
+
+        @Test
+        @DisplayName("provider failures name their cause and still leak nothing")
+        void extractionFailuresDoNotLeakExceptionMessages() {
+            // The line now carries a classified cause, because a bare code cost an evening: pass 1a
+            // failing means the server retrieves nothing and the person is told we could not verify
+            // an answer, and the log said only that something went wrong. What must NOT change is
+            // what it refuses to carry — the exception's own message. This one is a log-injection
+            // payload (CRLF, a forged line) and it is also, in the real failures, the user's text.
+            ChatProxyService failingService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.error(new IllegalStateException("LEAK_SENTINEL\r\nFORGED_LOG_LINE"));
+                }
+            };
+            SearchTermExtractor extractor = new SearchTermExtractor(failingService, mapper);
+            Logger logger = (Logger) LoggerFactory.getLogger(SearchTermExtractor.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+            try {
+                assertThat(extractor.extract("synthetic symptom").isEmpty()).isTrue();
+            } finally {
+                logger.detachAppender(appender);
+                appender.stop();
+            }
+
+            List<ILoggingEvent> warnings = appender.list.stream()
+                    .filter(event -> event.getLevel() == Level.WARN)
+                    .toList();
+            assertThat(warnings).singleElement().satisfies(event -> {
+                assertThat(event.getFormattedMessage())
+                        .isEqualTo(
+                                "search_term_extraction_failed code=UPSTREAM_FAILURE "
+                                        + "exception=IllegalStateException reason=unclassified");
+                // The whole rendered line, not only the arguments: neither the payload nor the user's
+                // words, and no newline that could forge a second log entry.
+                assertThat(event.getFormattedMessage())
+                        .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n", "synthetic symptom");
+                assertThat(Arrays.deepToString(event.getArgumentArray()))
+                        .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
+            });
+        }
+
+        @Test
+        @DisplayName("a timeout says it was a timeout, and names the budget that ran out")
+        void aTimeoutIsClassifiedAsOne() {
+            // The failure that was actually happening: the provider answered pass 2 in 103 seconds
+            // against a 30-second extraction budget, so every retrieval died before it started.
+            ChatProxyService slowService = new ChatProxyService(null, null, null, null, mapper) {
+                @Override
+                public Mono<String> completeJson(
+                        String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                    return Mono.error(new java.util.concurrent.TimeoutException("LEAK_SENTINEL"));
+                }
+            };
+            SearchTermExtractor extractor = new SearchTermExtractor(slowService, mapper);
+            Logger logger = (Logger) LoggerFactory.getLogger(SearchTermExtractor.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+            try {
+                assertThat(extractor.extract("synthetic symptom").isEmpty()).isTrue();
+            } finally {
+                logger.detachAppender(appender);
+                appender.stop();
+            }
+
+            assertThat(appender.list).singleElement().satisfies(event -> {
+                assertThat(event.getFormattedMessage())
+                        .contains("reason=timeout")
+                        .contains("llm.extraction-timeout")
+                        .doesNotContain("LEAK_SENTINEL");
+            });
+        }
 
         @Test
         @DisplayName("prose instead of JSON")
@@ -182,6 +320,28 @@ class SearchTermExtractorTest {
             assertThat(parse(null).isEmpty()).isTrue();
             assertThat(parse("").isEmpty()).isTrue();
             assertThat(parse("   ").isEmpty()).isTrue();
+        }
+    }
+
+    @Nested
+    @DisplayName("no allergen surface exists (spec 005 SC-003, redesign 2026-07-14)")
+    class NoAllergenSurface {
+
+        @Test
+        @DisplayName("an allergens array in the model reply is ignored, not parsed")
+        void allergensInReplyAreIgnored() {
+            // The extraction schema has no allergen field; review found four distinct ways a stated
+            // allergen was lost between the user's text and the gate, so free-text allergens now
+            // fail closed to a clarifying question upstream of this extractor. A model (or an
+            // injected prompt) volunteering an allergens array must change nothing here.
+            RetrievalQuery query = SearchTermExtractor.parse(
+                    "{\"ingredients\":[\"Acetaminophen\"],\"productNames\":[],"
+                            + "\"allergens\":[\"aspirin\"]}",
+                    new ObjectMapper());
+
+            assertThat(query.ingredientsEn()).containsExactly("Acetaminophen");
+            assertThat(query).hasNoNullFieldsOrProperties();
+            assertThat(query.toString()).doesNotContain("aspirin");
         }
     }
 }

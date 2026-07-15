@@ -305,7 +305,15 @@ public class DrugService {
         return t -> seen.add(key.apply(t));
     }
 
-    /** What the user asked about, and the only names the model may say. */
+    /**
+     * What the user asked about, and the only names the model may say.
+     *
+     * <p>No allergen field, on purpose. One carried the model's allergen candidates from 2026-07-13
+     * to 2026-07-14, until review showed the server can never verify such an extraction is complete
+     * (four distinct loss paths, each found only after the previous was fixed). Allergens now reach
+     * the server only through the client-structured {@code mermaid.exclude_ingredients} field; a
+     * free-text declaration fails closed to a clarifying question (spec 005, decision 2026-07-14).
+     */
     public record RetrievalQuery(List<String> ingredientsEn, List<String> productNamesKo) {
 
         public static final RetrievalQuery EMPTY = new RetrievalQuery(List.of(), List.of());

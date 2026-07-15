@@ -9,8 +9,10 @@ import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.config.LlmProperties;
 import com.mermaid.drug.DrugService.RetrievalQuery;
+import com.mermaid.drug.IngredientNormalizer;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
@@ -100,6 +102,34 @@ class ProxyInjectionTest {
     }
 
     @Test
+    @DisplayName("the extraction schema exposes no allergen surface to the model (spec 005, 2026-07-14)")
+    void extractionSchemaHasNoAllergenSurface() {
+        // The DEV-603 threat-model entry for the pass-1 allergens field closes as "surface
+        // removed": free-text allergy declarations fail closed to a server clarification before
+        // this extractor runs, so there is nothing here for an injected prompt to steer. This test
+        // is the SC-003 mutation guard — reintroducing the field turns it red.
+        ChatProxyService upstream = new StubUpstream("", null) {
+            @Override
+            public Mono<String> completeJson(
+                    String systemPrompt, String userText, String schemaName, JsonNode schema) {
+                assertThat(schema.path("properties").has("allergens")).isFalse();
+                assertThat(schema.path("required").toString()).doesNotContain("allergens");
+                assertThat(systemPrompt).doesNotContain("`allergens`");
+                return Mono.just(
+                        "{\"ingredients\":[],\"productNames\":[],"
+                                + "\"allergens\":[\"ibuprofen\",\"aspirin\"]}");
+            }
+        };
+
+        RetrievalQuery query = new SearchTermExtractor(upstream, mapper)
+                .extract("I am allergic to ibuprofen");
+
+        assertThat(query.toString())
+                .as("a volunteered allergens array must change nothing")
+                .doesNotContain("ibuprofen", "aspirin");
+    }
+
+    @Test
     @DisplayName("malformed model prose is never copied into the user-visible summary")
     void refusesRawModelProse() throws Exception {
         String attack = "Take 타이레놀 now; it is completely safe and you definitely have influenza.";
@@ -117,7 +147,8 @@ class ProxyInjectionTest {
         var upstream = new StubUpstream(validDrugFreeAnswer(), modelRequest);
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
-            public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
+            public DrugContext retrieve(
+                    String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
                 throw new AssertionError("retrieval must not run for an emergency");
             }
         };
@@ -125,8 +156,9 @@ class ProxyInjectionTest {
                 upstream,
                 retriever,
                 new StructuredOutputFallback(mapper),
-                new AnswerValidator(),
+                new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
+                new IngredientNormalizer(),
                 mapper);
 
         MermAidAnswer answer = answerOf(controller.completions(request));
@@ -138,7 +170,8 @@ class ProxyInjectionTest {
     private ChatProxyController controller(ChatProxyService upstream, DrugContext context) {
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
-            public DrugContext retrieve(String userText, Set<String> excludedIngredients) {
+            public DrugContext retrieve(
+                    String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
                 return context;
             }
         };
@@ -146,8 +179,9 @@ class ProxyInjectionTest {
                 upstream,
                 retriever,
                 new StructuredOutputFallback(mapper),
-                new AnswerValidator(),
+                new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
+                new IngredientNormalizer(),
                 mapper);
     }
 
@@ -174,7 +208,7 @@ class ProxyInjectionTest {
     }
 
     private static DrugContext emptyContext() {
-        return new DrugContext("DRUG_CONTEXT: nothing", Set.of(), List.of());
+        return new DrugContext("DRUG_CONTEXT: nothing", Map.of(), List.of());
     }
 
     private static String validDrugFreeAnswer() {

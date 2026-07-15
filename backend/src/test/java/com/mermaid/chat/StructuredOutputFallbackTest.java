@@ -2,11 +2,18 @@ package com.mermaid.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
+import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 /**
  * We point the proxy at any OpenAI-compatible endpoint and swap models freely. Some of them will
@@ -34,6 +41,31 @@ class StructuredOutputFallbackTest {
         assertThat(r.summary()).isEqualTo("Rest and fluids.");
         assertThat(r.urgency().level()).isEqualTo(MermAidAnswer.Urgency.Level.ROUTINE);
         assertThat(r.dataStatus()).isEqualTo(MermAidAnswer.DataStatus.LIVE);
+    }
+
+    @Test
+    @DisplayName("a null action element is rejected, never serialized to crash the browser (#60)")
+    void rejectsNullActionElements() {
+        // ChatScreen maps uiActions and reads action.type immediately; a null element crashes render
+        // before the safety/disclaimer UI draws. The fail-closed guard must cover uiActions and the
+        // nested urgency actions, not only drugs/guidance.
+        String nullUiAction =
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"live",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[]},
+                 "summary":"ok","clarifyingQuestions":[],"guidance":[],
+                 "drugs":[],"uiActions":[null],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """;
+        assertThat(fallback.coerce(nullUiAction).answerId()).isEqualTo("local-fallback");
+
+        String nullUrgencyAction =
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"live",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[null]},
+                 "summary":"ok","clarifyingQuestions":[],"guidance":[],
+                 "drugs":[],"uiActions":[],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """;
+        assertThat(fallback.coerce(nullUrgencyAction).answerId()).isEqualTo("local-fallback");
     }
 
     @Test
@@ -138,6 +170,82 @@ class StructuredOutputFallbackTest {
         // Either way, no action reaches the browser.
         MermAidAnswer r = fallback.coerce(json);
         assertThat(r.uiActions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a null drug element fails closed instead of reaching the validator")
+    void rejectsNullDrugElement() {
+        MermAidAnswer r = fallback.coerce(
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"unavailable",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[]},
+                 "summary":"Do not expose this model answer.","clarifyingQuestions":[],"guidance":[],
+                 "drugs":[
+                   {"id":"d1","productNameKo":"검증된약","productNameEn":"Verified Drug",
+                    "ingredients":[],"indicationSummary":"i","directionsSummary":"d","warnings":[],
+                    "prescriptionStatus":"otc",
+                    "allergyCheck":{"status":"unknown","matchedIngredients":[],"message":"m"},
+                    "sourceRefId":"src:1"},
+                   null],
+                 "uiActions":[],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """);
+
+        assertThat(r.answerId()).isEqualTo("local-fallback");
+        assertThat(r.summary()).contains("could not verify").doesNotContain("Do not expose");
+        assertThat(r.drugs()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a null guidance element fails closed independently of the drug list")
+    void rejectsNullGuidanceElement() {
+        MermAidAnswer r = fallback.coerce(
+                """
+                {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"unavailable",
+                 "urgency":{"level":"routine","title":"t","message":"m","reasonCodes":[],"actions":[]},
+                 "summary":"","clarifyingQuestions":[],
+                 "guidance":[
+                   {"id":"g1","title":"t","body":"b","evidence":"general_safety","sourceRefIds":[]},
+                   null],
+                 "drugs":[],"uiActions":[],"sourceRefs":[],"warnings":[],"disclaimer":"d"}
+                """);
+
+        assertThat(r.answerId()).isEqualTo("local-fallback");
+        assertThat(r.summary()).contains("could not verify").doesNotContain("\"guidance\":[null]");
+        assertThat(r.guidance()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("coercion failures name the field they choked on, and leak no model text")
+    void coercionFailuresDoNotLeakModelText() {
+        // The line now names the exception and the JSON path, so a schema drift can be told from a
+        // broken model without reading the answer. The path is field names and indices. The one
+        // thing it must never carry is what Jackson's own message carries: the source text — which
+        // is this person's symptoms, and here is also a CRLF payload forging a second log line.
+        Logger logger = (Logger) LoggerFactory.getLogger(StructuredOutputFallback.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            fallback.coerce(
+                    "{\"summary\":\"hi\",\"uiActions\":[{\"type\":"
+                            + "\"LEAK_SENTINEL\\r\\nFORGED_LOG_LINE\",\"payload\":{}}]}");
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        List<ILoggingEvent> warnings = appender.list.stream()
+                .filter(event -> event.getLevel() == Level.WARN)
+                .toList();
+        assertThat(warnings).singleElement().satisfies(event -> {
+            assertThat(event.getFormattedMessage())
+                    .startsWith("model_answer_rejected code=COERCION_FAILED exception=")
+                    .contains("path=");
+            assertThat(event.getFormattedMessage())
+                    .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
+            assertThat(Arrays.deepToString(event.getArgumentArray()))
+                    .doesNotContain("LEAK_SENTINEL", "FORGED_LOG_LINE", "\r", "\n");
+        });
     }
 
     @Test

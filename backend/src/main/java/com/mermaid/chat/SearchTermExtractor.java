@@ -70,6 +70,12 @@ public class SearchTermExtractor {
 
     private static final String SCHEMA_NAME = "mermaid_search_terms";
 
+    // No allergen field, on purpose. One existed from 2026-07-13 to 2026-07-14 and review found
+    // four distinct ways a stated allergen could be lost between the user's text and the gate; the
+    // server can never verify such an extraction is complete. A free-text allergy declaration now
+    // fails closed to a clarifying question in DrugContextRetriever before this extractor is even
+    // called, and allergens reach the server only through the client-structured
+    // `mermaid.exclude_ingredients` field (spec 005, decision 2026-07-14).
     private static final String SCHEMA_JSON =
             """
             {
@@ -112,16 +118,57 @@ public class SearchTermExtractor {
                     chatProxyService
                             .completeJson(SYSTEM_PROMPT, userText, SCHEMA_NAME, objectMapper.readTree(SCHEMA_JSON))
                             .block();
-            RetrievalQuery query = bindProductNamesToUserText(parse(content, objectMapper), userText);
+            RetrievalQuery query = bindUserAuthoredNamesToText(parse(content, objectMapper), userText);
             log.debug("Extracted {} ingredient(s), {} product name(s)",
                     query.ingredientsEn().size(), query.productNamesKo().size());
             return query;
         } catch (Exception e) {
             // A failed extraction must not fail the conversation. The user gets an ungrounded reply
             // that names no medicine, which is exactly what an empty context should produce.
-            log.warn("Search-term extraction failed; continuing with no drug context: {}", e.getMessage());
+            //
+            // But it must not fail SILENTLY either. Pass 1a is the whole retrieval: when it fails,
+            // the server queries nothing, the model is handed an empty context, and the person asks
+            // about a headache and is told we could not verify an answer. That is the entire feature
+            // gone, and the old line — a bare `code=UPSTREAM_FAILURE` — said only that something,
+            // somewhere, went wrong. It cost an evening to find out that "something" was a timeout.
+            //
+            // The exception's TYPE and a reason we classified ourselves — never the exception's own
+            // message. That message is not ours: a Jackson parse error quotes the text it choked on,
+            // which is the person's symptoms (§2-5), and any upstream can put CRLF in it and forge a
+            // log line. `reasonOf` maps the throwable to a fixed vocabulary (timeout / http_NNN /
+            // connect_failed / unclassified), so what lands in the log is a word we chose. Do not
+            // "improve" this by adding `e.getMessage()`.
+            log.warn(
+                    "search_term_extraction_failed code=UPSTREAM_FAILURE exception={} reason={}",
+                    e.getClass().getSimpleName(),
+                    reasonOf(e));
             return RetrievalQuery.EMPTY;
         }
+    }
+
+    /**
+     * Why the call failed, in a form that cannot carry the user's symptoms into a log file.
+     *
+     * <p>A log is a place things persist, and a consultation is not allowed to persist (§2-5). Some
+     * exceptions here would quote the text they choked on — a Jackson parse error names the source —
+     * so the message is not passed through: it is matched against the failures we actually get, and
+     * anything unrecognised is reported as its type alone. An unknown cause is a reason to look at
+     * the exception class, never a reason to print the person's message.
+     */
+    private static String reasonOf(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.util.concurrent.TimeoutException
+                    || cause.getClass().getSimpleName().contains("Timeout")) {
+                return "timeout — the extraction budget (llm.extraction-timeout) elapsed";
+            }
+            if (cause instanceof org.springframework.web.reactive.function.client.WebClientResponseException http) {
+                return "http_" + http.getStatusCode().value();
+            }
+            if (cause instanceof java.net.ConnectException) {
+                return "connect_failed";
+            }
+        }
+        return "unclassified";
     }
 
     /**
@@ -145,14 +192,24 @@ public class SearchTermExtractor {
             return RetrievalQuery.EMPTY;
         }
         List<String> ingredients =
-                accept(root.path("ingredients"), INGREDIENT, MAX_INGREDIENTS, MAX_INGREDIENT_LENGTH);
+                accept(
+                        root.path("ingredients"),
+                        INGREDIENT,
+                        MAX_INGREDIENTS,
+                        MAX_INGREDIENT_LENGTH,
+                        RejectionCode.INGREDIENT_WRONG_SHAPE);
         List<String> productNames =
-                accept(root.path("productNames"), PRODUCT_NAME, MAX_PRODUCT_NAMES, Integer.MAX_VALUE);
+                accept(
+                        root.path("productNames"),
+                        PRODUCT_NAME,
+                        MAX_PRODUCT_NAMES,
+                        Integer.MAX_VALUE,
+                        RejectionCode.PRODUCT_NAME_WRONG_SHAPE);
         return new RetrievalQuery(ingredients, productNames);
     }
 
-    /** A product-name query has authority only when the user, rather than the model, supplied it. */
-    private static RetrievalQuery bindProductNamesToUserText(RetrievalQuery query, String userText) {
+    /** Product names have authority only when the user, not the model, supplied them. */
+    private static RetrievalQuery bindUserAuthoredNamesToText(RetrievalQuery query, String userText) {
         String foldedUserText = userText.toLowerCase(Locale.ROOT);
         List<String> userNamedProducts = query.productNamesKo().stream()
                 .filter(name -> foldedUserText.contains(name.toLowerCase(Locale.ROOT)))
@@ -160,11 +217,13 @@ public class SearchTermExtractor {
         return new RetrievalQuery(query.ingredientsEn(), userNamedProducts);
     }
 
-    private static List<String> accept(JsonNode array, Pattern shape, int limit, int maxLength) {
+    private static List<String> accept(
+            JsonNode array, Pattern shape, int limit, int maxLength, RejectionCode rejectionCode) {
         if (!array.isArray()) {
             return List.of();
         }
         List<String> accepted = new ArrayList<>();
+        int rejectedCount = 0;
         for (JsonNode entry : array) {
             if (accepted.size() == limit) {
                 break;
@@ -174,9 +233,17 @@ public class SearchTermExtractor {
             if (ok && !accepted.contains(term)) {
                 accepted.add(term);
             } else if (!ok && !term.isEmpty()) {
-                log.debug("Rejected search term '{}' — wrong shape", term);
+                rejectedCount++;
             }
         }
+        if (rejectedCount > 0) {
+            log.debug("Rejected search terms; code={}, count={}", rejectionCode, rejectedCount);
+        }
         return List.copyOf(accepted);
+    }
+
+    private enum RejectionCode {
+        INGREDIENT_WRONG_SHAPE,
+        PRODUCT_NAME_WRONG_SHAPE
     }
 }

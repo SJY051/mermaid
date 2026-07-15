@@ -6,6 +6,7 @@ import {
   loadPreferences,
   loadSavedFacilities,
   savePreferences,
+  setManualLocation,
   saveChatSession,
   saveSavedFacilities,
   type ChatSession,
@@ -17,13 +18,35 @@ beforeEach(() => {
   sessionStorage.clear()
 })
 
-const CHAT_KEY = 'mermaid.chatSession.v1'
+const CHAT_KEY = 'mermaid.chatSession.v2'
+const CHAT_KEY_V1 = 'mermaid.chatSession.v1'
 const PREFS_KEY = 'mermaid.preferences.v1'
+const SAVED_FACILITIES_STORAGE = 'mermaid.savedFacilities.v1'
+
+const savedFacility = {
+  id: 'f1',
+  facilityId: 'facility:nmc:1',
+  snapshot: {
+    nameKo: '가나약국',
+    type: 'pharmacy' as const,
+    addressKo: null,
+    operation: { isOpenNow: null, status: 'unknown' as const, statusConfidence: 'unknown' as const, verifiedAt: null, notice: '' },
+    source: { id: 'nmc:1', provider: 'nmc', recordId: '1', retrievedAt: '2026-07-14T12:00:00Z', dataMode: 'live' as const, title: 'National Medical Center' },
+  },
+  alias: '',
+  note: '',
+  createdAt: '2026-07-10T12:00:00Z',
+  updatedAt: '2026-07-10T12:00:00Z',
+}
 
 const session: ChatSession = {
   sessionId: 's1',
   messages: [{ id: 'm1', role: 'user', content: 'I have a rash on my chest', createdAt: '2026-07-10T12:00:00Z' }],
   allergies: ['ibuprofen'],
+  unverifiedAllergens: ['yellow dye'],
+  unverifiableAllergy: false,
+  pendingQuestion: 'my throat is swelling',
+  allergiesConfirmedAt: '',
 }
 
 /**
@@ -47,6 +70,10 @@ describe('a consultation transcript never touches localStorage', () => {
       .join('\n')
     expect(everythingPersisted).not.toContain('rash')
     expect(everythingPersisted).not.toContain('ibuprofen')
+    expect(everythingPersisted).not.toContain('yellow dye')
+    // An unanswered question is still a symptom description. It is kept so a reload does not drop
+    // it out of the next request's history — kept in this tab, and nowhere that outlives it.
+    expect(everythingPersisted).not.toContain('swelling')
   })
 
   it('round-trips and clears', () => {
@@ -81,6 +108,13 @@ describe('corrupt or stale storage resets instead of throwing', () => {
     expect(loadSavedFacilities()).toEqual([])
     expect(loadChatSession().sessionId).toBe('')
   })
+
+  it.each([null, [null]])('drops same-version corrupt saved facilities with data %p', (data) => {
+    localStorage.setItem(SAVED_FACILITIES_STORAGE, JSON.stringify({ schemaVersion: '1.0', data }))
+
+    expect(loadSavedFacilities()).toEqual([])
+    expect(localStorage.getItem(SAVED_FACILITIES_STORAGE)).toBeNull()
+  })
 })
 
 /** Allergy memory is opt-in, and OFF by default (spec §2-5). Both directions are enforced. */
@@ -89,6 +123,7 @@ describe('allergies are remembered only when the user said so', () => {
     rememberAllergies: false,
     allergies: ['ibuprofen', 'aspirin'],
     defaultRadiusM: 500,
+    manualLocation: null,
   }
 
   it('refuses to persist allergies when the toggle is off', () => {
@@ -119,6 +154,20 @@ describe('allergies are remembered only when the user said so', () => {
   })
 })
 
+describe('manual location is a persistent user preference', () => {
+  it('survives a reload and clearing removes it', () => {
+    const manualLocation = { lat: 35.1796, lng: 129.0756, label: 'Chosen map spot' }
+
+    setManualLocation(manualLocation)
+    expect(loadPreferences().manualLocation).toEqual(manualLocation)
+    expect(loadPreferences().manualLocation).toEqual(manualLocation)
+
+    setManualLocation(null)
+    expect(loadPreferences().manualLocation).toBeNull()
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('35.1796')
+  })
+})
+
 describe('deviceId is anonymous and stable', () => {
   it('is generated once and reused', () => {
     const first = getDeviceId()
@@ -128,18 +177,30 @@ describe('deviceId is anonymous and stable', () => {
 
   it('survives a saved-facilities write', () => {
     const id = getDeviceId()
-    saveSavedFacilities([
-      {
-        id: 'f1',
-        facilityId: 'facility:nmc:1',
-        snapshot: { nameKo: '가나약국', type: 'pharmacy', addressKo: null },
-        alias: '집 앞',
-        note: '',
-        createdAt: '2026-07-10T12:00:00Z',
-        updatedAt: '2026-07-10T12:00:00Z',
-      },
-    ])
+    saveSavedFacilities([savedFacility])
     expect(getDeviceId()).toBe(id)
     expect(loadSavedFacilities()).toHaveLength(1)
+  })
+
+  it('refuses a conversation stored before the grounding invariants, and deletes it (P0)', () => {
+    // A turn saved before invariants 7 and 8 holds a card whose directions, warnings and prescription
+    // status the MODEL wrote. The card that renders it now labels the directions as the ministry's own
+    // Korean text — "we do not translate doses". Restore one and English prose the model invented is
+    // presented as the government's words, under the verified footer. A reload is enough to do it.
+    //
+    // There is no migration: the facts were never in the blob. The old key must simply be unreadable,
+    // and gone — it holds a medical conversation, and a key nobody reads is still a key someone can read.
+    sessionStorage.setItem(
+      CHAT_KEY_V1,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: { sessionId: 's', messages: [{ id: 'm1', role: 'user', content: 'headache', createdAt: 'x' }] },
+      }),
+    )
+
+    const restored = loadChatSession()
+
+    expect(restored.messages).toEqual([])
+    expect(sessionStorage.getItem(CHAT_KEY_V1)).toBeNull()
   })
 })

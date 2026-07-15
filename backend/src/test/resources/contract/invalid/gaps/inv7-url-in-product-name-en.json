@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "answerId": "gap-inv7-product-name-en",
+  "language": "en",
+  "dataStatus": "live",
+  "urgency": {
+    "level": "routine",
+    "title": "Routine care",
+    "message": "Ask a pharmacist if symptoms continue.",
+    "reasonCodes": [],
+    "actions": []
+  },
+  "summary": "The URL appears only in a rendered English product name.",
+  "clarifyingQuestions": [],
+  "guidance": [],
+  "drugs": [
+    {
+      "id": "drug:mfds:tylenol-500",
+      "productNameKo": "타이레놀정500밀리그람",
+      "productNameEn": "https://evil.example",
+      "ingredients": [
+        {
+          "nameKo": "아세트아미노펜",
+          "nameEn": "Acetaminophen",
+          "normalizedKey": "acetaminophen",
+          "amount": "500",
+          "unit": "mg"
+        }
+      ],
+      "indicationSummary": "Used for temporary relief of pain and fever.",
+      "directionsSummary": "Follow the product label.",
+      "warnings": [],
+      "prescriptionStatus": "otc",
+      "allergyCheck": {
+        "status": "no_match_found",
+        "matchedIngredients": [],
+        "message": "No match found in the listed ingredients."
+      },
+      "sourceRefId": "src:mfds:tylenol-500"
+    }
+  ],
+  "uiActions": [],
+  "sourceRefs": [],
+  "warnings": [],
+  "disclaimer": "This is general information, not medical advice or a diagnosis. Consult a licensed pharmacist or doctor. In an emergency, call 119."
+}

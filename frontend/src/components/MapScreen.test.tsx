@@ -1,41 +1,104 @@
+import { useState } from 'react'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { MapScreen } from './MapScreen'
-import type { Facility } from '../lib/types'
+import type { Facility, GeocodeResult } from '../lib/types'
+import { loadPreferences, setManualLocation } from '../lib/storage'
 
 /**
  * `FacilityMap` needs the Naver SDK, which is `FacilityMap.test.tsx`'s business; here it is a
  * stub that echoes the facilities, status text, caption, and location notice it receives.
  */
-const { resolveLocationMock, fetchFacilitiesMock } = vi.hoisted(() => ({
+const { resolveLocationMock, fetchFacilitiesMock, fetchGeocodeMock } = vi.hoisted(() => ({
   resolveLocationMock: vi.fn(),
   fetchFacilitiesMock: vi.fn(),
+  fetchGeocodeMock: vi.fn(),
 }))
 vi.mock('../lib/facilities', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/facilities')>()
-  return { ...actual, resolveLocation: resolveLocationMock, fetchFacilities: fetchFacilitiesMock }
+  return {
+    ...actual,
+    resolveLocation: resolveLocationMock,
+    fetchFacilities: fetchFacilitiesMock,
+    fetchGeocode: fetchGeocodeMock,
+  }
 })
 vi.mock('./FacilityMap', () => ({
-  FacilityMap: (props: { facilities?: Facility[]; notice?: string; caption?: string }) => (
-    <div
-      data-testid="map-stub"
-      data-facility-ids={(props.facilities ?? []).map((facility) => facility.id).join(',')}
-    >
-      {props.caption && <span data-testid="map-caption">{props.caption}</span>}
-      {props.notice && <span data-testid="map-notice">{props.notice}</span>}
-      {(props.facilities ?? []).map((facility) => (
-        <span key={facility.id} data-testid={`map-facility-${facility.id}`}>
-          {facility.nameKo}:{' '}
-          {facility.operation.isOpenNow === true
-            ? 'Open now'
-            : facility.operation.isOpenNow === false
-              ? 'Closed'
-              : 'Hours unknown'}
-        </span>
-      ))}
-    </div>
-  ),
+  FacilityMap: (props: {
+    facilities?: Facility[]
+    additionalFixtureData?: boolean
+    notice?: string
+    caption?: string
+    manualLocation?: {
+      canClear: boolean
+      onUseSpot: (center: { lat: number; lng: number }) => void
+      onSearchAddress: (query: string) => Promise<GeocodeResult[]>
+      onUseAddress: (result: GeocodeResult) => void
+      currentLabel?: string
+      onClear: () => void
+    }
+  }) => {
+    const [query, setQuery] = useState('')
+    const [results, setResults] = useState<GeocodeResult[]>([])
+    return (
+      <div
+        data-testid="map-stub"
+        data-facility-ids={(props.facilities ?? []).map((facility) => facility.id).join(',')}
+      >
+        {props.caption && <span data-testid="map-caption">{props.caption}</span>}
+        {props.notice && <span data-testid="map-notice">{props.notice}</span>}
+        {props.additionalFixtureData && (
+          <span data-testid="map-fixture-notice">
+            Sample data — availability may not reflect current conditions.
+          </span>
+        )}
+        {props.manualLocation && (
+          <>
+            <button type="button">Set your location</button>
+            <button type="button" onClick={() => props.manualLocation!.onUseSpot({ lat: 35.1796, lng: 129.0756 })}>
+              Use this spot
+            </button>
+            <label>
+              Search an address
+              <input value={query} onChange={(event) => setQuery(event.target.value)} />
+            </label>
+            <button
+              type="button"
+              onClick={async () => setResults(await props.manualLocation!.onSearchAddress(query))}
+            >
+              Search
+            </button>
+            {results.map((result) => (
+              <button
+                key={`${result.latitude}:${result.longitude}`}
+                type="button"
+                onClick={() => props.manualLocation!.onUseAddress(result)}
+              >
+                {result.roadAddress}
+              </button>
+            ))}
+            {props.manualLocation.currentLabel && (
+              <span>Chosen centre: {props.manualLocation.currentLabel}</span>
+            )}
+            {props.manualLocation.canClear && (
+              <button type="button" onClick={props.manualLocation.onClear}>Clear</button>
+            )}
+          </>
+        )}
+        {(props.facilities ?? []).map((facility) => (
+          <span key={facility.id} data-testid={`map-facility-${facility.id}`}>
+            {facility.nameKo}:{' '}
+            {facility.operation.isOpenNow === true
+              ? 'Open now'
+              : facility.operation.isOpenNow === false
+                ? 'Closed'
+                : 'Hours unknown'}
+          </span>
+        ))}
+      </div>
+    )
+  },
 }))
 
 function facility(
@@ -81,15 +144,17 @@ function notImplementedError(): Error {
 }
 
 afterEach(() => {
+  localStorage.clear()
   resolveLocationMock.mockReset()
   fetchFacilitiesMock.mockReset()
+  fetchGeocodeMock.mockReset()
 })
 
 describe('MapScreen', () => {
   it('renders null opening hours as Hours unknown, never Closed', async () => {
     const user = userEvent.setup()
     const unknown = facility('unknown', '미상약국', null, '02-111-2222')
-    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, fromDevice: false })
+    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([unknown]),
     )
@@ -125,7 +190,9 @@ describe('MapScreen', () => {
     const open = facility('open', '영업약국', true)
     const unknown = facility('unknown', '미상약국', null, '02-333-4444')
     const closed = facility('closed', '닫힘약국', false)
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
+    open.source.dataMode = 'live'
+    unknown.source.dataMode = 'live'
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital'
         ? Promise.reject(notImplementedError())
@@ -148,6 +215,9 @@ describe('MapScreen', () => {
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open'))
     expect(screen.queryByTestId('map-facility-closed')).not.toBeInTheDocument()
     expect(screen.queryByText('닫힘약국')).not.toBeInTheDocument()
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent(
+      'Sample data — availability may not reflect current conditions.',
+    )
 
     const heading = screen.getByRole('heading', {
       name: 'Hours unknown — call to confirm (1)',
@@ -171,7 +241,7 @@ describe('MapScreen', () => {
   })
 
   it('does not ask for location or fetch until the tab is active', async () => {
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
     fetchFacilitiesMock.mockResolvedValue([])
 
     // The shell mounts every screen; an inactive Map must not prompt for location or spend the
@@ -185,30 +255,113 @@ describe('MapScreen', () => {
     await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalled())
   })
 
-  it('warns when a displayed facility carries fixture provenance, never presenting it as live (§2-9)', async () => {
-    const live = facility('a', '라이브약국', true)
-    live.source.dataMode = 'live'
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, fromDevice: true })
+  it('refetches from the pin centre after geolocation was denied', async () => {
+    const user = userEvent.setup()
+    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([live]),
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([]),
     )
 
-    const { rerender } = render(<MapScreen active={true} />)
-    await screen.findByTestId('map-facility-a')
-    expect(screen.queryByTestId('map-fixture-notice')).not.toBeInTheDocument()
+    render(<MapScreen active={true} />)
+    await screen.findByRole('button', { name: 'Set your location' })
+    await user.click(screen.getByRole('button', { name: 'Use this spot' }))
 
-    // The same screen with a fixture-provenance facility must say so.
-    const sample = facility('b', '샘플약국', true)
-    // (facility() already defaults source.dataMode to 'fixture')
-    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([sample]),
-    )
-    rerender(<MapScreen active={false} />)
-    rerender(<MapScreen active={true} />)
-    // force a refetch by switching type, since location is already resolved
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Pharmacies' }))
-    expect(await screen.findByTestId('map-fixture-notice')).toHaveTextContent(
-      'Showing sample data — availability may not reflect current conditions.',
-    )
+    await waitFor(() => {
+      const newCentreCalls = fetchFacilitiesMock.mock.calls.filter(
+        ([query]) => query.lat === 35.1796 && query.lng === 129.0756,
+      )
+      expect(newCentreCalls).toHaveLength(2)
+    })
+    expect(loadPreferences().manualLocation).toEqual({
+      lat: 35.1796,
+      lng: 129.0756,
+      label: 'Chosen map spot',
+    })
   })
+
+  it('searches an address, shows its label, and refetches facilities from its coordinates', async () => {
+    const user = userEvent.setup()
+    const result = {
+      roadAddress: '서울특별시 중구 세종대로 110',
+      jibunAddress: '서울특별시 중구 태평로1가 31',
+      englishAddress: '110 Sejong-daero, Jung-gu, Seoul',
+      latitude: 37.5666103,
+      longitude: 126.9783882,
+    }
+    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
+    fetchGeocodeMock.mockResolvedValue([result])
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([]),
+    )
+
+    render(<MapScreen active={true} />)
+    await user.type(await screen.findByLabelText('Search an address'), 'Seoul City Hall')
+    await user.click(screen.getByRole('button', { name: 'Search' }))
+    await user.click(await screen.findByRole('button', { name: result.roadAddress }))
+
+    expect(fetchGeocodeMock).toHaveBeenCalledWith('Seoul City Hall')
+    await waitFor(() => {
+      const pickedCentreCalls = fetchFacilitiesMock.mock.calls.filter(
+        ([query]) => query.lat === result.latitude && query.lng === result.longitude,
+      )
+      expect(pickedCentreCalls).toHaveLength(2)
+    })
+    expect(loadPreferences().manualLocation).toEqual({
+      lat: result.latitude,
+      lng: result.longitude,
+      label: result.roadAddress,
+    })
+    expect(screen.getByText(`Chosen centre: ${result.roadAddress}`)).toBeInTheDocument()
+    const notice = screen.getByTestId('map-notice')
+    expect(notice).toHaveTextContent('spot you chose')
+    expect(notice).not.toHaveTextContent('your location')
+  })
+
+  it('renders an honest notice for every location source', async () => {
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([]),
+    )
+
+    resolveLocationMock.mockResolvedValueOnce({ lat: 35.1, lng: 129.1, source: 'manual' })
+    const manual = render(<MapScreen active={true} />)
+    const manualNotice = await screen.findByTestId('map-notice')
+    expect(manualNotice).toHaveTextContent('spot you chose')
+    expect(manualNotice).not.toHaveTextContent('your location')
+    manual.unmount()
+
+    resolveLocationMock.mockResolvedValueOnce({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
+    const fallback = render(<MapScreen active={true} />)
+    expect(await screen.findByTestId('map-notice')).toHaveTextContent(
+      'Centred on Seoul City Hall — we could not read your location, so these are not near you.',
+    )
+    fallback.unmount()
+
+    resolveLocationMock.mockResolvedValueOnce({ lat: 37.5, lng: 127, source: 'device' })
+    render(<MapScreen active={true} />)
+    await screen.findByTestId('map-stub')
+    expect(screen.queryByTestId('map-notice')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Set your location' })).not.toBeInTheDocument()
+  })
+
+  it('clears a manual pin and refetches from the fallback centre', async () => {
+    const user = userEvent.setup()
+    setManualLocation({ lat: 35.1, lng: 129.1, label: 'Chosen map spot' })
+    resolveLocationMock.mockResolvedValue({ lat: 35.1, lng: 129.1, source: 'manual' })
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([]),
+    )
+
+    render(<MapScreen active={true} />)
+    await user.click(await screen.findByRole('button', { name: 'Clear' }))
+
+    expect(await screen.findByTestId('map-notice')).toHaveTextContent('Centred on Seoul City Hall')
+    await waitFor(() => {
+      const fallbackCalls = fetchFacilitiesMock.mock.calls.filter(
+        ([query]) => query.lat === 37.5663 && query.lng === 126.9779,
+      )
+      expect(fallbackCalls).toHaveLength(2)
+    })
+    expect(loadPreferences().manualLocation).toBeNull()
+  })
+
 })

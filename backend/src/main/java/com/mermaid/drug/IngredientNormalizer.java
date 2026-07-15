@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,16 @@ import org.springframework.stereotype.Component;
 public class IngredientNormalizer {
 
     private static final String SYNONYMS = "/ingredients/synonyms.tsv";
+
+    /**
+     * Spelling variants that resolve to a canonical name for LOOKUP only (spec 005 FR-006).
+     * Intentionally a small exact map — fuzzy or edit-distance matching could bind a different
+     * ingredient and is never allowed. These feed retrieval and grant NO blocking authority: an
+     * allergy blocks only through an exact canonical match or a human-signed {@code synonyms.tsv}
+     * row (AGENTS.md 2-6). To let a spelling variant block, a human signs it in the TSV.
+     */
+    private static final Map<String, String> SPELLING_LOOKUP_ALIASES =
+            Map.of("ibuprofin", "ibuprofen");
 
     /**
      * Dose and strength: "200mg", "160밀리그램", "5 %".
@@ -82,11 +93,22 @@ public class IngredientNormalizer {
 
     private final Map<String, String> synonyms = new HashMap<>();
 
+    /** The subset of aliases that may author a blocking key on the free-text allergy path. */
+    private final Map<String, String> reviewedSynonyms = new HashMap<>();
+
+    /** Canonical names observed in the dictionary; exact identity needs no alias authority. */
+    private final Set<String> knownCanonicalKeys = new HashSet<>();
+
     /** Rows loaded from a dictionary nobody has signed. See {@link #warnIfUnreviewed()}. */
     private final List<String> unreviewedAliases = new ArrayList<>();
 
     public IngredientNormalizer() {
         loadSynonyms();
+        // Lookup only: a spelling variant helps retrieval find the record, but must not acquire
+        // blocking authority without a signed TSV row (AGENTS.md 2-6 / FR-006). The canonical it
+        // points at earns EXACT/signed authority through the dictionary, not through this map.
+        SPELLING_LOOKUP_ALIASES.forEach(
+                (alias, canonical) -> synonyms.put(canonicalize(alias), canonicalize(canonical)));
     }
 
     /**
@@ -111,6 +133,45 @@ public class IngredientNormalizer {
         // The input already looks like a canonical ingredient name. We cannot prove it is one —
         // that happens when it matches a government record — but the form is right.
         return new NormalizedTerm(raw, key, MatchConfidence.EXACT);
+    }
+
+    /**
+     * Whether a normalized user term has enough authority to enter the avoided set — since the
+     * 2026-07-14 redesign, that means an {@code exclude_ingredients} entry (the structured channel
+     * is the only one left; a free-text declaration clarifies instead of binding).
+     *
+     * <p>An exact canonical name is identity, not an alias mapping. A synonym needs a human-signed
+     * {@code synonyms.tsv} row. Unsigned TSV aliases and in-code spelling variants remain available
+     * to lookup but cannot block through DEV-560 — a spelling variant blocks only once a human
+     * signs it in the TSV.
+     */
+    public boolean isReviewedBinding(NormalizedTerm term) {
+        if (term == null || term.key() == null) {
+            return false;
+        }
+        if (term.confidence() == MatchConfidence.EXACT) {
+            return knownCanonicalKeys.contains(term.key());
+        }
+        if (term.confidence() == MatchConfidence.SYNONYM) {
+            return term.key().equals(reviewedSynonyms.get(canonicalize(term.raw())));
+        }
+        return false;
+    }
+
+    /**
+     * Normalises an ingredient for retrieved-record identity checks, where discarding content would
+     * create a false match. Allergy input may legitimately contain a dose or brand in parentheses;
+     * a model-authored ingredient name may not use those forms to hide a different ingredient.
+     */
+    public NormalizedTerm normalizeIdentity(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return new NormalizedTerm(raw, null, MatchConfidence.UNKNOWN);
+        }
+        String comparable = Normalizer.normalize(raw, Normalizer.Form.NFKC);
+        if (PARENTHESISED.matcher(comparable).find() || DOSE.matcher(comparable).find()) {
+            return new NormalizedTerm(raw, null, MatchConfidence.UNKNOWN);
+        }
+        return normalize(comparable);
     }
 
     /**
@@ -235,8 +296,13 @@ public class IngredientNormalizer {
             log.warn("skipping malformed synonym row: {}", line);
             return;
         }
-        synonyms.put(canonicalize(cols[0]), canonicalize(cols[1]));
-        if (!isSigned(cols)) {
+        String alias = canonicalize(cols[0]);
+        String canonical = canonicalize(cols[1]);
+        synonyms.put(alias, canonical);
+        knownCanonicalKeys.add(canonical);
+        if (isSigned(cols)) {
+            reviewedSynonyms.put(alias, canonical);
+        } else {
             unreviewedAliases.add(cols[0].trim());
         }
     }
@@ -276,6 +342,16 @@ public class IngredientNormalizer {
     /** Aliases whose reviewer column still reads {@code TODO}. They block anyway; see the warning. */
     public List<String> unreviewedAliases() {
         return List.copyOf(unreviewedAliases);
+    }
+
+    /**
+     * The canonical keys the allergy check can bind — the client's allergen picker offers exactly
+     * these and nothing else (spec 005 FR-015). Sourced from the dictionary so the picker can
+     * never drift from what actually binds: an exact canonical key resolves through
+     * {@link #isReviewedBinding} by identity, so every option offered is an option that works.
+     */
+    public List<String> canonicalKeys() {
+        return knownCanonicalKeys.stream().sorted().toList();
     }
 
     /**

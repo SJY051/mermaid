@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchFacilities, resolveLocation, SEOUL_CITY_HALL } from './facilities'
+import { fetchFacilities, fetchGeocode, resolveLocation, SEOUL_CITY_HALL } from './facilities'
+import { savePreferences } from './storage'
 
 function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown> }) {
   const spy = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [], ...response })
@@ -12,6 +13,7 @@ function requestedUrl(spy: ReturnType<typeof vi.fn>): URL {
 }
 
 afterEach(() => {
+  localStorage.clear()
   vi.unstubAllGlobals()
 })
 
@@ -82,8 +84,46 @@ describe('fetchFacilities surfaces the server’s own words when it fails', () =
   })
 })
 
+describe('fetchGeocode calls only our server', () => {
+  it('sends the address as the query parameter and returns our coordinate shape', async () => {
+    const match = {
+      roadAddress: '서울특별시 중구 세종대로 110',
+      jibunAddress: '서울특별시 중구 태평로1가 31',
+      englishAddress: '110 Sejong-daero, Jung-gu, Seoul',
+      latitude: 37.5666103,
+      longitude: 126.9783882,
+    }
+    const spy = mockFetch({ json: async () => [match] })
+
+    await expect(fetchGeocode(match.roadAddress)).resolves.toEqual([match])
+
+    const url = requestedUrl(spy)
+    expect(url.pathname).toBe('/api/v1/geocode')
+    expect(url.searchParams.get('query')).toBe(match.roadAddress)
+    expect(url.host).toBe('localhost')
+  })
+
+  it('rejects a failed search instead of turning it into no matches', async () => {
+    mockFetch({
+      ok: false,
+      status: 503,
+      json: async () => ({
+        error: { code: 'SOURCE_UNAVAILABLE', message: 'Address search is unavailable.', retryable: true },
+      }),
+    })
+
+    await expect(fetchGeocode('an address')).rejects.toThrow('Address search is unavailable.')
+  })
+})
+
 describe('resolveLocation is honest about where the centre came from', () => {
-  it('reports the device position when the browser gives one', async () => {
+  it('uses the device position even when a manual location is stored', async () => {
+    savePreferences({
+      rememberAllergies: false,
+      allergies: [],
+      defaultRadiusM: 1000,
+      manualLocation: { lat: 35.1, lng: 129.1, label: 'Old pin' },
+    })
     vi.stubGlobal('navigator', {
       geolocation: {
         getCurrentPosition: (onSuccess: PositionCallback) =>
@@ -91,10 +131,16 @@ describe('resolveLocation is honest about where the centre came from', () => {
       },
     })
 
-    await expect(resolveLocation()).resolves.toEqual({ lat: 35.16, lng: 129.06, fromDevice: true })
+    await expect(resolveLocation()).resolves.toEqual({ lat: 35.16, lng: 129.06, source: 'device' })
   })
 
-  it('falls back to Seoul City Hall and says so when permission is refused', async () => {
+  it('uses a stored manual location when permission is refused', async () => {
+    savePreferences({
+      rememberAllergies: false,
+      allergies: [],
+      defaultRadiusM: 1000,
+      manualLocation: { lat: 35.1, lng: 129.1, label: 'Chosen map spot' },
+    })
     vi.stubGlobal('navigator', {
       geolocation: {
         getCurrentPosition: (_ok: PositionCallback, onError: PositionErrorCallback) =>
@@ -102,21 +148,25 @@ describe('resolveLocation is honest about where the centre came from', () => {
       },
     })
 
-    // fromDevice: false is what stops the map captioning someone else's neighbourhood as "near you".
-    await expect(resolveLocation()).resolves.toEqual({ ...SEOUL_CITY_HALL, fromDevice: false })
+    await expect(resolveLocation()).resolves.toEqual({
+      lat: 35.1,
+      lng: 129.1,
+      source: 'manual',
+      label: 'Chosen map spot',
+    })
   })
 
-  it('falls back when the browser has no geolocation at all', async () => {
+  it('falls back when the browser has no geolocation and no manual location', async () => {
     vi.stubGlobal('navigator', {})
 
-    await expect(resolveLocation()).resolves.toEqual({ ...SEOUL_CITY_HALL, fromDevice: false })
+    await expect(resolveLocation()).resolves.toEqual({ ...SEOUL_CITY_HALL, source: 'fallback' })
   })
 
-  it('never resolves fromDevice: true without coordinates', async () => {
+  it('never reports a device source without device coordinates', async () => {
     vi.stubGlobal('navigator', {})
     const resolved = await resolveLocation()
 
-    expect(resolved.fromDevice).toBe(false)
+    expect(resolved.source).toBe('fallback')
     expect(resolved.lat).toBeCloseTo(37.5663, 4)
   })
 })

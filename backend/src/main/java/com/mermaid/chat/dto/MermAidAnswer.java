@@ -133,9 +133,25 @@ public record MermAidAnswer(
     /**
      * One medicine.
      *
+     * <p>Three of these fields are the model's, and three are the server's, and the split is not
+     * arbitrary: <b>the model translates, the server states facts.</b> {@code indicationSummary},
+     * {@code directionsSummary} and {@code labelCautions} are English renderings of the ministry's
+     * three narrative fields — that translation is the job we gave the model, and post-processing
+     * invariants 7 and 8 bound it to the ministry's own numbers. {@code warnings}, {@code
+     * prescriptionStatus} and {@code allergyCheck} are records the server holds, and it overwrites
+     * whatever the model wrote in them.
+     *
      * @param productNameKo Korean script, so the user can show it at a pharmacy counter. Must match
      *     a record we actually fetched — invariant #6.
-     * @param warnings includes DUR contraindications (spec §2-10), cited via {@code sourceRefId}
+     * @param labelCautions the model's English summary of 식약처's 주의사항·경고·상호작용·부작용. Until
+     *     2026-07-14 this had no field of its own and the prompt asked for it inside {@code
+     *     warnings}, where it sat indistinguishable from a government contraindication — and could
+     *     displace one. It is a translation, like the two summaries above it, and lives with them.
+     * @param warnings 식약처's DUR contraindications (spec §2-10), rendered by the server. The model
+     *     is told to leave it empty; {@code ChatProxyController} fills it (invariant 8).
+     * @param prescriptionStatus the server's own value from the MFDS licence record, overwritten in
+     *     post-processing. A traveller told "no prescription needed" who then cannot buy it has
+     *     wasted a trip; the opposite has them skip a doctor they needed.
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record DrugCard(
@@ -145,6 +161,7 @@ public record MermAidAnswer(
             List<Ingredient> ingredients,
             String indicationSummary,
             String directionsSummary,
+            String labelCautions,
             List<String> warnings,
             PrescriptionStatus prescriptionStatus,
             AllergyCheck allergyCheck,

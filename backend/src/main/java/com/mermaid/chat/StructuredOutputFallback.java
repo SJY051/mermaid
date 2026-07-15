@@ -24,6 +24,10 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class StructuredOutputFallback {
 
+    private static final String INVALID_STRUCTURE_REFUSAL =
+            "I could not verify that answer against official data, so I will not show it. "
+                    + "Please describe your symptoms again, or visit a pharmacy.";
+
     /** SA-02: the client renders this. It is never absent. */
     public static final String DISCLAIMER =
             "This is general information, not medical advice or a diagnosis. "
@@ -43,6 +47,17 @@ public class StructuredOutputFallback {
         String candidate = stripMarkdownFence(rawContent.trim());
         try {
             MermAidAnswer parsed = objectMapper.readValue(candidate, MermAidAnswer.class);
+            // Every model-authored list that reaches a rendered field: a null uiAction crashes the
+            // browser at action.type before the safety/disclaimer UI can draw (fail closed instead).
+            int nullElements =
+                    countNulls(parsed.drugs())
+                            + countNulls(parsed.guidance())
+                            + countNulls(parsed.uiActions())
+                            + countNulls(parsed.urgency() == null ? null : parsed.urgency().actions());
+            if (nullElements > 0) {
+                log.warn("model_answer_rejected code=NULL_COLLECTION_ELEMENT count={}", nullElements);
+                return safeAnswer(INVALID_STRUCTURE_REFUSAL);
+            }
             // Valid JSON of the WRONG shape is the sneakier failure: Jackson ignores unknown fields,
             // so a model that answered with `reply` instead of `summary` parses cleanly into an
             // object with nothing to render. An empty summary and no drugs means we learned nothing,
@@ -56,7 +71,17 @@ public class StructuredOutputFallback {
             }
             return withGuarantees(parsed);
         } catch (Exception e) {
-            log.warn("Model ignored the response schema; falling back to prose. reason={}", e.getMessage());
+            // The type, and the field it choked on — not the content. Jackson's own message quotes
+            // the source text it failed to parse, and that text is the model's answer about this
+            // person's symptoms: a log line is a place things persist, and a consultation does not
+            // persist (§2-5). The field path is enough to tell a schema drift from a broken model.
+            String path = e instanceof com.fasterxml.jackson.databind.JsonMappingException mapping
+                    ? mapping.getPathReference()
+                    : "unknown";
+            log.warn(
+                    "model_answer_rejected code=COERCION_FAILED exception={} path={}",
+                    e.getClass().getSimpleName(),
+                    path);
             return safeAnswer(rawContent);
         }
     }
@@ -108,6 +133,10 @@ public class StructuredOutputFallback {
 
     private static <T> List<T> nullSafe(List<T> list) {
         return list == null ? List.of() : list;
+    }
+
+    private static int countNulls(List<?> list) {
+        return list == null ? 0 : (int) list.stream().filter(java.util.Objects::isNull).count();
     }
 
     /** Models love to answer a JSON request with ```json … ``` around it. */

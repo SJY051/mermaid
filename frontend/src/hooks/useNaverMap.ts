@@ -152,6 +152,11 @@ export function useNaverMap({ center, zoom = 15 }: UseNaverMapOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  useEffect(() => {
+    if (!ready || !mapRef.current) return
+    mapRef.current.setCenter(new naver.maps.LatLng(center.lat, center.lng))
+  }, [center.lat, center.lng, ready])
+
   return { containerRef, map: mapRef.current, ready, error }
 }
 

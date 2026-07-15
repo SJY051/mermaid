@@ -8,18 +8,21 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.mermaid.chat.AnswerValidator.ViolationCode;
+import com.mermaid.chat.DrugContextRetriever.GroundedDrug;
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
+import com.mermaid.drug.IngredientNormalizer;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Named;
 import org.junit.jupiter.api.Nested;
@@ -41,7 +44,7 @@ class AnswerContractTest {
             new ObjectMapper()
                     .registerModule(new JavaTimeModule())
                     .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-    private final AnswerValidator validator = new AnswerValidator();
+    private final AnswerValidator validator = new AnswerValidator(new IngredientNormalizer());
     private final JsonNode providerSchema = new AnswerSchemaProvider(objectMapper).get();
 
     @Nested
@@ -58,7 +61,7 @@ class AnswerContractTest {
                             objectMapper.writeValueAsBytes(grounded), MermAidAnswer.class);
 
             assertThat(roundTripped).isEqualTo(grounded);
-            assertThat(validator.validate(roundTripped, drugNames(roundTripped)))
+            assertThat(validator.validate(roundTripped, groundedDrugsFor(fixture)))
                     .as("violations for %s", fixture.getFileName())
                     .isEmpty();
         }
@@ -73,13 +76,12 @@ class AnswerContractTest {
         @DisplayName("Invariants 1-7 each reject their isolated violation")
         void invalidFixtureEmitsExpectedViolation(Path fixture) throws IOException {
             MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
-            List<String> violations =
-                    validator.validate(answer, retrievedNamesForInvalidFixture(fixture, answer));
+            List<ViolationCode> violations = validator.validate(answer, groundedDrugsFor(fixture));
 
             assertThat(violations)
                     .as("violations for %s", fixture.getFileName())
                     .hasSize(1)
-                    .allMatch(v -> v.contains(expectedViolationFragment(fixture)));
+                    .containsExactly(expectedViolationCode(fixture));
         }
     }
 
@@ -104,35 +106,66 @@ class AnswerContractTest {
     class DocumentedValidatorGaps {
 
         @Test
-        @Disabled("DEV-601: validator gap, see report")
         @DisplayName("Invariant 6 - retrieved product ingredients must match the normalized record")
         void invariant6RejectsFabricatedIngredient() throws IOException {
             Path fixture = fixture("invalid/gaps/inv6-mismatched-ingredient.json");
             MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
 
-            assertThat(validator.validate(answer, drugNames(answer))).isNotEmpty();
+            assertThat(validator.validate(answer, groundedDrugsFor(fixture)))
+                    .containsExactly(ViolationCode.INV6_INGREDIENT_MISMATCH);
         }
 
         @Test
-        @Disabled("DEV-601: validator gap, see report")
         @DisplayName("Invariant 7 - a URL in the urgency message is rejected")
         void invariant7RejectsUrlInUrgencyMessage() throws IOException {
             Path fixture = fixture("invalid/gaps/inv7-url-in-urgency-message.json");
             MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
 
-            assertThat(validator.validate(answer, drugNames(answer)))
-                    .anyMatch(v -> v.contains("URL or markup"));
+            assertThat(validator.validate(answer, groundedDrugsFor(fixture)))
+                    .containsExactly(ViolationCode.INV7_FORBIDDEN_MARKUP);
         }
 
         @Test
-        @Disabled("DEV-601: validator gap, see report")
         @DisplayName("Invariant 7 - generic HTML in a scanned field is rejected")
         void invariant7RejectsGenericHtml() throws IOException {
             Path fixture = fixture("invalid/gaps/inv7-generic-html-in-summary.json");
             MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
 
-            assertThat(validator.validate(answer, drugNames(answer)))
-                    .anyMatch(v -> v.contains("URL or markup"));
+            assertThat(validator.validate(answer, groundedDrugsFor(fixture)))
+                    .containsExactly(ViolationCode.INV7_FORBIDDEN_MARKUP);
+        }
+
+        @ParameterizedTest(name = "{0}")
+        @MethodSource("com.mermaid.chat.AnswerContractTest#renderedTextGapFixtures")
+        @DisplayName("Invariant 7 - every currently rendered model string is scanned")
+        void invariant7RejectsUrlInEveryRenderedField(Path fixture) throws IOException {
+            MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
+
+            assertThat(validator.validate(answer, groundedDrugsFor(fixture)))
+                    .as("violations for %s", fixture.getFileName())
+                    .containsExactly(ViolationCode.INV7_FORBIDDEN_MARKUP);
+        }
+
+        @Test
+        @DisplayName("OUT-05 - every guidance source id belongs to the server-owned sources")
+        void out05RejectsFabricatedGuidanceSource() throws IOException {
+            Path fixture = fixture("invalid/gaps/out05-fabricated-guidance-source.json");
+            MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
+
+            assertThat(validator.validate(answer, groundedDrugsFor(fixture)))
+                    .as("violations for %s", fixture.getFileName())
+                    .containsExactly(ViolationCode.INV5_GUIDANCE_SOURCE_UNKNOWN);
+        }
+
+        @Test
+        @DisplayName("OUT-06 - a product may cite only its own server-owned source")
+        void out06RejectsSwappedProductSource() throws IOException {
+            Path fixture = fixture("invalid/gaps/out06-swapped-product-source.json");
+            MermAidAnswer answer = withServerSources(fixture, readProviderAnswer(fixture));
+
+            assertThat(validator.validate(answer, groundedDrugsFor(fixture)))
+                    .as("violations for %s", fixture.getFileName())
+                    .containsExactly(ViolationCode.INV6_PRODUCT_SOURCE_MISMATCH);
         }
     }
 
@@ -186,13 +219,15 @@ class AnswerContractTest {
         String name = fixture.getFileName().toString();
         return switch (name) {
             case "routine-drugs-sources.json", "inv2-blocked-no-ingredient.json",
-                    "inv6-mismatched-ingredient.json" ->
+                    "inv6-mismatched-ingredient.json", "inv7-url-in-product-name-en.json",
+                    "inv7-url-in-blocked-matched-ingredient.json",
+                    "out05-fabricated-guidance-source.json" ->
                     List.of(source("src:mfds:tylenol-500", SourceRef.DataMode.LIVE));
             case "no-match-allergy-answer.json" ->
                     List.of(source("src:mfds:setopen-325", SourceRef.DataMode.LIVE));
             case "fixture-data-labelled.json" ->
                     List.of(source("src:mfds:children-tylenol", SourceRef.DataMode.FIXTURE));
-            case "multi-drug-answer.json" ->
+            case "multi-drug-answer.json", "out06-swapped-product-source.json" ->
                     List.of(
                             source("src:mfds:tylenol-500", SourceRef.DataMode.LIVE),
                             source("src:mfds:brufen-200", SourceRef.DataMode.LIVE));
@@ -232,44 +267,73 @@ class AnswerContractTest {
         }
     }
 
-    private static Set<String> retrievedNamesForInvalidFixture(Path fixture, MermAidAnswer answer) {
-        if (fixture.getFileName().toString().startsWith("inv6-")) {
-            return Set.of();
-        }
-        return drugNames(answer);
+    /** The retrieval result is an independent server fact; never derive it from the model answer. */
+    private static Map<String, GroundedDrug> groundedDrugsFor(Path fixture) {
+        return switch (fixture.getFileName().toString()) {
+            case "routine-drugs-sources.json", "inv6-mismatched-ingredient.json",
+                    "inv7-url-in-product-name-en.json", "inv7-url-in-blocked-matched-ingredient.json",
+                    "out05-fabricated-guidance-source.json" ->
+                    Map.of(
+                            "타이레놀정500밀리그람",
+                            grounded("src:mfds:tylenol-500", "acetaminophen"));
+            case "inv1-unknown-sourceref.json" ->
+                    Map.of("타이레놀정500밀리그람", grounded("src:mfds:known"));
+            case "inv2-blocked-no-ingredient.json" ->
+                    Map.of("타이레놀정500밀리그람", grounded("src:mfds:tylenol-500"));
+            case "no-match-allergy-answer.json" ->
+                    Map.of(
+                            "세토펜정325밀리그람",
+                            grounded("src:mfds:setopen-325", "acetaminophen"));
+            case "fixture-data-labelled.json" ->
+                    Map.of(
+                            "어린이타이레놀현탁액",
+                            grounded("src:mfds:children-tylenol", "acetaminophen"));
+            case "multi-drug-answer.json", "out06-swapped-product-source.json" ->
+                    Map.of(
+                            "타이레놀정500밀리그람",
+                            grounded("src:mfds:tylenol-500", "acetaminophen"),
+                            "부루펜정200밀리그람",
+                            grounded("src:mfds:brufen-200", "ibuprofen"));
+            default -> Map.of();
+        };
     }
 
-    private static Set<String> drugNames(MermAidAnswer answer) {
-        if (answer.drugs() == null) {
-            return Set.of();
-        }
-        return answer.drugs().stream()
-                .map(MermAidAnswer.DrugCard::productNameKo)
-                .collect(Collectors.toUnmodifiableSet());
+    private static GroundedDrug grounded(String sourceRefId, String... ingredientKeys) {
+        return new GroundedDrug(
+                sourceRefId,
+                Set.of(ingredientKeys),
+                AllergyCheck.noMatch(),
+                null,
+                List.of(),
+                null,
+                null,
+                MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                List.of(),
+                null);
     }
 
-    private static String expectedViolationFragment(Path fixture) {
+    private static ViolationCode expectedViolationCode(Path fixture) {
         String name = fixture.getFileName().toString();
         if (name.startsWith("inv1-")) {
-            return "unknown source_ref_id";
+            return ViolationCode.INV1_UNKNOWN_DRUG_SOURCE;
         }
         if (name.startsWith("inv2-")) {
-            return "blocked but names no ingredient";
+            return ViolationCode.INV2_BLOCKED_WITHOUT_MATCH;
         }
         if (name.startsWith("inv3-")) {
-            return "data_mode=fixture";
+            return ViolationCode.INV3_LIVE_WITH_FIXTURE_SOURCE;
         }
         if (name.startsWith("inv4-")) {
-            return "no SHOW_EMERGENCY_CALL";
+            return ViolationCode.INV4_EMERGENCY_ACTION_MISSING;
         }
         if (name.startsWith("inv5-")) {
-            return "official_data with no source";
+            return ViolationCode.INV5_GUIDANCE_SOURCE_MISSING;
         }
         if (name.startsWith("inv6-")) {
-            return "never retrieved";
+            return ViolationCode.INV6_PRODUCT_NOT_RETRIEVED;
         }
         if (name.startsWith("inv7-")) {
-            return "URL or markup";
+            return ViolationCode.INV7_FORBIDDEN_MARKUP;
         }
         throw new IllegalArgumentException("Fixture does not name an invariant: " + name);
     }
@@ -292,6 +356,19 @@ class AnswerContractTest {
     private static Stream<Named<Path>> schemaInvalidFixtures() {
         return listJson(
                 "invalid/schema", path -> "Schema constraint - " + path.getFileName().toString());
+    }
+
+    private static Stream<Named<Path>> renderedTextGapFixtures() {
+        return Stream.of(
+                Named.of(
+                        "urgency.title",
+                        fixture("invalid/gaps/inv7-url-in-urgency-title.json")),
+                Named.of(
+                        "drug.productNameEn",
+                        fixture("invalid/gaps/inv7-url-in-product-name-en.json")),
+                Named.of(
+                        "allergyCheck.matchedIngredients",
+                        fixture("invalid/gaps/inv7-url-in-blocked-matched-ingredient.json")));
     }
 
     private static Stream<Named<Path>> listJson(
