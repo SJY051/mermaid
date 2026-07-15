@@ -47,7 +47,7 @@ Browser ──(openai JS SDK, baseURL=/api/v1)──▶ Spring proxy ──▶ L
 
 - **Pass 1a** — ask the LLM: "which *ingredients* should we look up for these symptoms?" → `["Acetaminophen", "Ibuprofen"]`
 - **Pass 1b** — the **server** queries the 식약처 APIs with those names.
-- **Answer** — if records were found, the **server** maps their typed fields into canonical cards. The legacy whole-answer Pass 2 remains only for a truly empty context until the separately reviewed empty-state follow-up.
+- **Answer** — if records were found, the **server** maps their typed fields into canonical cards. A completed lookup with no records gets a fixed server empty answer; a failed Pass 1 gets a distinct fixed unavailable answer. Whole-answer Pass 2 is no longer reachable.
 
 **Pass 1a's output is a query, not a fact.** The model cannot write a medicine card or its provenance on the non-empty path. See the staged decision record in [`docs/specs/006-semantic-output-gate/spec.md`](docs/specs/006-semantic-output-gate/spec.md).
 

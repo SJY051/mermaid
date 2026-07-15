@@ -114,7 +114,7 @@ LLM Provider              공공데이터포털 6종
 
 1. **Pass 1a (추출):** 규칙 기반 안전 선별 → `SearchTermExtractor`가 **별도 LLM 왕복**으로 사용자 발화에서 영문 성분명·제품명을 뽑음
 2. **Pass 1b (조회):** `DrugService.retrieve()`가 **서버에서** 식약처 API(허가정보 + e약은요 + DUR)를 조회
-3. **응답:** 공식 레코드가 있으면 서버가 그 레코드로 canonical drug card를 직접 작성하고 기존 validator로 재검증한다. 진짜 빈 컨텍스트만 별도 empty-state PR 전까지 legacy Pass 2를 유지한다. 승인된 단계별 전환 근거는 [spec 006](../006-semantic-output-gate/spec.md)에 기록한다.
+3. **응답:** 공식 레코드가 있으면 서버가 그 레코드로 canonical drug card를 직접 작성하고 기존 validator로 재검증한다. 정상 추출·조회 결과가 비면 고정 empty 응답을, Pass 1이 실패하면 그와 구분되는 고정 unavailable 응답을 서버가 작성한다. 승인된 단계별 전환 근거는 [spec 006](../006-semantic-output-gate/spec.md)에 기록한다.
 
 초기 Sol Pro 제안도 의료기관·의약품 사실은 서버가 공공 API에서 조회해야 한다는 결론이었습니다(NORM-010). 현재 non-empty 경계는 더 엄격하게, 요약도 모델이 아니라 서버의 typed record mapping으로 작성합니다.
 
@@ -146,7 +146,7 @@ non-empty 응답의 `source_refs`, `data_status`, `drugs[].source_ref_id`는 전
 
 #### 전환 전 비용과 지연 — 실측 (2026-07-10, opencode zen · glm-5.2)
 
-아래 수치는 whole-answer Pass 2가 non-empty 경로에 있던 당시의 기록입니다. 현재 non-empty 경로는 **LLM 왕복 1회**(질의 추출)이고, 진짜 빈 컨텍스트만 후속 empty-state PR 전까지 기존 두 번째 왕복을 유지합니다.
+아래 수치는 whole-answer Pass 2가 reachable하던 당시의 기록입니다. 현재 일반 경로의 **LLM 왕복은 최대 1회**(질의 추출)이며, 빈 결과와 추출 실패도 서버 고정 응답으로 끝납니다.
 
 | 관측 | 값 |
 |---|---|
@@ -164,7 +164,7 @@ non-empty 응답의 `source_refs`, `data_status`, `drugs[].source_ref_id`는 전
 - `mermaid.llm.extraction-timeout` = **60초** (2026-07-14 개정. 원래 30초). 짧은 배열 두 개를 받는 호출에 답변과 같은 예산을 주면, 대기열에 걸린 프로바이더가 **조회를 시작하기도 전에** 3분을 태웁니다. 타임아웃 시 컨텍스트가 비고, 답변은 약을 하나도 지목하지 않은 채 "약국에 가세요"가 됩니다 — **degraded지, wrong이 아닙니다.**
   - **그런데 30초는 응답의 *크기*를 보고 정한 값이었고, 프로바이더는 크기로 과금하지 않습니다.** 2026-07-14 브라우저 실측: **같은 추출 호출이 성공할 때 24.4초**, 같은 턴의 답변 호출이 100초. 예산이 실측 지연 **바로 위에** 얹혀 있어서, 상류가 조금만 느려지면 추출이 죽었습니다. 그리고 추출이 죽는 것은 작은 degradation이 아닙니다 — 검색어가 없으니 정부 조회가 0건이고, 모델은 빈 컨텍스트로 답을 쓰고, 검증기가 그걸 거부합니다. **두통을 물은 사람이 약을 하나도 못 받습니다.** 예산 안에 들어오면 같은 질문이 검증된 약 3종을 돌려줍니다. 느린 턴의 벽시계 시간이 조금 늘고, 옛 천장은 약을 잃었습니다.
 - 상류 실패는 **500이 아니라** 안전한 답변으로 내려갑니다. 느린 모델이 아픈 사람에게 "서버가 고장났다"고 말해선 안 됩니다.
-- `RAG pass 1`은 검색 구간을, `RAG pass 2`는 아직 남은 true-empty legacy 구간만 기록합니다.
+- `RAG pass 1`은 검색 구간을 기록합니다. `RAG pass 2` 코드는 작은 후속 cleanup을 위해 남아 있지만 모든 현재 `DrugContext` 상태가 그 전에 반환되어 실행되지 않습니다.
 
 **조회 병렬화 완료 (2026-07-10).** 성분 검색·안내문 프로브·상세 조립을 `Parallel.map`으로 묶었고, `detail()`은 허가정보·e약은요·DUR을 `Mono.zip`으로 동시에, DUR은 네 종류를 동시에 부릅니다.
 
@@ -175,7 +175,7 @@ non-empty 응답의 `source_refs`, `data_status`, `drugs[].source_ref_id`는 전
 
 **더 늘려도 소용없습니다.** 실측: DUR 4회를 순차로 5.77초, 동시에 2.70초 — **2.1배지 4배가 아닙니다.** 식약처가 서비스키 단위로 동시 요청을 조입니다. `UPSTREAM_CONCURRENCY = 4`가 곡선이 평평해지는 지점입니다.
 
-**그래도 챗은 느릴 수 있습니다.** non-empty 경로에서도 질의 추출과 공공 조회를 기다리므로 FE는 **로딩 상태를 반드시 그려야 합니다.** true-empty 경로의 두 번째 LLM 왕복은 승인된 후속 PR에서 고정 서버 응답으로 제거합니다.
+**그래도 챗은 느릴 수 있습니다.** non-empty 경로에서는 질의 추출과 공공 조회를 기다리므로 FE는 **로딩 상태를 반드시 그려야 합니다.** 다만 빈 결과와 추출 실패는 두 번째 LLM 왕복 없이 고정 서버 응답으로 끝납니다.
 
 > **기각한 방안: 추출 결과를 Redis에 캐시하기.** 캐시 키가 사용자의 증상 문장 그 자체가 됩니다. 의료 상담 텍스트를 서버에 남기지 않는다는 §2-4의 결정과 정면으로 충돌합니다. 빠르지만 하지 않습니다.
 
@@ -390,7 +390,7 @@ verified_at:       ISO 8601
 
 ### 2-15. **[신규] 서버 후처리 불변조건** (Sol Pro 채택)
 
-응답 DTO 구조만으로는 못 잡는 교차검증을 **코드로** 합니다. non-empty 경로에서는 서버 builder 후보를, true-empty legacy 경로에서는 구조화 모델 응답을 같은 validator가 다시 검사합니다.
+응답 DTO 구조만으로는 못 잡는 교차검증을 **코드로** 합니다. non-empty 경로에서는 서버 builder 후보를 validator가 다시 검사합니다. empty·Pass 1 unavailable·응급·알레르기 terminal 상태는 모델 출력 없이 고정 DTO를 서버가 직접 작성합니다.
 
 1. 모든 `drug.source_ref_id`는 `source_refs[].id`에 존재해야 한다
 2. `allergy_check.status=blocked`면 `matched_ingredients`가 1개 이상이어야 한다
