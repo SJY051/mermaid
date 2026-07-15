@@ -31,11 +31,13 @@ public class RequestIdFilter extends OncePerRequestFilter {
             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        // Honour an upstream id if one was supplied; otherwise mint one.
-        String requestId = request.getHeader(HEADER);
-        if (requestId == null || requestId.isBlank() || requestId.length() > 100) {
-            requestId = UUID.randomUUID().toString();
-        }
+        // This value persists in every log line for the request. Accept only an opaque canonical
+        // UUID so a caller cannot turn symptoms or log-shaping text into stored log content.
+        String upstreamRequestId = request.getHeader(HEADER);
+        String requestId =
+                isCanonicalUuid(upstreamRequestId)
+                        ? upstreamRequestId
+                        : UUID.randomUUID().toString();
 
         MDC.put(MDC_KEY, requestId);
         response.setHeader(HEADER, requestId);
@@ -50,5 +52,16 @@ public class RequestIdFilter extends OncePerRequestFilter {
     public static String current() {
         String id = MDC.get(MDC_KEY);
         return id == null ? "no-request" : id;
+    }
+
+    private static boolean isCanonicalUuid(String value) {
+        if (value == null) {
+            return false;
+        }
+        try {
+            return UUID.fromString(value).toString().equals(value);
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 }
