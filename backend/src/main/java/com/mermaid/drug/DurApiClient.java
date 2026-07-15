@@ -1,22 +1,29 @@
 package com.mermaid.drug;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mermaid.common.ApiException;
+import com.mermaid.common.ErrorCode;
 import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
+import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import com.mermaid.drug.domain.DurWarning;
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -46,7 +53,6 @@ import org.springframework.web.reactive.function.client.WebClient;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DurApiClient {
 
     /** Operation names, one per warning kind. Only 병용금기 names a second drug. */
@@ -57,14 +63,18 @@ public class DurApiClient {
                     DurWarning.Kind.PREGNANCY, "getPwnmTabooInfoList03",
                     DurWarning.Kind.ELDERLY, "getOdsnAtentInfoList03");
 
-    /** A product with no warnings of a kind returns {@code totalCount: 0} and no items. */
-    private static final String FIXTURE_EMPTY = "dur_empty.json";
-    private static final Map<DurWarning.Kind, String> FIXTURES =
-            Map.of(
-                    DurWarning.Kind.COMBINATION, "dur_usjnt.json",
-                    DurWarning.Kind.AGE, "dur_age.json",
-                    DurWarning.Kind.PREGNANCY, FIXTURE_EMPTY,
-                    DurWarning.Kind.ELDERLY, "dur_elderly.json");
+    /**
+     * A zero-row response carries no ITEM_SEQ, so the requested product is part of its identity.
+     * Never reuse a DUR capture by kind alone: that attaches another product's warning to this one.
+     */
+    private static final Map<FixtureKey, String> FIXTURES =
+            Map.ofEntries(
+                    fixture("202005623", DurWarning.Kind.COMBINATION, "dur_202005623_combination.json"),
+                    fixture("202005623", DurWarning.Kind.AGE, "dur_202005623_age.json"),
+                    fixture("202005623", DurWarning.Kind.PREGNANCY, "dur_202005623_pregnancy.json"),
+                    fixture("202005623", DurWarning.Kind.ELDERLY, "dur_202005623_elderly.json"),
+                    fixture("200000913", DurWarning.Kind.COMBINATION, "dur_usjnt.json"),
+                    fixture("197100097", DurWarning.Kind.AGE, "dur_age.json"));
 
     private static final int MAX_ROWS = 20;
 
@@ -75,6 +85,29 @@ public class DurApiClient {
     private final PublicApiProperties properties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
+    private final Clock clock;
+
+    @Autowired
+    public DurApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            Clock clock) {
+        this.publicApiWebClient = publicApiWebClient;
+        this.properties = properties;
+        this.dataMode = dataMode;
+        this.fixtures = fixtures;
+        this.clock = clock;
+    }
+
+    DurApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, dataMode, fixtures, Clock.systemUTC());
+    }
 
     /**
      * Every published warning for one product, across all four kinds.
@@ -86,19 +119,53 @@ public class DurApiClient {
      *
      * <p>Results stay in {@code Kind} declaration order, which the tests rely on.
      */
-    @Cacheable(value = "durWarnings", key = "#itemSeq")
     public List<DurWarning> warningsFor(String itemSeq) {
-        List<List<DurWarning>> perKind =
-                Parallel.map(List.of(DurWarning.Kind.values()), KIND_CONCURRENCY, kind -> byKind(itemSeq, kind));
+        return warningsForBatch(itemSeq).warnings();
+    }
+
+    @Cacheable(value = "durWarningsV3", key = "#root.target.cacheRoute() + '|seq=' + #itemSeq")
+    public DurBatch warningsForBatch(String itemSeq) {
+        List<DurKindBatch> perKind =
+                Parallel.map(
+                        List.of(DurWarning.Kind.values()),
+                        KIND_CONCURRENCY,
+                        kind -> byKindBatch(itemSeq, kind));
 
         List<DurWarning> all = new ArrayList<>();
-        perKind.forEach(all::addAll);
-        return all;
+        perKind.forEach(batch -> all.addAll(batch.warnings()));
+        SourceRef.DataMode origin =
+                perKind.stream().anyMatch(batch -> batch.origin() == SourceRef.DataMode.FIXTURE)
+                        ? SourceRef.DataMode.FIXTURE
+                        : SourceRef.DataMode.LIVE;
+        Instant retrievedAt =
+                perKind.stream().map(DurKindBatch::retrievedAt).min(Instant::compareTo).orElseGet(this::now);
+        return new DurBatch(all, origin, retrievedAt);
     }
 
     public List<DurWarning> byKind(String itemSeq, DurWarning.Kind kind) {
-        JsonNode raw = fetch(OPERATIONS.get(kind), Map.of("itemSeq", itemSeq), FIXTURES.get(kind));
-        return parse(raw, kind);
+        return byKindBatch(itemSeq, kind).warnings();
+    }
+
+    public DurKindBatch byKindBatch(String itemSeq, DurWarning.Kind kind) {
+        String operationCode = "dur_" + kind.wire();
+        if (dataMode.isFixtureOnly()) {
+            return fixtureKind(itemSeq, kind, operationCode, false);
+        }
+        requireConfigured(operationCode);
+
+        List<DurWarning> rows;
+        try {
+            rows = parse(fetchLive(OPERATIONS.get(kind), Map.of("itemSeq", itemSeq)), kind);
+        } catch (RuntimeException failure) {
+            if (dataMode.allowsFallback()) {
+                return fixtureKind(itemSeq, kind, operationCode, true);
+            }
+            throw unavailable(operationCode, "UPSTREAM_FAILURE");
+        }
+        if (rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
+            throw payloadInvalid(operationCode);
+        }
+        return new DurKindBatch(rows, SourceRef.DataMode.LIVE, now());
     }
 
     /**
@@ -109,7 +176,7 @@ public class DurApiClient {
      */
     public Set<String> contraindicatedWith(String itemSeq, Set<String> otherItemSeqs) {
         Set<String> hits = new LinkedHashSet<>();
-        for (DurWarning w : byKind(itemSeq, DurWarning.Kind.COMBINATION)) {
+        for (DurWarning w : byKindBatch(itemSeq, DurWarning.Kind.COMBINATION).warnings()) {
             if (w.pairedItemSeq() != null && otherItemSeqs.contains(w.pairedItemSeq())) {
                 hits.add(w.pairedItemSeq());
             }
@@ -117,24 +184,66 @@ public class DurApiClient {
         return hits;
     }
 
-    private JsonNode fetch(String operation, Map<String, Object> params, String fixture) {
-        if (dataMode.isFixtureOnly() || !properties.isConfigured()) {
-            return fixtures.load(fixture);
+    private DurKindBatch fixtureKind(
+            String itemSeq, DurWarning.Kind kind, String operationCode, boolean fallback) {
+        String fixture = FIXTURES.get(new FixtureKey(itemSeq, kind));
+        if (fixture == null) {
+            throw unavailable(operationCode, "FIXTURE_UNBOUND");
         }
+        List<DurWarning> rows;
         try {
-            return publicApiWebClient
-                    .get()
-                    .uri(uriFor(operation, params))
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .block();
-        } catch (Exception e) {
-            if (dataMode.allowsFallback()) {
-                log.warn("DUR {} failed, falling back to fixture: {}", operation, e.getMessage());
-                return fixtures.load(fixture);
-            }
-            throw new PublicApiException("DUR " + operation + " failed", e);
+            rows = parse(fixtures.load(fixture), kind);
+        } catch (RuntimeException fixtureFailure) {
+            throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
         }
+        if (rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
+            throw unavailable(operationCode, "FIXTURE_UNBOUND");
+        }
+        if (fallback) {
+            log.warn("drug_api_fallback operation={} reason=UPSTREAM_FAILURE", operationCode);
+        }
+        return new DurKindBatch(rows, SourceRef.DataMode.FIXTURE, now());
+    }
+
+    private static Entry<FixtureKey, String> fixture(
+            String itemSeq, DurWarning.Kind kind, String fixture) {
+        return Map.entry(new FixtureKey(itemSeq, kind), fixture);
+    }
+
+    private JsonNode fetchLive(String operation, Map<String, Object> params) {
+        return publicApiWebClient
+                .get()
+                .uri(uriFor(operation, params))
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+    }
+
+    public String cacheRoute() {
+        return "mode="
+                + dataMode.dataMode().wire()
+                + "|route="
+                + (properties.isConfigured() ? "configured" : "keyless");
+    }
+
+    private void requireConfigured(String operationCode) {
+        if (!properties.isConfigured()) {
+            throw unavailable(operationCode, "KEY_MISSING");
+        }
+    }
+
+    private PublicApiException unavailable(String operationCode, String reason) {
+        log.warn("drug_api_rejected operation={} reason={}", operationCode, reason);
+        return new PublicApiException("SOURCE_UNAVAILABLE");
+    }
+
+    private ApiException payloadInvalid(String operationCode) {
+        log.warn("drug_api_rejected operation={} reason=SOURCE_PAYLOAD_INVALID", operationCode);
+        return new ApiException(ErrorCode.SOURCE_PAYLOAD_INVALID, "SOURCE_PAYLOAD_INVALID");
+    }
+
+    private Instant now() {
+        return Instant.now(clock);
     }
 
     URI uriFor(String operation, Map<String, Object> params) {
@@ -160,9 +269,6 @@ public class DurApiClient {
         List<DurWarning> out = new ArrayList<>();
         for (JsonNode row : response.items()) {
             String itemSeq = PublicApiResponse.text(row, "ITEM_SEQ");
-            if (itemSeq == null) {
-                continue;
-            }
             out.add(
                     new DurWarning(
                             kind,
@@ -175,5 +281,24 @@ public class DurApiClient {
                             PublicApiResponse.text(row, "MIXTURE_ITEM_NAME")));
         }
         return out;
+    }
+
+    private record FixtureKey(String itemSeq, DurWarning.Kind kind) {}
+
+    public record DurKindBatch(
+            List<DurWarning> warnings, SourceRef.DataMode origin, Instant retrievedAt) {
+        public DurKindBatch {
+            warnings = List.copyOf(warnings);
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(retrievedAt);
+        }
+    }
+
+    public record DurBatch(List<DurWarning> warnings, SourceRef.DataMode origin, Instant retrievedAt) {
+        public DurBatch {
+            warnings = List.copyOf(warnings);
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(retrievedAt);
+        }
     }
 }

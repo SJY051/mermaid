@@ -25,8 +25,9 @@ import org.junit.jupiter.api.Test;
 /**
  * The three-API merge, driven by the responses the MFDS services really returned on 2026-07-10.
  *
- * <p>Product {@code 202005623} (어린이타이레놀산160밀리그램) appears in all three fixtures with the same
- * {@code ITEM_SEQ}, which is the whole basis of the join.
+ * <p>Non-empty records from all three services join on {@code ITEM_SEQ}. Product {@code 202005623}
+ * (어린이타이레놀산160밀리그램) has zero DUR rows, so those captures preserve their identity through
+ * the requested {@code (itemSeq, kind)} instead of a row-level ID.
  */
 class DrugServiceFixtureTest {
 
@@ -40,10 +41,33 @@ class DrugServiceFixtureTest {
                 new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var mode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
+        return serviceWithDur(
+                props, mode, loader, new DurApiClient(null, props, mode, loader));
+    }
+
+    private DrugService serviceWithUnrestrictedEmptyDur() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        var mode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
+        var loader = new FixtureLoader(new ObjectMapper());
+        var dur = new DurApiClient(null, props, mode, loader) {
+            @Override
+            public DurBatch warningsForBatch(String itemSeq) {
+                return new DurBatch(List.of(), SourceRef.DataMode.FIXTURE, CLOCK.instant());
+            }
+        };
+        return serviceWithDur(props, mode, loader, dur);
+    }
+
+    private DrugService serviceWithDur(
+            PublicApiProperties props,
+            DataModeProperties mode,
+            FixtureLoader loader,
+            DurApiClient dur) {
         return new DrugService(
                 new DrugPermissionApiClient(null, props, mode, loader),
                 new EasyDrugApiClient(null, props, mode, loader),
-                new DurApiClient(null, props, mode, loader),
+                dur,
                 new AllergyChecker(normalizer),
                 normalizer,
                 mode,
@@ -103,15 +127,22 @@ class DrugServiceFixtureTest {
             var emptyPermission =
                     new DrugPermissionApiClient(null, props, mode, loader) {
                         @Override
-                        public java.util.Optional<PermittedDetail> detail(String itemSeq) {
-                            return java.util.Optional.empty();
+                        public PermissionDetailBatch detailBatch(String itemSeq) {
+                            return new PermissionDetailBatch(
+                                    null, SourceRef.DataMode.FIXTURE, CLOCK.instant());
                         }
                     };
             var svc =
                     new DrugService(
                             emptyPermission,
                             new EasyDrugApiClient(null, props, mode, loader),
-                            new DurApiClient(null, props, mode, loader),
+                            new DurApiClient(null, props, mode, loader) {
+                                @Override
+                                public DurBatch warningsForBatch(String itemSeq) {
+                                    return new DurBatch(
+                                            List.of(), SourceRef.DataMode.FIXTURE, CLOCK.instant());
+                                }
+                            },
                             new AllergyChecker(normalizer),
                             normalizer,
                             mode,
@@ -130,6 +161,22 @@ class DrugServiceFixtureTest {
             assertThat(d.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
             assertThat(d.source().recordId()).isEqualTo(TYLENOL);
             assertThat(d.source().id()).isEqualTo("src:mfds:202005623");
+        }
+
+        @Test
+        @DisplayName("retrieval deduplicates by the actual detail record, not the requested list id")
+        void retrievalDeduplicatesByActualRecordIdentity() {
+            DrugService.RetrievedContext retrieved = serviceWithUnrestrictedEmptyDur().retrieve(
+                    new DrugService.RetrievalQuery(List.of("Acetaminophen"), List.of()), Set.of());
+
+            assertThat(retrieved.drugs()).singleElement().satisfies(drug -> {
+                assertThat(drug.itemSeq()).isEqualTo(TYLENOL);
+                assertThat(drug.source().recordId()).isEqualTo(TYLENOL);
+            });
+            assertThat(retrieved.sources())
+                    .singleElement()
+                    .extracting(SourceRef::recordId)
+                    .isEqualTo(TYLENOL);
         }
     }
 
@@ -193,71 +240,32 @@ class DrugServiceFixtureTest {
         }
     }
 
-    /**
-     * A limitation worth stating out loud: <b>fixtures ignore query parameters.</b> {@code
-     * durClient.warningsFor("202005623")} in fixture mode returns whatever is in {@code
-     * dur_usjnt.json} — which is a different product (200000913). Against the live API the {@code
-     * itemSeq} filter works, verified 2026-07-10. So these tests prove the parser and the assembly,
-     * not the filtering.
-     */
     @Nested
     @DisplayName("DUR warnings (FR-07)")
     class Dur {
 
         @Test
-        @DisplayName("all four kinds are fetched and parsed")
-        void allKinds() {
+        @DisplayName("Tylenol has four verified product-bound zero DUR captures")
+        void productBoundZeroWarnings() {
             List<DurWarning> warnings = service().detail(TYLENOL, Set.of()).durWarnings();
 
-            // Combination, age and elderly fixtures have rows; pregnancy is the empty case.
-            assertThat(warnings).isNotEmpty();
+            assertThat(warnings).isEmpty();
             assertThat(warnings)
-                    .extracting(DurWarning::kind)
-                    .contains(DurWarning.Kind.COMBINATION, DurWarning.Kind.AGE, DurWarning.Kind.ELDERLY)
-                    .doesNotContain(DurWarning.Kind.PREGNANCY);
-        }
-
-        @Test
-        @DisplayName("a combination warning names the drug that must not be taken with it")
-        void combinationNamesThePair() {
-            DurWarning combo =
-                    service().detail(TYLENOL, Set.of()).durWarnings().stream()
-                            .filter(w -> w.kind() == DurWarning.Kind.COMBINATION)
-                            .findFirst()
-                            .orElseThrow();
-
-            assertThat(combo.pairedItemSeq()).isNotBlank();
-            assertThat(combo.pairedItemName()).contains("심바스테롤");
-            assertThat(combo.prohibitContent()).isEqualTo("횡문근융해증");
-        }
-
-        @Test
-        @DisplayName("a null PROHBT_CONTENT does not break the parser — 노인주의 rows carry none")
-        void nullProhibitContent() {
-            List<DurWarning> elderly =
-                    service().detail(TYLENOL, Set.of()).durWarnings().stream()
-                            .filter(w -> w.kind() == DurWarning.Kind.ELDERLY)
-                            .toList();
-
-            assertThat(elderly).isNotEmpty();
-            assertThat(elderly.get(0).prohibitContent()).isNull();
-            assertThat(elderly.get(0).ingredientEn()).isEqualTo("Chlorpheniramine");
-        }
-
-        @Test
-        @DisplayName("an empty DUR response is a fact, not an error")
-        void emptyIsFine() {
-            // dur_empty.json is the pregnancy fixture: totalCount 0, no items.
-            var props =
-                    new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
-            var client =
-                    new DurApiClient(
-                            null,
-                            props,
-                            new DataModeProperties(DataModeProperties.DataMode.FIXTURE),
-                            new FixtureLoader(new ObjectMapper()));
-
-            assertThat(client.byKind(TYLENOL, DurWarning.Kind.PREGNANCY)).isEmpty();
+                    .extracting(
+                            DurWarning::itemSeq,
+                            DurWarning::itemName,
+                            DurWarning::ingredientEn,
+                            DurWarning::pairedItemSeq,
+                            DurWarning::pairedItemName)
+                    .noneSatisfy(tuple -> assertThat(tuple.toList())
+                            .doesNotContain(
+                                    "200000913",
+                                    "197100097",
+                                    "196000010",
+                                    "196000011",
+                                    "환인벤즈트로핀정(벤즈트로핀메실산염)",
+                                    "Benztropine Mesylate",
+                                    "Chlorpheniramine"));
         }
 
         @Test
