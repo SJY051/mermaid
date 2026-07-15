@@ -1,27 +1,38 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  applyAppearancePreference,
   clearChatSession,
+  forgetAllergyMemory,
+  getAppearancePreference,
   getDeviceId,
+  loadAllergyMemory,
   loadChatSession,
   loadPreferences,
   loadSavedFacilities,
+  saveAllergyMemory,
   savePreferences,
-  setManualLocation,
   saveChatSession,
   saveSavedFacilities,
+  setAppearancePreference,
+  setManualLocation,
+  subscribeAllergyMemory,
+  subscribeAppearancePreference,
+  syncAllergyMemory,
   type ChatSession,
-  type Preferences,
 } from './storage'
 
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  document.documentElement.style.removeProperty('color-scheme')
 })
 
 const CHAT_KEY = 'mermaid.chatSession.v2'
 const CHAT_KEY_V1 = 'mermaid.chatSession.v1'
 const PREFS_KEY = 'mermaid.preferences.v1'
+const ALLERGY_MEMORY_KEY = 'mermaid.allergyMemory.v1'
 const SAVED_FACILITIES_STORAGE = 'mermaid.savedFacilities.v1'
+const DEVICE_ID_KEY = 'mermaid.deviceId.v1'
 
 const savedFacility = {
   id: 'f1',
@@ -117,40 +128,296 @@ describe('corrupt or stale storage resets instead of throwing', () => {
   })
 })
 
-/** Allergy memory is opt-in, and OFF by default (spec §2-5). Both directions are enforced. */
-describe('allergies are remembered only when the user said so', () => {
-  const withAllergies: Preferences = {
-    rememberAllergies: false,
-    allergies: ['ibuprofen', 'aspirin'],
-    defaultRadiusM: 500,
-    manualLocation: null,
-  }
-
-  it('refuses to persist allergies when the toggle is off', () => {
-    savePreferences(withAllergies)
-
-    expect(localStorage.getItem(PREFS_KEY)).not.toContain('ibuprofen')
-    expect(loadPreferences().allergies).toEqual([])
-    // The rest of the preferences still save.
-    expect(loadPreferences().defaultRadiusM).toBe(500)
+/** The key itself is the opt-in record: absent is OFF, including on a new device (spec §2-5). */
+describe('allergy memory has its own consent-scoped key', () => {
+  it('is off by default and does not create a key while reading', () => {
+    expect(loadAllergyMemory()).toBeNull()
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).toBeNull()
   })
 
-  it('persists them once the user opts in', () => {
-    savePreferences({ ...withAllergies, rememberAllergies: true })
-    expect(loadPreferences().allergies).toEqual(['ibuprofen', 'aspirin'])
+  it('stays off when existing preferences contain UI fields only', () => {
+    const uiPreferences = JSON.stringify({
+      schemaVersion: '1.0',
+      data: {
+        defaultRadiusM: 500,
+        manualLocation: { lat: 37.5, lng: 127, label: 'Chosen place' },
+        appearance: 'dark',
+      },
+    })
+    localStorage.setItem(PREFS_KEY, uiPreferences)
+
+    expect(loadAllergyMemory()).toBeNull()
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).toBeNull()
+    expect(localStorage.getItem(PREFS_KEY)).toBe(uiPreferences)
   })
 
-  it('hides allergies already on disk if the toggle was since turned off', () => {
-    // Written by an older build, or by hand. The read path must not trust it.
+  it('stores reviewed ingredient keys without any session-only typed names', () => {
+    saveAllergyMemory(['ibuprofen', 'aspirin'])
+    savePreferences({
+      defaultRadiusM: 500,
+      manualLocation: null,
+      // Old callers may still pass these fields. The UI-preferences writer must drop them rather
+      // than putting medical data back into the shared preferences blob.
+      rememberAllergies: true,
+      allergies: ['legacy-ibuprofen'],
+      unverifiedAllergens: ['yellow dye'],
+    })
+
+    expect(loadAllergyMemory()).toEqual(['ibuprofen', 'aspirin'])
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('rememberAllergies')
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('allergies')
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('yellow dye')
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).not.toContain('yellow dye')
+  })
+
+  it('forgetting removes only allergy memory and preserves every other storage area', () => {
+    savePreferences({
+      defaultRadiusM: 500,
+      manualLocation: { lat: 37.5, lng: 127, label: 'Chosen place' },
+      appearance: 'dark',
+    })
+    saveSavedFacilities([savedFacility])
+    getDeviceId()
+    saveChatSession(session)
+    saveAllergyMemory(['ibuprofen'])
+    const unchangedStorage = new Map([
+      [PREFS_KEY, localStorage.getItem(PREFS_KEY)],
+      [SAVED_FACILITIES_STORAGE, localStorage.getItem(SAVED_FACILITIES_STORAGE)],
+      [DEVICE_ID_KEY, localStorage.getItem(DEVICE_ID_KEY)],
+      [CHAT_KEY, sessionStorage.getItem(CHAT_KEY)],
+    ])
+
+    forgetAllergyMemory()
+
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).toBeNull()
+    expect(localStorage.getItem(PREFS_KEY)).toBe(unchangedStorage.get(PREFS_KEY))
+    expect(localStorage.getItem(SAVED_FACILITIES_STORAGE)).toBe(
+      unchangedStorage.get(SAVED_FACILITIES_STORAGE),
+    )
+    expect(localStorage.getItem(DEVICE_ID_KEY)).toBe(unchangedStorage.get(DEVICE_ID_KEY))
+    expect(sessionStorage.getItem(CHAT_KEY)).toBe(unchangedStorage.get(CHAT_KEY))
+    expect(loadPreferences()).toEqual({
+      defaultRadiusM: 500,
+      manualLocation: { lat: 37.5, lng: 127, label: 'Chosen place' },
+      appearance: 'dark',
+    })
+  })
+
+  it('does not let background synchronization recreate an opted-out key', () => {
+    saveAllergyMemory(['ibuprofen'])
+    forgetAllergyMemory()
+
+    syncAllergyMemory(['aspirin'])
+
+    expect(loadAllergyMemory()).toBeNull()
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).toBeNull()
+  })
+
+  it('notifies allergy-memory subscribers for same-tab changes and cross-tab clear', () => {
+    let calls = 0
+    const unsubscribe = subscribeAllergyMemory(() => { calls += 1 })
+
+    saveAllergyMemory(['ibuprofen'])
+    expect(calls).toBe(1)
+
+    window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage }))
+    expect(calls).toBe(2)
+
+    unsubscribe()
+    forgetAllergyMemory()
+    expect(calls).toBe(2)
+  })
+})
+
+describe('legacy allergy preferences migrate once and are scrubbed', () => {
+  it('moves a valid reviewed list without migrating legacy typed names', () => {
     localStorage.setItem(
       PREFS_KEY,
-      JSON.stringify({ schemaVersion: '1.0', data: { ...withAllergies, rememberAllergies: false } }),
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          rememberAllergies: true,
+          allergies: ['ibuprofen', 'aspirin'],
+          unverifiedAllergens: ['yellow dye'],
+          defaultRadiusM: 500,
+          manualLocation: { lat: 37.5, lng: 127, label: 'Chosen place' },
+          appearance: 'dark',
+        },
+      }),
     )
-    expect(loadPreferences().allergies).toEqual([])
+
+    expect(loadAllergyMemory()).toEqual(['ibuprofen', 'aspirin'])
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).not.toContain('yellow dye')
+    expect(loadPreferences()).toEqual({
+      defaultRadiusM: 500,
+      manualLocation: { lat: 37.5, lng: 127, label: 'Chosen place' },
+      appearance: 'dark',
+    })
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('allergies')
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('yellow dye')
   })
 
-  it('defaults to not remembering', () => {
-    expect(loadPreferences().rememberAllergies).toBe(false)
+  it('fails closed instead of partially migrating a corrupt legacy reviewed list', () => {
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          rememberAllergies: true,
+          allergies: ['ibuprofen', 42, 'aspirin'],
+          unverifiedAllergens: ['yellow dye'],
+          defaultRadiusM: 500,
+          manualLocation: null,
+          appearance: 'dark',
+        },
+      }),
+    )
+
+    expect(loadAllergyMemory()).toEqual([])
+    expect(loadPreferences()).toEqual({
+      defaultRadiusM: 500,
+      manualLocation: null,
+      appearance: 'dark',
+    })
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('rememberAllergies')
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('allergies')
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('yellow dye')
+  })
+
+  it('does not overwrite a valid new-key list with stale legacy data', () => {
+    saveAllergyMemory(['newer-key'])
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          rememberAllergies: true,
+          allergies: ['stale-key'],
+          defaultRadiusM: 1000,
+          manualLocation: null,
+        },
+      }),
+    )
+
+    expect(loadAllergyMemory()).toEqual(['newer-key'])
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('stale-key')
+  })
+
+  it('treats a valid new key as the current consent record over stale legacy off', () => {
+    saveAllergyMemory(['newer-key'])
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          rememberAllergies: false,
+          allergies: ['stale-key'],
+          defaultRadiusM: 1000,
+          manualLocation: null,
+        },
+      }),
+    )
+
+    expect(loadAllergyMemory()).toEqual(['newer-key'])
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('stale-key')
+  })
+
+  it('migrates before an unrelated preference write can overwrite the legacy blob', () => {
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          rememberAllergies: true,
+          allergies: ['ibuprofen'],
+          defaultRadiusM: 1000,
+          manualLocation: null,
+        },
+      }),
+    )
+
+    savePreferences({ defaultRadiusM: 500, manualLocation: null, appearance: 'dark' })
+
+    expect(loadAllergyMemory()).toEqual(['ibuprofen'])
+    expect(loadPreferences().appearance).toBe('dark')
+  })
+
+  it('drops legacy allergy fields when the legacy opt-in was off', () => {
+    localStorage.setItem(
+      PREFS_KEY,
+      JSON.stringify({
+        schemaVersion: '1.0',
+        data: {
+          rememberAllergies: false,
+          allergies: ['ibuprofen'],
+          unverifiedAllergens: ['yellow dye'],
+          defaultRadiusM: 1000,
+          manualLocation: null,
+        },
+      }),
+    )
+
+    expect(loadAllergyMemory()).toBeNull()
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).toBeNull()
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('ibuprofen')
+    expect(localStorage.getItem(PREFS_KEY)).not.toContain('yellow dye')
+  })
+
+  it('drops an invalid null payload from the dedicated key', () => {
+    localStorage.setItem(
+      ALLERGY_MEMORY_KEY,
+      JSON.stringify({ schemaVersion: '1.0', data: null }),
+    )
+
+    expect(loadAllergyMemory()).toBeNull()
+    expect(localStorage.getItem(ALLERGY_MEMORY_KEY)).toBeNull()
+  })
+})
+
+describe('appearance is a persistent subscribed UI preference', () => {
+  it('defaults to the device, applies each value to the root, and persists it', () => {
+    expect(getAppearancePreference()).toBe('device')
+
+    applyAppearancePreference('device')
+    expect(document.documentElement.style.colorScheme).toBe('light dark')
+
+    setAppearancePreference('dark')
+    expect(getAppearancePreference()).toBe('dark')
+    expect(document.documentElement.style.colorScheme).toBe('dark')
+
+    setAppearancePreference('light')
+    expect(getAppearancePreference()).toBe('light')
+    expect(document.documentElement.style.colorScheme).toBe('light')
+  })
+
+  it('notifies same-tab subscribers and stops after unsubscribe', () => {
+    let calls = 0
+    const unsubscribe = subscribeAppearancePreference(() => { calls += 1 })
+
+    setAppearancePreference('dark')
+    expect(calls).toBe(1)
+
+    unsubscribe()
+    setAppearancePreference('light')
+    expect(calls).toBe(1)
+  })
+
+  it('notifies appearance subscribers when another tab clears local storage', () => {
+    let calls = 0
+    const unsubscribe = subscribeAppearancePreference(() => { calls += 1 })
+
+    window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage }))
+    expect(calls).toBe(1)
+
+    unsubscribe()
+  })
+
+  it('is preserved when allergy memory is saved and forgotten', () => {
+    setAppearancePreference('dark')
+    saveAllergyMemory(['ibuprofen'])
+    forgetAllergyMemory()
+
+    expect(getAppearancePreference()).toBe('dark')
   })
 })
 
