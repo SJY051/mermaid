@@ -37,10 +37,10 @@ import reactor.core.publisher.Mono;
  *   DUR     (DurApiClient)            → 병용·연령·임부 금기, 노인주의
  * </pre>
  *
- * <p>{@code ITEM_SEQ} really is the same value across all three; verified against live responses
- * (product {@code 202005623} = 어린이타이레놀산). The permission API is the spine of the join, because
- * it alone knows the ingredients — the original plan of filtering allergies with e약은요 could never
- * have worked (spec §2-8).
+ * <p>Non-empty records from all three services join on the same {@code ITEM_SEQ}. A zero-row DUR
+ * response has no row-level ID, so its identity is preserved by the requested {@code (itemSeq,
+ * kind)} instead. The permission API is the spine of the join because it alone knows the ingredients
+ * — the original plan of filtering allergies with e약은요 could never have worked (spec §2-8).
  *
  * <p>This service is also <b>pass 1 of the two-pass RAG</b> (spec §2-2). The chat flow calls it to
  * build DRUG_CONTEXT, then hands the model only what came back. {@code AnswerValidator} later rejects

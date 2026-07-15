@@ -9,8 +9,8 @@
     },
     {
       "name": "backend",
-      "runtimeExecutable": "backend/gradlew",
-      "runtimeArgs": ["-p", "backend", "bootRun"],
+      "runtimeExecutable": "bin/run-backend.sh",
+      "runtimeArgs": [],
       "port": 8080
     }
   ]
