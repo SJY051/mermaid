@@ -195,6 +195,31 @@ class DrugHybridFallbackTest {
         }
 
         @Test
+        @DisplayName("live and hybrid DUR reject more returned rows than the declared total")
+        void durRowsCannotExceedDeclaredTotal() throws Exception {
+            JsonNode malformed =
+                    new ObjectMapper()
+                            .readTree(
+                                    """
+                                    {"header":{"resultCode":"00"},
+                                     "body":{"totalCount":1,"items":[
+                                       {"ITEM_SEQ":"202005623"},
+                                       {"ITEM_SEQ":"202005623"}
+                                     ]}}
+                                    """);
+            for (DataModeProperties.DataMode dataMode : List.of(LIVE, HYBRID)) {
+                AtomicInteger calls = new AtomicInteger();
+                DurApiClient dur = dur(jsonWebClient(malformed, calls), dataMode, configured());
+
+                assertThatExceptionOfType(ApiException.class)
+                        .isThrownBy(() -> dur.byKindBatch(TYLENOL, DurWarning.Kind.AGE))
+                        .satisfies(error ->
+                                assertThat(error.code()).isEqualTo(ErrorCode.SOURCE_PAYLOAD_INVALID));
+                assertThat(calls).hasValue(1);
+            }
+        }
+
+        @Test
         @DisplayName("DrugService preserves a Tylenol card backed by product-bound zero DUR captures")
         void detailPreservesProductBoundZeroDurResults() {
             WebClient failing = failingWebClient(new AtomicInteger());
