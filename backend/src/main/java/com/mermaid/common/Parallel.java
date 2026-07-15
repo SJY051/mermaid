@@ -1,8 +1,10 @@
 package com.mermaid.common;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.function.Function;
+import org.slf4j.MDC;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -40,7 +42,9 @@ public final class Parallel {
      *     an empty leg makes {@code Mono.zip} emit nothing at all. Return an Optional instead.
      */
     public static <T> Mono<T> async(Callable<T> call) {
-        return Mono.fromCallable(call).subscribeOn(Schedulers.boundedElastic());
+        Map<String, String> callerMdc = MDC.getCopyOfContextMap();
+        return Mono.fromCallable(() -> withMdc(callerMdc, call))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     /**
@@ -58,13 +62,33 @@ public final class Parallel {
         if (items.size() == 1) {
             return List.of(fn.apply(items.get(0)));
         }
+        Map<String, String> callerMdc = MDC.getCopyOfContextMap();
         List<R> results =
                 Flux.fromIterable(items)
                         .flatMapSequential(
-                                item -> Mono.fromCallable(() -> fn.apply(item)).subscribeOn(Schedulers.boundedElastic()),
+                                item -> Mono.fromCallable(() -> withMdc(callerMdc, () -> fn.apply(item)))
+                                        .subscribeOn(Schedulers.boundedElastic()),
                                 concurrency)
                         .collectList()
                         .block();
         return results == null ? List.of() : results;
+    }
+
+    static <T> T withMdc(Map<String, String> callerMdc, Callable<T> call) throws Exception {
+        Map<String, String> workerMdc = MDC.getCopyOfContextMap();
+        restoreMdc(callerMdc);
+        try {
+            return call.call();
+        } finally {
+            restoreMdc(workerMdc);
+        }
+    }
+
+    private static void restoreMdc(Map<String, String> context) {
+        if (context == null || context.isEmpty()) {
+            MDC.clear();
+        } else {
+            MDC.setContextMap(context);
+        }
     }
 }

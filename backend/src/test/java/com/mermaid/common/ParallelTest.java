@@ -3,18 +3,29 @@ package com.mermaid.common;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import reactor.core.publisher.Mono;
 
 class ParallelTest {
+
+    private static final String REQUEST_ID = "11111111-1111-4111-8111-111111111111";
 
     private static void sleep(long millis) {
         try {
@@ -67,6 +78,118 @@ class ParallelTest {
         });
 
         assertThat(peak.get()).isLessThanOrEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("two worker log events carry the caller request ID")
+    void propagatesCallerMdcToEveryWorkerEvent() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ParallelTest.class);
+        ThreadSafeListAppender appender = new ThreadSafeListAppender();
+        appender.start();
+        logger.addAppender(appender);
+        Map<String, String> previousMdc = MDC.getCopyOfContextMap();
+        String callerThread = Thread.currentThread().getName();
+        MDC.put(RequestIdFilter.MDC_KEY, REQUEST_ID);
+        try {
+            Parallel.map(List.of(1, 2), 2, item -> {
+                logger.info("parallel worker event");
+                return item;
+            });
+        } finally {
+            restoreMdc(previousMdc);
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertThat(appender.list).hasSize(2).allSatisfy(event -> {
+            assertThat(event.getThreadName()).isNotEqualTo(callerThread);
+            assertThat(event.getMDCPropertyMap())
+                    .containsEntry(RequestIdFilter.MDC_KEY, REQUEST_ID);
+        });
+    }
+
+    @Test
+    @DisplayName("a caller without MDC creates no request ID on worker events")
+    void callerWithoutMdcCreatesNoWorkerRequestId() {
+        Logger logger = (Logger) LoggerFactory.getLogger(ParallelTest.class);
+        ThreadSafeListAppender appender = new ThreadSafeListAppender();
+        appender.start();
+        logger.addAppender(appender);
+        Map<String, String> previousMdc = MDC.getCopyOfContextMap();
+        MDC.clear();
+        try {
+            Parallel.map(List.of(1, 2), 2, item -> {
+                logger.info("parallel no-request event");
+                return item;
+            });
+        } finally {
+            restoreMdc(previousMdc);
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertThat(appender.list).hasSize(2).allSatisfy(event ->
+                assertThat(event.getMDCPropertyMap())
+                        .doesNotContainKey(RequestIdFilter.MDC_KEY));
+    }
+
+    @Test
+    @DisplayName("async zip workers also carry the caller request ID")
+    void propagatesCallerMdcThroughAsyncWorkers() {
+        Map<String, String> previousMdc = MDC.getCopyOfContextMap();
+        String callerThread = Thread.currentThread().getName();
+        MDC.put(RequestIdFilter.MDC_KEY, REQUEST_ID);
+        reactor.util.function.Tuple2<WorkerContext, WorkerContext> workers;
+        try {
+            workers = Mono.zip(
+                            Parallel.async(() -> new WorkerContext(
+                                    Thread.currentThread().getName(),
+                                    MDC.get(RequestIdFilter.MDC_KEY))),
+                            Parallel.async(() -> new WorkerContext(
+                                    Thread.currentThread().getName(),
+                                    MDC.get(RequestIdFilter.MDC_KEY))))
+                    .block();
+        } finally {
+            restoreMdc(previousMdc);
+        }
+
+        assertThat(workers).isNotNull();
+        assertThat(List.of(workers.getT1(), workers.getT2())).allSatisfy(worker -> {
+            assertThat(worker.threadName()).isNotEqualTo(callerThread);
+            assertThat(worker.requestId()).isEqualTo(REQUEST_ID);
+        });
+    }
+
+    @Test
+    @DisplayName("worker MDC is masked during a call and restored or cleared afterward")
+    void restoresTheExactWorkerMdcAfterEveryCall() throws Exception {
+        ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            worker.submit(() -> MDC.put(RequestIdFilter.MDC_KEY, "stale-worker-id")).get();
+
+            String noIdDuringCall = worker.submit(() ->
+                            Parallel.withMdc(null, () -> MDC.get(RequestIdFilter.MDC_KEY)))
+                    .get();
+            String restoredAfterCall = worker.submit(() -> MDC.get(RequestIdFilter.MDC_KEY)).get();
+
+            assertThat(noIdDuringCall).isNull();
+            assertThat(restoredAfterCall).isEqualTo("stale-worker-id");
+
+            worker.submit(MDC::clear).get();
+            String requestIdDuringCall = worker.submit(() ->
+                            Parallel.withMdc(
+                                    Map.of(RequestIdFilter.MDC_KEY, REQUEST_ID),
+                                    () -> MDC.get(RequestIdFilter.MDC_KEY)))
+                    .get();
+            String clearedAfterCall = worker.submit(() -> MDC.get(RequestIdFilter.MDC_KEY)).get();
+
+            assertThat(requestIdDuringCall).isEqualTo(REQUEST_ID);
+            assertThat(clearedAfterCall).isNull();
+        } finally {
+            worker.submit(MDC::clear).get();
+            worker.shutdownNow();
+            assertThat(worker.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
@@ -137,4 +260,22 @@ class ParallelTest {
 
         assertThat(zipped).isNull();
     }
+
+    private static void restoreMdc(Map<String, String> context) {
+        if (context == null || context.isEmpty()) {
+            MDC.clear();
+        } else {
+            MDC.setContextMap(context);
+        }
+    }
+
+    private static final class ThreadSafeListAppender extends ListAppender<ILoggingEvent> {
+        @Override
+        protected synchronized void append(ILoggingEvent event) {
+            event.prepareForDeferredProcessing();
+            super.append(event);
+        }
+    }
+
+    private record WorkerContext(String threadName, String requestId) {}
 }
