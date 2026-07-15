@@ -71,16 +71,21 @@ class DrugCacheTest {
                                 DurApiClient.class,
                                 "warningsForBatch",
                                 new Class<?>[] {String.class},
-                                "durWarningsV2",
+                                "durWarningsV3",
                                 "#itemSeq"));
 
-        assertThat(contracts).allSatisfy(contract -> {
+        assertThat(contracts.subList(0, 5)).allSatisfy(contract -> {
             assertThat(contract.annotation().value()).containsExactly(contract.cacheName());
             assertThat(contract.cacheName()).endsWith("V2");
             assertThat(contract.annotation().key())
                     .contains("#root.target.cacheRoute()")
                     .contains(contract.queryExpression());
         });
+        CacheContract dur = contracts.get(5);
+        assertThat(dur.annotation().value()).containsExactly("durWarningsV3");
+        assertThat(dur.annotation().key())
+                .contains("#root.target.cacheRoute()")
+                .contains(dur.queryExpression());
     }
 
     @Test
