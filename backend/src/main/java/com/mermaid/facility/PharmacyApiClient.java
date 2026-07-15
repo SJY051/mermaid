@@ -252,9 +252,16 @@ public class PharmacyApiClient {
                     parseBasisDetail(raw, hpid, SourceRef.DataMode.LIVE), SourceRef.DataMode.LIVE);
         } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
-                // No exception text: it can carry the request URI and its serviceKey (§2-7).
-                log.warn("pharmacy detail lookup failed for {}, falling back to fixture", hpid);
-                return fixtureDetail(hpid);
+                PharmacyDetailBatch fallback = fixtureDetail(hpid);
+                if (fallback.detail() != null) {
+                    // No exception text: it can carry the request URI and its serviceKey (§2-7).
+                    log.warn("pharmacy detail lookup failed for {}, falling back to fixture", hpid);
+                    return fallback;
+                }
+                // The basis fixture holds one pharmacy, so it cannot answer for this hpid. A live
+                // outage here means "we could not check", not "no such pharmacy": fall through to fail
+                // as SOURCE_UNAVAILABLE rather than returning a 404 that @Cacheable would pin for the
+                // 6h TTL, hiding a real pharmacy long after the provider recovers.
             }
             // No cause: it can carry the request URI and its serviceKey (§2-7). hpid is a public id.
             throw new PublicApiException("Pharmacy detail lookup failed for " + hpid);
@@ -289,18 +296,22 @@ public class PharmacyApiClient {
                 }
             }
             String name = PublicApiResponse.text(row, "dutyName");
+            String address = PublicApiResponse.text(row, "dutyAddr");
             Double latitude = PublicApiResponse.number(row, "wgs84Lat");
             Double longitude = PublicApiResponse.number(row, "wgs84Lon");
-            if (name == null || name.isBlank() || latitude == null || longitude == null) {
-                // A row without a name or a location is not the "fully reconstructed pharmacy" the
-                // detail endpoint promises. Treat it as not found rather than a 200 card with null
-                // identity/coordinates that would look verified (spec §2-9).
+            if (name == null || name.isBlank()
+                    || address == null || address.isBlank()
+                    || latitude == null || longitude == null) {
+                // Without a name, address, or location this is not the "fully reconstructed pharmacy"
+                // the detail endpoint (and API_명세서.md) promises. Treat it as not found rather than a
+                // 200 card with null identity fields that would look verified (spec §2-9). Phone and
+                // the timetable stay best-effort — a card renders without them.
                 return null;
             }
             return new PharmacyDetail(
                     hpid,
                     name,
-                    PublicApiResponse.text(row, "dutyAddr"),
+                    address,
                     PublicApiResponse.text(row, "dutyTel1"),
                     latitude,
                     longitude,

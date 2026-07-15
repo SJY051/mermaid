@@ -113,6 +113,46 @@ class PharmacyApiClientTest {
         JsonNode raw = new ObjectMapper().readTree(envelope);
 
         assertThat(fixtureClient().parseBasisDetail(raw, "C1110693", SourceRef.DataMode.LIVE)).isNull();
+
+        // Name and coordinates present, but no address: still rejected (address is a required field).
+        String noAddress =
+                """
+                {"response":{"header":{"resultCode":"00","resultMsg":"OK"},
+                 "body":{"items":{"item":{"hpid":"C1110693","dutyName":"청실약국","dutyTel1":"02-000-0000",
+                   "wgs84Lat":37.56,"wgs84Lon":126.97}}}}}
+                """;
+        assertThat(
+                        fixtureClient()
+                                .parseBasisDetail(
+                                        new ObjectMapper().readTree(noAddress),
+                                        "C1110693",
+                                        SourceRef.DataMode.LIVE))
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("hybrid: a live outage for an hpid the fixture lacks fails unavailable, not a cached 404")
+    void hybridDetailOutageForUnknownHpidIsUnavailable() {
+        // pharmacyBaseUrl is a closed port, so the live call fails; HYBRID would normally fall back to
+        // the fixture. The fixture holds only C1110693, so an outage for any other well-formed hpid
+        // must surface as unavailable (retryable, not cached) rather than a 404 that outlives it.
+        var props =
+                new PublicApiProperties(
+                        "decoding-key", "http://127.0.0.1:1", "https://x", "https://x", "https://x",
+                        "https://x", "https://x");
+        var client =
+                new PharmacyApiClient(
+                        WebClient.create(),
+                        props,
+                        new DataModeProperties(DataModeProperties.DataMode.HYBRID),
+                        new FixtureLoader(new ObjectMapper()));
+
+        assertThatThrownBy(() -> client.basisDetail("C9999999")).isInstanceOf(PublicApiException.class);
+
+        // The one pharmacy the fixture does hold still falls back to fixture data.
+        var batch = client.basisDetail("C1110693");
+        assertThat(batch.detail()).isNotNull();
+        assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
     }
 
     @Test
