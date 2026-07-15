@@ -153,7 +153,7 @@ public class DrugContextRetriever {
         }
 
         long startedAt = System.nanoTime();
-        RetrievalQuery extracted = extractor.extract(userText);
+        RetrievalQuery extracted = extractor.extract(userText).query();
 
         // Under a declared allergy the model does not choose medicines (SA-08): its proposed
         // ingredients are dropped and only products the person named themselves are looked up.

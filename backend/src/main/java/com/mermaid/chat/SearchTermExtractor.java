@@ -6,6 +6,7 @@ import com.mermaid.drug.DrugService.RetrievalQuery;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,7 +38,9 @@ import org.springframework.stereotype.Component;
  * prompt below anyway; a model that also declines is a second layer, not the only one.
  *
  * <p>Every failure — timeout, prose instead of JSON, a provider that ignores {@code response_format} —
- * degrades to {@link RetrievalQuery#EMPTY}. An empty context is a safe context.
+ * becomes an {@link ExtractionStatus#UNAVAILABLE} result. That is distinct from a usable extraction
+ * containing two empty arrays: the former means lookup could not start, while the latter means the
+ * model intentionally proposed no search terms.
  */
 @Slf4j
 @Component
@@ -109,28 +112,35 @@ public class SearchTermExtractor {
     private final ChatProxyService chatProxyService;
     private final ObjectMapper objectMapper;
 
-    public RetrievalQuery extract(String userText) {
+    public ExtractionResult extract(String userText) {
         if (userText == null || userText.isBlank()) {
-            return RetrievalQuery.EMPTY;
+            return ExtractionResult.usable(RetrievalQuery.EMPTY);
         }
         try {
             String content =
                     chatProxyService
                             .completeJson(SYSTEM_PROMPT, userText, SCHEMA_NAME, objectMapper.readTree(SCHEMA_JSON))
                             .block();
-            RetrievalQuery query = bindUserAuthoredNamesToText(parse(content, objectMapper), userText);
+            Inspection inspection = inspect(content, objectMapper);
+            logInspection(inspection);
+            if (!inspection.usable()) {
+                log.warn("search_term_extraction_failed code=UNUSABLE_OUTPUT");
+                return ExtractionResult.unavailableResult();
+            }
+            RetrievalQuery query =
+                    bindUserAuthoredNamesToText(inspection.query(), userText);
             log.debug("Extracted {} ingredient(s), {} product name(s)",
                     query.ingredientsEn().size(), query.productNamesKo().size());
-            return query;
+            return ExtractionResult.usable(query);
         } catch (Exception e) {
-            // A failed extraction must not fail the conversation. The user gets an ungrounded reply
-            // that names no medicine, which is exactly what an empty context should produce.
+            // A failed extraction must not fail the HTTP request, but it must remain distinct from a
+            // successful empty result so the response layer can represent lookup unavailability
+            // honestly instead of treating it as an official no-record result.
             //
             // But it must not fail SILENTLY either. Pass 1a is the whole retrieval: when it fails,
-            // the server queries nothing, the model is handed an empty context, and the person asks
-            // about a headache and is told we could not verify an answer. That is the entire feature
-            // gone, and the old line — a bare `code=UPSTREAM_FAILURE` — said only that something,
-            // somewhere, went wrong. It cost an evening to find out that "something" was a timeout.
+            // the server queries nothing. The old line — a bare `code=UPSTREAM_FAILURE` — said only
+            // that something, somewhere, went wrong. It cost an evening to find out that
+            // "something" was a timeout.
             //
             // The exception's TYPE and a reason we classified ourselves — never the exception's own
             // message. That message is not ours: a Jackson parse error quotes the text it choked on,
@@ -142,7 +152,32 @@ public class SearchTermExtractor {
                     "search_term_extraction_failed code=UPSTREAM_FAILURE exception={} reason={}",
                     e.getClass().getSimpleName(),
                     reasonOf(e));
-            return RetrievalQuery.EMPTY;
+            return ExtractionResult.unavailableResult();
+        }
+    }
+
+    public enum ExtractionStatus {
+        USABLE,
+        UNAVAILABLE
+    }
+
+    public record ExtractionResult(RetrievalQuery query, ExtractionStatus status) {
+
+        public ExtractionResult {
+            Objects.requireNonNull(query);
+            Objects.requireNonNull(status);
+        }
+
+        static ExtractionResult usable(RetrievalQuery query) {
+            return new ExtractionResult(query, ExtractionStatus.USABLE);
+        }
+
+        static ExtractionResult unavailableResult() {
+            return new ExtractionResult(RetrievalQuery.EMPTY, ExtractionStatus.UNAVAILABLE);
+        }
+
+        boolean isUnavailable() {
+            return status == ExtractionStatus.UNAVAILABLE;
         }
     }
 
@@ -178,34 +213,72 @@ public class SearchTermExtractor {
      * coerced — a mangled search term produces confidently wrong medicines, and silence is better.
      */
     static RetrievalQuery parse(String rawContent, ObjectMapper mapper) {
+        Inspection inspection = inspect(rawContent, mapper);
+        logInspection(inspection);
+        return inspection.query();
+    }
+
+    private static void logInspection(Inspection inspection) {
+        if (inspection.nonJson()) {
+            log.warn("Extractor did not return JSON; ignoring it");
+        }
+        if (inspection.ingredientRejections() > 0) {
+            log.debug(
+                    "Rejected search terms; code={}, count={}",
+                    RejectionCode.INGREDIENT_WRONG_SHAPE,
+                    inspection.ingredientRejections());
+        }
+        if (inspection.productNameRejections() > 0) {
+            log.debug(
+                    "Rejected search terms; code={}, count={}",
+                    RejectionCode.PRODUCT_NAME_WRONG_SHAPE,
+                    inspection.productNameRejections());
+        }
+    }
+
+    /** Whether the same parser used by {@link #parse} can safely consume this provider output. */
+    static boolean canConsume(String rawContent, ObjectMapper mapper) {
+        return inspect(rawContent, mapper).usable();
+    }
+
+    private static Inspection inspect(String rawContent, ObjectMapper mapper) {
         if (rawContent == null || rawContent.isBlank()) {
-            return RetrievalQuery.EMPTY;
+            return Inspection.unusable(false);
         }
         JsonNode root;
         try {
             root = mapper.readTree(StructuredOutputFallback.stripMarkdownFence(rawContent.trim()));
         } catch (Exception e) {
-            log.warn("Extractor did not return JSON; ignoring it");
-            return RetrievalQuery.EMPTY;
+            return Inspection.unusable(true);
         }
         if (!root.isObject()) {
-            return RetrievalQuery.EMPTY;
+            return Inspection.unusable(false);
         }
-        List<String> ingredients =
+        boolean hasIngredientsArray = root.path("ingredients").isArray();
+        boolean hasProductNamesArray = root.path("productNames").isArray();
+        AcceptedTerms ingredients =
                 accept(
                         root.path("ingredients"),
                         INGREDIENT,
                         MAX_INGREDIENTS,
-                        MAX_INGREDIENT_LENGTH,
-                        RejectionCode.INGREDIENT_WRONG_SHAPE);
-        List<String> productNames =
+                        MAX_INGREDIENT_LENGTH);
+        AcceptedTerms productNames =
                 accept(
                         root.path("productNames"),
                         PRODUCT_NAME,
                         MAX_PRODUCT_NAMES,
-                        Integer.MAX_VALUE,
-                        RejectionCode.PRODUCT_NAME_WRONG_SHAPE);
-        return new RetrievalQuery(ingredients, productNames);
+                        Integer.MAX_VALUE);
+        RetrievalQuery query = new RetrievalQuery(ingredients.values(), productNames.values());
+        boolean explicitEmpty = hasIngredientsArray
+                && hasProductNamesArray
+                && root.path("ingredients").isEmpty()
+                && root.path("productNames").isEmpty();
+        return new Inspection(
+                query,
+                !query.isEmpty() || explicitEmpty,
+                false,
+                ingredients.rejectedCount(),
+                productNames.rejectedCount());
     }
 
     /** Product names have authority only when the user, not the model, supplied them. */
@@ -217,10 +290,9 @@ public class SearchTermExtractor {
         return new RetrievalQuery(query.ingredientsEn(), userNamedProducts);
     }
 
-    private static List<String> accept(
-            JsonNode array, Pattern shape, int limit, int maxLength, RejectionCode rejectionCode) {
+    private static AcceptedTerms accept(JsonNode array, Pattern shape, int limit, int maxLength) {
         if (!array.isArray()) {
-            return List.of();
+            return new AcceptedTerms(List.of(), 0);
         }
         List<String> accepted = new ArrayList<>();
         int rejectedCount = 0;
@@ -236,11 +308,22 @@ public class SearchTermExtractor {
                 rejectedCount++;
             }
         }
-        if (rejectedCount > 0) {
-            log.debug("Rejected search terms; code={}, count={}", rejectionCode, rejectedCount);
-        }
-        return List.copyOf(accepted);
+        return new AcceptedTerms(List.copyOf(accepted), rejectedCount);
     }
+
+    private record Inspection(
+            RetrievalQuery query,
+            boolean usable,
+            boolean nonJson,
+            int ingredientRejections,
+            int productNameRejections) {
+
+        private static Inspection unusable(boolean nonJson) {
+            return new Inspection(RetrievalQuery.EMPTY, false, nonJson, 0, 0);
+        }
+    }
+
+    private record AcceptedTerms(List<String> values, int rejectedCount) {}
 
     private enum RejectionCode {
         INGREDIENT_WRONG_SHAPE,
