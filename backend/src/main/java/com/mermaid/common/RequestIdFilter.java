@@ -31,8 +31,10 @@ public class RequestIdFilter extends OncePerRequestFilter {
             HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        // This value persists in every log line for the request. Accept only an opaque canonical
-        // UUID so a caller cannot turn symptoms or log-shaping text into stored log content.
+        // This value persists in request-thread logs. Parallel worker threads need explicit MDC
+        // propagation; until then they remain uncorrelated rather than inheriting client text.
+        // Accept only an opaque canonical UUID so a caller cannot turn symptoms or log-shaping
+        // text into stored log content.
         String upstreamRequestId = request.getHeader(HEADER);
         String requestId =
                 isCanonicalUuid(upstreamRequestId)
