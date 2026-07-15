@@ -57,9 +57,11 @@ public class HospitalApiClient {
      * is how you conclude a speed-up made things slower — which is exactly what happened on the first
      * attempt at this measurement.
      *
-     * <p>Four matches the detail fan-out. Whether HIRA rewards more has never been measured, so raise
-     * it only against a number — and note that four-at-once on the ministry's DUR calls measured a
-     * 2.1x speed-up, not 4x, because the upstream throttles.
+     * <p>Left at four while the detail fan-out runs at 16, because the two are different sizes: the
+     * list is at most a handful of pages (8 for a 2 km radius, capped at 20 by {@link #MAX_PAGES}), so
+     * more concurrency saves little here, whereas the 100-call detail fan-out earns it. The evidence
+     * that HIRA scales almost linearly with concurrency lives on {@code HOSPITAL_DETAIL_CONCURRENCY};
+     * if the page count ever grows, raise this against a measured number rather than by feel.
      */
     private static final int LIST_PAGE_CONCURRENCY = 4;
 
