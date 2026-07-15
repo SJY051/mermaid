@@ -37,7 +37,7 @@ the W3-C packet records the four human clinical decisions and does not authorize
 | #101 | render nullable facility distance honestly | none | merge after final green check |
 | #102 | run demo backend from an owned packaged artifact | none | merge after final green check |
 | #103 | positive allowlist for browser-visible `VITE_*` values | #102 integration order | rebase after #102 and preserve both CI contracts |
-| #104 | bind drug query, record identity, origin, timestamp, and cache route | first chat-stack base | merge first in chat stack |
+| #104 | bind drug query, record identity, origin, timestamp, and cache route | first chat-stack base | **BLOCKED:** amend fixture-only DUR product binding first |
 | #105 | put request ID in each server log line | none | merge after final green check |
 | #106 | accept only client `user` roles; reject emergency answers carrying drugs | #104 | merge after #104, then retarget to `main` |
 | #107 | remove health search-term values from logs | none | merge after final green check |
@@ -55,13 +55,32 @@ pull request targeting `main`. The exact stacked heads passed their local DoD. A
 merges, retarget the next PR to `main` and require fresh backend/frontend/secret checks before merge.
 No new remediation PR is merged by the orchestrator.
 
+GitHub's mechanical `MERGEABLE` state is not human merge approval. A late product-binding audit
+found the P0 below in #104 after that status refresh, so #104 and both stacks that depend on it are
+currently blocked even though GitHub still reports them as clean.
+
+## Late P0 — fixture-only DUR cross-product binding
+
+PR #104 correctly fail-closes mismatched live and hybrid fallback records, but its fixture-only DUR
+path still parses each kind fixture without checking the requested `itemSeq`. The captured permission
+record is product `202005623`, while the non-empty DUR fixtures contain `200000913`, `197100097`,
+`196000010`, and `196000011`. The existing fixture service test explicitly documents that mismatch
+and then expects the unrelated warnings to be attached to the requested product.
+
+This is release-blocking under server-owned provenance: labelling the rows `fixture` does not make a
+warning about another medicine true for the displayed medicine. Do not merge #104 or its dependent
+PRs until a separately approved fixture change binds `(itemSeq, kind)`, represents the confirmed
+zero-row Tylenol responses, prevents stale cache reuse, and turns the current cross-product test red.
+Protected fixture and README edits were not made without SJY051's explicit approval of this newly
+discovered scope.
+
 ## Why chat recovery is a stack
 
 The large experimental RC proved the target behavior, but SJY051 asked that the actual review path
 remove risk gradually instead of landing a broad deletion. The production stack therefore keeps the
 dormant legacy code and changes one reachable boundary at a time:
 
-1. bind official records and provenance (#104);
+1. bind official records and provenance, including fixture-only DUR identity (#104 amendment);
 2. trust only client user messages and add the emergency/drug validator backstop (#106);
 3. bound and classify Pass 1 structured-output recovery;
 4. return server-authored cards for non-empty official context;
@@ -147,11 +166,13 @@ browser matrix before changing this report from `NO-GO`.
 1. Independently mergeable after a fresh maintainer review: #101, #102, #105, #107, #109.
 2. After #102 merges, rebase #103 on current `main` and verify that both the packaged-lifecycle CI
    step and the Vite client-environment guard remain present; then require fresh three-check CI.
-3. Provenance/chat chain: #104 → #106 → #110 → #111 → #112. Retarget and require fresh CI at each
-   arrow.
-4. Error/fixture chain: after #104, retarget #108 to `main`, require fresh CI and merge it; then
-   retarget #113, require fresh CI, and merge it.
-5. Build one clean RC only after those merges. Re-run the full DoD and chat/map browser matrix on
+3. First amend #104 for fixture-only `(itemSeq, kind)` binding, add RED-before/GREEN-after proof,
+   refresh the PR description, and require independent P0/P1 review plus fresh CI.
+4. Only then run the provenance/chat chain: #104 → #106 → #110 → #111 → #112. Retarget and require
+   fresh CI at each arrow.
+5. Error/fixture chain: after the amended #104, retarget #108 to `main`, require fresh CI and merge
+   it; then retarget #113, require fresh CI, and merge it.
+6. Build one clean RC only after those merges. Re-run the full DoD and chat/map browser matrix on
    that SHA before considering the functional recovery complete.
 
 This ordering minimizes conflict and preserves a readable review history. It is not merge approval;
@@ -165,6 +186,7 @@ SJY051 retains the final decision for every PR.
   SA-08 English safety copy. SJY051 approved the ownership/behavior contract, but that is not a
   substitute for the repository's final safety-state copy review;
 - `R05-CAN-002` unverified-allergen output ownership;
+- #104 fixture-only DUR cross-product binding;
 - `R01-CAN-001/005/008` command-policy authority, which the unpublished lexical parser did not close;
 - #95/#96 and the separately owned facility/profile/frontend P0 set;
 - Holiday XML fixture semantics and any approved startup manifest;

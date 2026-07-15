@@ -676,3 +676,15 @@ Stop a worker and return to the root when:
 - a port or process is owned by someone else;
 - a test appears wrong or can pass for the wrong reason;
 - a destructive or external action would be required.
+
+## 15. Late audit override — #104 merge hold
+
+A final product-binding audit after the published wave found that fixture-only DUR lookup ignores
+the requested `itemSeq` and attaches the four non-empty captured fixture rows to product
+`202005623`, even though those rows belong to four different products. The older parser/assembly test
+documents the mismatch and treats it as expected fixture behavior.
+
+This overrides earlier merge-ready language for #104. The PR and both dependent stacks are blocked
+until SJY051 explicitly authorizes protected fixture/README changes and #104 proves
+`(itemSeq, kind)` binding, correct zero-row fixture behavior, cache invalidation, mutation-sensitive
+tests, full verification, and independent P0/P1 review. No fixture was modified during this audit.
