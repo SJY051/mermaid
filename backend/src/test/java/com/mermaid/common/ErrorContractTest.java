@@ -114,9 +114,12 @@ class ErrorContractTest {
     }
 
     @Test
-    @DisplayName("a pharmacy id upstream does not know is 404 RESOURCE_NOT_FOUND, not a blank card")
+    @DisplayName("a well-formed pharmacy id upstream does not know is 404, not a blank card")
     void unknownPharmacyIsNotFound() throws Exception {
-        mvc.perform(get("/api/v1/facilities/facility:nmc:NO_SUCH_HPID"))
+        // Well-formed (letter + seven digits) but absent, so it reaches basisDetail and gets a null
+        // row — this exercises the upstream-not-found 404. A malformed id would short-circuit earlier
+        // and never test that branch (it would stay green if pharmacyDetail returned a blank 200).
+        mvc.perform(get("/api/v1/facilities/facility:nmc:C9999999"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
                 .andExpect(jsonPath("$.error.retryable").value(false));
