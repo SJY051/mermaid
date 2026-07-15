@@ -146,10 +146,14 @@ public class ChatProxyController {
      *
      * <p>A non-empty context becomes server-authored cards. Product identity, ingredients, dosage,
      * warnings, allergy verdict, prescription status, and provenance come directly from the records;
-     * the two English enrichment fields stay unavailable. A truly empty context keeps the existing
-     * legacy model path, where the empty retrieval allowlist prevents any drug card from passing.
-     * Allergy direct answers run before both paths, and emergency triage runs before retrieval in
-     * {@link #completions(JsonNode)}.
+     * the two English enrichment fields stay unavailable. A usable empty context receives a fixed
+     * server answer, while Pass 1 unavailability is represented by a distinct server answer before
+     * this split. Allergy direct answers run before both paths, and emergency triage runs before
+     * retrieval in {@link #completions(JsonNode)}.
+     *
+     * <p>The exhaustive returns below leave the legacy whole-answer Pass 2 code unreachable. It is
+     * retained so physical removal can remain a separate, reviewable cleanup rather than hiding a
+     * large deletion inside this behavior change.
      */
     private MermAidAnswer answer(JsonNode request) {
         MermaidRequestExtension.StructuredExclusions exclusions =
@@ -175,7 +179,12 @@ public class ChatProxyController {
                     .orElseGet(() -> fallback.safeAnswer(
                             ServerAuthoredAnswerBuilder.INCONSISTENT_CONTEXT_SUMMARY));
         }
+        if (context.sources().isEmpty() && context.groundedDrugs().isEmpty()) {
+            return ServerAuthoredEmptyAnswer.answer();
+        }
 
+        // Dormant legacy whole-answer path. The direct, non-empty/partial, and exhaustive empty
+        // returns above cover every DrugContext state; keep this code only for the later cleanup PR.
         JsonNode upstream;
         long startedAt = System.nanoTime();
         try {
@@ -187,8 +196,7 @@ public class ChatProxyController {
             log.error("Upstream chat call failed after {}ms", elapsedMs(startedAt), e);
             return unreachable();
         }
-        // This is now the truly empty legacy path only. Keep its latency visible until the approved
-        // empty-state follow-up removes the final whole-answer call.
+        // Dormant metric retained with the legacy call for the later physical-cleanup PR.
         log.info("RAG pass 2: model answered in {}ms ({} chars of context)",
                 elapsedMs(startedAt), context.systemMessage().length());
         if (upstream == null) {
@@ -244,10 +252,9 @@ public class ChatProxyController {
     /**
      * Dormant legacy non-empty-card post-processing, retained for incremental cleanup.
      *
-     * <p>The reachable legacy branch has a truly empty context, so its validator rejects every drug
-     * card before these transformations can affect output. The comments in this section document
-     * the former whole-answer card threat model; current non-empty cards are built by {@link
-     * ServerAuthoredAnswerBuilder} above.
+     * <p>No current branch reaches these transformations. The comments in this section document the
+     * former whole-answer card threat model; current non-empty cards are built by {@link
+     * ServerAuthoredAnswerBuilder}, and empty/unavailable states are fixed server DTOs above.
      *
      * <p>The name on the legacy card is the ministry's name. Invariant 8, for the two fields left.
      *

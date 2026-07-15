@@ -36,9 +36,9 @@ import org.springframework.stereotype.Component;
  *                                                             → server-authored cards
  * </pre>
  *
- * <p>{@code systemMessage} is retained for the incremental empty-context/legacy cleanup, but a
- * non-empty context is not sent to whole-answer Pass 2. {@link ServerAuthoredAnswerBuilder} maps its
- * typed grounded records and provenance directly into the response.
+ * <p>{@code systemMessage} is retained only for incremental legacy cleanup. No current context is
+ * sent to whole-answer Pass 2: {@link ServerAuthoredAnswerBuilder} maps non-empty typed records,
+ * while empty and unavailable states are fixed server answers.
  */
 @Slf4j
 @Component
@@ -153,7 +153,12 @@ public class DrugContextRetriever {
         }
 
         long startedAt = System.nanoTime();
-        RetrievalQuery extracted = extractor.extract(userText).query();
+        SearchTermExtractor.ExtractionResult extraction = extractor.extract(userText);
+        if (extraction.isUnavailable()) {
+            log.info("Drug search skipped because Pass 1 extraction was unavailable");
+            return DrugContext.searchUnavailable();
+        }
+        RetrievalQuery extracted = extraction.query();
 
         // Under a declared allergy the model does not choose medicines (SA-08): its proposed
         // ingredients are dropped and only products the person named themselves are looked up.
@@ -166,8 +171,13 @@ public class DrugContextRetriever {
         RetrievalQuery query = allergyDeclared ? extracted.withoutProposedIngredients() : extracted;
 
         if (query.isEmpty()) {
-            log.debug("No drug search terms in this turn; the model gets an empty context");
-            return suppressed ? DrugContext.allergySuppressed() : DrugContext.empty();
+            if (allergyDeclared) {
+                log.info(
+                        "Allergy declared and no user-named product remains — returning server suppression answer");
+                return DrugContext.allergySuppressed();
+            }
+            log.debug("No drug search terms in this turn; returning the fixed empty answer");
+            return DrugContext.empty();
         }
         long extractedAt = System.nanoTime();
 
@@ -183,6 +193,12 @@ public class DrugContextRetriever {
                 query.productNamesKo().size(),
                 retrieved.drugs().size(),
                 millisBetween(startedAt, extractedAt), millisBetween(extractedAt, System.nanoTime()));
+
+        if (allergyDeclared && retrieved.drugs().isEmpty()) {
+            log.info(
+                    "Allergy declared and no official product was retrieved — returning server suppression answer");
+            return DrugContext.allergySuppressed();
+        }
 
         return new DrugContext(
                 render(retrieved, allergyDeclared), groundedDrugs(retrieved.drugs()), retrieved.sources());
@@ -475,6 +491,11 @@ public class DrugContextRetriever {
             return new DrugContext(preamble(0, false) + "\n[]", Map.of(), List.of());
         }
 
+        static DrugContext searchUnavailable() {
+            return new DrugContext(
+                    "", Map.of(), List.of(), Optional.of(ServerAuthoredSearchUnavailableAnswer.answer()));
+        }
+
         static DrugContext allergyClarification() {
             return new DrugContext("", Map.of(), List.of(), Optional.of(AllergyClarification.answer()));
         }
@@ -486,15 +507,19 @@ public class DrugContextRetriever {
          * are different answers, and the person deserves to be told which one they got.
          */
         static DrugContext allergySuppressed() {
-            return new DrugContext(preamble(0, true) + "\n[]", Map.of(), List.of());
+            return new DrugContext(
+                    preamble(0, true) + "\n[]",
+                    Map.of(),
+                    List.of(),
+                    Optional.of(AllergySuppressedAnswer.answer()));
         }
 
         /**
          * @param allergyDeclared the person told us about an allergy this turn, so the model may not
          *     propose a medicine — not even one it believes to be unrelated. We match allergens by
          *     ingredient name and hold no drug-class knowledge, so "unrelated" is not ours to say.
-         *     This wording is retained for the still-reachable empty-context legacy response; the
-         *     non-empty path does not send this prompt to whole-answer Pass 2.
+         *     This wording remains only with the dormant serialized context so its later physical
+         *     removal is a small, separately reviewable diff.
          */
         static String preamble(int count, boolean allergyDeclared) {
             if (count == 0) {

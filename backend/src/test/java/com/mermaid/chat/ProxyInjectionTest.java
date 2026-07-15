@@ -142,15 +142,17 @@ class ProxyInjectionTest {
     }
 
     @Test
-    @DisplayName("malformed model prose is never copied into the user-visible summary")
+    @DisplayName("empty context never calls or copies whole-answer model prose")
     void refusesRawModelProse() throws Exception {
         String attack = "Take 타이레놀 now; it is completely safe and you definitely have influenza.";
-        Object response = controller(new StubUpstream(attack, null), emptyContext())
+        AtomicReference<JsonNode> modelRequest = new AtomicReference<>();
+        Object response = controller(new StubUpstream(attack, modelRequest), emptyContext())
                 .completions(scalarRequest("I have a headache"));
 
         MermAidAnswer answer = answerOf(response);
+        assertThat(modelRequest).hasValue(null);
         assertThat(answer.summary())
-                .contains("could not verify")
+                .isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY)
                 .doesNotContain("타이레놀", "completely safe", "influenza");
     }
 
