@@ -210,6 +210,14 @@ public class ChatProxyController {
         }
         MermAidAnswer coerced = ground(parsed, context);
 
+        if (coerced.urgency() != null
+                && coerced.urgency().level() == MermAidAnswer.Urgency.Level.EMERGENCY) {
+            // The model's urgency is only an escalation signal. Replacing the whole answer keeps
+            // model-authored prose, medicines and UI actions out of a safety state while preserving
+            // the escalation with the server's canonical 119 response.
+            return emergencyTriage.emergencyAnswer("MODEL_ESCALATION");
+        }
+
         List<ViolationCode> violations = answerValidator.validate(coerced, context.groundedDrugs());
         if (!violations.isEmpty()) {
             log.warn("answer_validation_failed total={} codes={}",
