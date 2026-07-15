@@ -54,6 +54,10 @@ const validAnswer = JSON.stringify({
 beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
+  localStorage.setItem(
+    'mermaid.onboarding.v1',
+    JSON.stringify({ schemaVersion: '1.0', data: true }),
+  )
 })
 
 afterEach(() => {

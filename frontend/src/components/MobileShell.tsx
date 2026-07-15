@@ -7,9 +7,11 @@ import { FavoritesProvider } from '../lib/favorites'
 import { ChatScreen } from './ChatScreen'
 import { DisclaimerStrip } from './DisclaimerStrip'
 import { MapScreen } from './MapScreen'
+import { hasSeenOnboarding, Onboarding } from './Onboarding'
 import { SavedScreen } from './SavedScreen'
 import { SettingsScreen } from './SettingsScreen'
 import { TabBar } from './TabBar'
+import { LocationSessionProvider } from '../lib/locationSession'
 
 export type TabId = 'chat' | 'map' | 'saved' | 'settings'
 
@@ -17,12 +19,20 @@ export type TabId = 'chat' | 'map' | 'saved' | 'settings'
  * Keeps navigation and the safety disclaimer fixed while each screen owns its scroll position.
  */
 export function MobileShell() {
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasSeenOnboarding())
+
   return (
-    <ChatProvider>
-      <FavoritesProvider>
-        <MobileShellContent />
-      </FavoritesProvider>
-    </ChatProvider>
+    <LocationSessionProvider>
+      {showOnboarding ? (
+        <Onboarding onComplete={() => setShowOnboarding(false)} />
+      ) : (
+        <ChatProvider>
+          <FavoritesProvider>
+            <MobileShellContent />
+          </FavoritesProvider>
+        </ChatProvider>
+      )}
+    </LocationSessionProvider>
   )
 }
 
@@ -63,8 +73,8 @@ function MobileShellContent() {
           aria-label="Map screen"
           hidden={activeTab !== 'map'}
         >
-          {/* active gates the location prompt and facility fetch: the screen stays mounted for
-              scroll state, but must not spend the pharmacy quota until the user opens the tab. */}
+          {/* active gates facility setup and fetching: the screen stays mounted for scroll state,
+              but must not spend the pharmacy quota until the user opens the tab. */}
           <MapScreen active={activeTab === 'map'} />
         </section>
         {/* `active` matters as much as the scroll box: SavedScreen refreshes the profile when it
