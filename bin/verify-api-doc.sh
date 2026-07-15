@@ -63,7 +63,14 @@ echo "$hospital" | grep -q '"type":"hospital"'
 check "GET /facilities?type=hospital returns hospital facilities" $?
 echo "$hospital" | grep -q '"id":"facility:hira:'
 check "GET /facilities?type=hospital is not an empty legacy 200 response" $?
-expect GET "/facilities/facility:nmc:C1110693"                 501
+expect GET "/facilities/facility:nmc:C1110693"                 200   # 약국 단건 상세
+expect GET "/facilities/facility:hira:JDQ4MTg4MSM1MSM"         501   # 병원 단건은 미구현
+expect GET "/facilities/facility:nmc:not-an-hpid"              404   # 잘못된 형식 → 상류 호출 0
+detail=$(curl -s "$BASE/facilities/facility:nmc:C1110693")
+echo "$detail" | grep -q '"type":"pharmacy"'
+check "GET /facilities/{id} 약국 단건은 pharmacy 타입" $?
+echo "$detail" | grep -q '"distanceMeters":null'
+check "GET /facilities/{id} 단건은 distanceMeters=null (기준 좌표 없음)" $?
 expect GET "/facilities?lat=999&lng=127.0"                     400
 expect GET "/facilities?lng=127.0"                             400   # lat is required
 expect GET "/facilities?lat=37.5&lng=127.0&type=clinic"        400   # closed enum

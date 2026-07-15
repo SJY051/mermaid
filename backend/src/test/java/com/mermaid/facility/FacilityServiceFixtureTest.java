@@ -278,9 +278,41 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
-    @DisplayName("a pharmacy hpid upstream does not know is a NotFoundException, not a blank card")
+    @DisplayName("a well-formed hpid upstream does not know is a NotFoundException, not a blank card")
     void pharmacyDetailUnknownHpidThrowsNotFound() {
-        assertThatThrownBy(() -> serviceAt(FRIDAY_AFTERNOON).detail("facility:nmc:NO_SUCH_HPID"))
+        // Well-formed (letter + seven digits) but absent from the fixture: this reaches basisDetail and
+        // gets a null row back, distinct from the malformed-id short-circuit below.
+        assertThatThrownBy(() -> serviceAt(FRIDAY_AFTERNOON).detail("facility:nmc:C9999999"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("a malformed provider id is a 404 rejected before any upstream call (quota)")
+    void malformedProviderIdMakesNoUpstreamCall() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
+        var loader = new FixtureLoader(new ObjectMapper());
+        var pharmacy =
+                new PharmacyApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public PharmacyDetailBatch basisDetail(String hpid) {
+                        throw new AssertionError("basisDetail must not run for a malformed id: " + hpid);
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacy,
+                        new HospitalApiClient(null, props, dataMode, loader),
+                        new HospitalDetailApiClient(null, props, dataMode, loader),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        // nmc not one-letter-seven-digits, and a hira segment that is not base64url: both are 404
+        // without spending a pharmacy call (the overridden basisDetail would fail the test if reached).
+        assertThatThrownBy(() -> service.detail("facility:nmc:not-an-hpid"))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.detail("facility:hira:not*base64"))
                 .isInstanceOf(NotFoundException.class);
     }
 

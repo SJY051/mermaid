@@ -1,9 +1,12 @@
 package com.mermaid.facility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
@@ -11,6 +14,7 @@ import com.mermaid.facility.domain.DutyTable;
 import java.net.URI;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.reactive.function.client.WebClient;
 
 /** Test checklist for DEV-202's official pharmacy weekly-timetable lookup. */
 class PharmacyApiClientTest {
@@ -94,5 +98,43 @@ class PharmacyApiClientTest {
 
         assertThat(batch.detail()).isNull();
         assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+    }
+
+    @Test
+    @DisplayName("a matching row without a name or coordinates is rejected, not a partial 200 card")
+    void basisDetailRejectsIncompleteRow() throws Exception {
+        // The row carries the requested hpid but no dutyName and no wgs84Lat/Lon. Returning it would
+        // build a verified-looking Facility with null identity/coordinates — reject it as not found.
+        String envelope =
+                """
+                {"response":{"header":{"resultCode":"00","resultMsg":"OK"},
+                 "body":{"items":{"item":{"hpid":"C1110693","dutyAddr":"서울 중구","dutyTel1":"02-000-0000"}}}}}
+                """;
+        JsonNode raw = new ObjectMapper().readTree(envelope);
+
+        assertThat(fixtureClient().parseBasisDetail(raw, "C1110693", SourceRef.DataMode.LIVE)).isNull();
+    }
+
+    @Test
+    @DisplayName("a live detail failure drops the URI-bearing cause before it can be logged (§2-7)")
+    void basisDetailLiveFailureHasNoCause() {
+        // pharmacyBaseUrl points at a closed port; in LIVE mode there is no fixture fallback, so the
+        // connection error becomes a PublicApiException. Re-adding the WebClient cause (which carries
+        // the request URI and its serviceKey) turns hasNoCause() red.
+        var props =
+                new PublicApiProperties(
+                        "decoding-key", "http://127.0.0.1:1", "https://x", "https://x", "https://x",
+                        "https://x", "https://x");
+        var client =
+                new PharmacyApiClient(
+                        WebClient.create(),
+                        props,
+                        new DataModeProperties(DataModeProperties.DataMode.LIVE),
+                        new FixtureLoader(new ObjectMapper()));
+
+        assertThatThrownBy(() -> client.basisDetail("C1110693"))
+                .isInstanceOf(PublicApiException.class)
+                .hasMessage("Pharmacy detail lookup failed for C1110693")
+                .hasNoCause();
     }
 }

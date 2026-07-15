@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,8 @@ public class FacilityService {
 
     private static final String PHARMACY_PROVIDER = "nmc"; // 국립중앙의료원
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
+    /** NMC 기관ID (HPID): one letter + seven digits, e.g. {@code C1110693}. Widen only if a real id is rejected. */
+    private static final Pattern HPID_PATTERN = Pattern.compile("[A-Za-z][0-9]{7}");
     private static final int METRES_PER_KM = 1000;
     private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
     /**
@@ -129,9 +132,22 @@ public class FacilityService {
         String recordId = parts[2];
 
         if (PHARMACY_PROVIDER.equals(provider)) {
+            if (!HPID_PATTERN.matcher(recordId).matches()) {
+                // Reject a malformed HPID here, before any upstream call: otherwise every distinct
+                // bogus id would spend one of the 1,000/day pharmacy calls and cache a negative
+                // lookup. A malformed id is a 404, as documented — never an upstream request.
+                throw new NotFoundException("malformed pharmacy id: " + recordId);
+            }
             return pharmacyDetail(recordId);
         }
         if (HOSPITAL_PROVIDER.equals(provider)) {
+            try {
+                // A ykiho travels as base64url (spec §4-3). One that cannot decode is a malformed id
+                // (→ 404), distinct from a well-formed ykiho whose detail path is simply unbuilt (→ 501).
+                Facility.decodeSegment(recordId);
+            } catch (IllegalArgumentException e) {
+                throw new NotFoundException("malformed hospital id: " + recordId);
+            }
             // TODO(team): hospital detail-by-id (DEV-205) needs a HIRA by-ykiho identity source. The
             // detail service (getDtlInfo2.8) returns hours but no name/address/coordinates; those come
             // only from the coordinate-and-radius list. Until that gap is bridged this is an honest 501.

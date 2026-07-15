@@ -94,7 +94,7 @@ public class PharmacyApiClient {
                             .bodyToMono(JsonNode.class)
                             .block();
             return new PharmacyBatch(parse(raw), SourceRef.DataMode.LIVE);
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
                 // hybrid: a demo must survive a government outage. The batch is tagged FIXTURE so the
                 // card can say so — the source metadata is the only thing that keeps it from lying.
@@ -103,7 +103,10 @@ public class PharmacyApiClient {
                 log.warn("pharmacy lookup failed, falling back to fixture");
                 return fixtureBatch();
             }
-            throw new PublicApiException("Pharmacy lookup failed near " + lat + "," + lng, e);
+            // No cause, no coordinates: the WebClient cause carries the request URI (and its
+            // serviceKey), and the global handler logs the whole throwable; exact caller coordinates
+            // must not be persisted either (§2-7).
+            throw new PublicApiException("Pharmacy lookup failed");
         }
     }
 
@@ -193,14 +196,15 @@ public class PharmacyApiClient {
                             .bodyToMono(JsonNode.class)
                             .block();
             return parseWeeklyHours(raw, hpid, SourceRef.DataMode.LIVE);
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
                 // No exception text: it can carry the request URI and its serviceKey (§2-7).
                 log.warn("pharmacy weekly-hours lookup failed for {}, falling back to fixture", hpid);
                 return parseWeeklyHours(
                         fixtures.load(BASIS_FIXTURE), hpid, SourceRef.DataMode.FIXTURE);
             }
-            throw new PublicApiException("Pharmacy weekly-hours lookup failed for " + hpid, e);
+            // No cause: it can carry the request URI and its serviceKey (§2-7). hpid is a public id.
+            throw new PublicApiException("Pharmacy weekly-hours lookup failed for " + hpid);
         }
     }
 
@@ -246,13 +250,14 @@ public class PharmacyApiClient {
                             .block();
             return new PharmacyDetailBatch(
                     parseBasisDetail(raw, hpid, SourceRef.DataMode.LIVE), SourceRef.DataMode.LIVE);
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
                 // No exception text: it can carry the request URI and its serviceKey (§2-7).
                 log.warn("pharmacy detail lookup failed for {}, falling back to fixture", hpid);
                 return fixtureDetail(hpid);
             }
-            throw new PublicApiException("Pharmacy detail lookup failed for " + hpid, e);
+            // No cause: it can carry the request URI and its serviceKey (§2-7). hpid is a public id.
+            throw new PublicApiException("Pharmacy detail lookup failed for " + hpid);
         }
     }
 
@@ -266,7 +271,8 @@ public class PharmacyApiClient {
      * Reads the identity fields and the weekly timetable for one pharmacy. Returns {@code null} when
      * no row carries the requested {@code hpid}, so the detail path can answer 404 instead of guessing.
      */
-    private PharmacyDetail parseBasisDetail(JsonNode raw, String hpid, SourceRef.DataMode origin) {
+    // Package-visible so a test can feed a partial row without a dedicated fixture.
+    PharmacyDetail parseBasisDetail(JsonNode raw, String hpid, SourceRef.DataMode origin) {
         PublicApiResponse response = PublicApiResponse.of(raw).requireOk();
 
         for (JsonNode row : response.items()) {
@@ -282,13 +288,22 @@ public class PharmacyApiClient {
                     hours.put(day, List.of(start, end));
                 }
             }
+            String name = PublicApiResponse.text(row, "dutyName");
+            Double latitude = PublicApiResponse.number(row, "wgs84Lat");
+            Double longitude = PublicApiResponse.number(row, "wgs84Lon");
+            if (name == null || name.isBlank() || latitude == null || longitude == null) {
+                // A row without a name or a location is not the "fully reconstructed pharmacy" the
+                // detail endpoint promises. Treat it as not found rather than a 200 card with null
+                // identity/coordinates that would look verified (spec §2-9).
+                return null;
+            }
             return new PharmacyDetail(
                     hpid,
-                    PublicApiResponse.text(row, "dutyName"),
+                    name,
                     PublicApiResponse.text(row, "dutyAddr"),
                     PublicApiResponse.text(row, "dutyTel1"),
-                    PublicApiResponse.number(row, "wgs84Lat"),
-                    PublicApiResponse.number(row, "wgs84Lon"),
+                    latitude,
+                    longitude,
                     new DutyTable(Map.copyOf(hours), origin));
         }
 
