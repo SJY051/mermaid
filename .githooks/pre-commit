@@ -14,7 +14,7 @@ staged=()
 # forbidden basename behind quotes. NUL-delimited names preserve every path byte.
 while IFS= read -r -d '' f; do
     staged+=("$f")
-done < <(git diff --cached --name-only --diff-filter=ACM -z)
+done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
 [ "${#staged[@]}" -eq 0 ] && exit 0
 
 fail() {
