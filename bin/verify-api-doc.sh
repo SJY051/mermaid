@@ -64,7 +64,9 @@ check "GET /facilities?type=hospital returns hospital facilities" $?
 echo "$hospital" | grep -q '"id":"facility:hira:'
 check "GET /facilities?type=hospital is not an empty legacy 200 response" $?
 expect GET "/facilities/facility:nmc:C1110693"                 200   # 약국 단건 상세
-expect GET "/facilities/facility:hira:JDQ4MTg4MSM1MSM"         501   # 병원 단건은 미구현
+# Captured HIRA ykiho wrapped once more in base64url for a path-safe facility id.
+HIRA_FIXTURE_ID="facility:hira:SkRRNE1UZzRNU00xTVNNa01TTWtNQ01rT0Rra016Z3hNelV4SXpFeEl5UXhJeVF6SXlRM09TUTBOakV3TURJak5qRWpKREVqSkRRakpEZ3o"
+expect GET "/facilities/$HIRA_FIXTURE_ID"                     501   # 병원 단건은 미구현
 expect GET "/facilities/facility:nmc:not-an-hpid"              404   # 잘못된 형식 → 상류 호출 0
 expect GET "/facilities/facility:nmc:C9999999"                 404   # 형식은 맞지만 상류에 없음
 expect GET "/facilities/facility:unknownprovider:C1110693"    404   # 미지 provider
