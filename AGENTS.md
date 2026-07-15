@@ -71,7 +71,7 @@ These are not style preferences. Each one marks a place where being wrong can hu
 
 **2-6. Only a human fills a "a human checked this" field.** The `reviewer` column in `backend/src/main/resources/ingredients/synonyms.tsv` *is* the fact that a person looked. If an AI fills it, the column means nothing, permanently, for every future reader. Unsigned rows stay `blocked` (AR-02). PM/QA signs, using the prepared [review sheet](docs/specs/001-foundation/DEV-305-synonym-review.md).
 
-**2-7. No secret ever carries a `VITE_` prefix.** Vite inlines every `VITE_*` variable **as a string literal into the shipped JavaScript** — not read at runtime, compiled in, public by definition. (A Naver Client Secret was compiled into `dist/` this way on 2026-07-10; it was rotated.) `vite.config.ts` now refuses to build when a `VITE_` name matches `SECRET|PASSWORD|PRIVATE_KEY|TOKEN|CREDENTIAL`.
+**2-7. No secret ever carries a `VITE_` prefix.** Vite inlines every `VITE_*` variable **as a string literal into the shipped JavaScript** — not read at runtime, compiled in, public by definition. (A Naver Client Secret was compiled into `dist/` this way on 2026-07-10; it was rotated.) `vite.config.ts` therefore uses a positive allowlist: only the reviewed public `VITE_NAVER_MAP_CLIENT_ID` may carry that prefix.
 
 | Name | Lives in | Public? |
 |---|---|---|

@@ -65,6 +65,10 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      - name: Verify client environment boundary
+        working-directory: frontend
+        run: node scripts/verify-client-env-boundary.mjs
+
       - name: Lint
         working-directory: frontend
         run: pnpm lint
