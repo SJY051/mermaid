@@ -98,7 +98,9 @@ public class PharmacyApiClient {
             if (dataMode.allowsFallback()) {
                 // hybrid: a demo must survive a government outage. The batch is tagged FIXTURE so the
                 // card can say so — the source metadata is the only thing that keeps it from lying.
-                log.warn("pharmacy lookup failed, falling back to fixture: {}", e.getMessage());
+                // No exception text: a WebClient failure message can carry the request URI, whose
+                // serviceKey query parameter must never reach the logs (§2-7).
+                log.warn("pharmacy lookup failed, falling back to fixture");
                 return fixtureBatch();
             }
             throw new PublicApiException("Pharmacy lookup failed near " + lat + "," + lng, e);
@@ -193,10 +195,8 @@ public class PharmacyApiClient {
             return parseWeeklyHours(raw, hpid, SourceRef.DataMode.LIVE);
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
-                log.warn(
-                        "pharmacy weekly-hours lookup failed for {}, falling back to fixture: {}",
-                        hpid,
-                        e.getMessage());
+                // No exception text: it can carry the request URI and its serviceKey (§2-7).
+                log.warn("pharmacy weekly-hours lookup failed for {}, falling back to fixture", hpid);
                 return parseWeeklyHours(
                         fixtures.load(BASIS_FIXTURE), hpid, SourceRef.DataMode.FIXTURE);
             }
@@ -248,10 +248,8 @@ public class PharmacyApiClient {
                     parseBasisDetail(raw, hpid, SourceRef.DataMode.LIVE), SourceRef.DataMode.LIVE);
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
-                log.warn(
-                        "pharmacy detail lookup failed for {}, falling back to fixture: {}",
-                        hpid,
-                        e.getMessage());
+                // No exception text: it can carry the request URI and its serviceKey (§2-7).
+                log.warn("pharmacy detail lookup failed for {}, falling back to fixture", hpid);
                 return fixtureDetail(hpid);
             }
             throw new PublicApiException("Pharmacy detail lookup failed for " + hpid, e);
