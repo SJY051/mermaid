@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.mermaid.facility.domain.Facility;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -93,11 +94,24 @@ class ErrorContractTest {
         // so facility:hira:… cannot yet be reconstructed. Reported as INTERNAL_ERROR it would send the
         // caller hunting a bug that does not exist and hide that the feature is simply missing.
         // (Pharmacy detail — facility:nmc:… — is built now; see pharmacyDetailReturnsTheFacility.)
-        mvc.perform(get("/api/v1/facilities/facility:hira:JDQ4MTg4MSM1MSM"))
+        String ykiho =
+                "JDQ4MTg4MSM1MSMkMSMkMCMkODkkMzgxMzUxIzExIyQxIyQzIyQ3OSQ0NjEwMDIjNjEjJDEjJDQjJDgz";
+        mvc.perform(get("/api/v1/facilities/facility:hira:" + Facility.urlSafeSegment(ykiho)))
                 .andExpect(status().isNotImplemented())
                 .andExpect(jsonPath("$.error.code").value("NOT_IMPLEMENTED"))
                 .andExpect(jsonPath("$.error.retryable").value(false))
                 .andExpect(jsonPath("$.error.message").value("That feature is not built yet."));
+    }
+
+    @Test
+    @DisplayName("a base64url-decodable but non-HIRA hospital id is 404, not 501")
+    void garbageHospitalIdIsNotFound() throws Exception {
+        // "not-base64" is accepted by the outer base64url decoder but is not an HIRA ykiho. Without
+        // the decoded-ykiho grammar check it falls through to the unimplemented hospital path (501).
+        mvc.perform(get("/api/v1/facilities/facility:hira:not-base64"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"))
+                .andExpect(jsonPath("$.error.retryable").value(false));
     }
 
     @Test

@@ -319,7 +319,11 @@ class FacilityServiceFixtureTest {
     @Test
     @DisplayName("hospital detail-by-id stays 501: HIRA has no by-ykiho identity lookup")
     void hospitalDetailByIdIsNotImplemented() {
-        assertThatThrownBy(() -> serviceAt(FRIDAY_AFTERNOON).detail("facility:hira:JDQ4MTg4MSM1MSM"))
+        String capturedYkiho =
+                "JDQ4MTg4MSM1MSMkMSMkMCMkODkkMzgxMzUxIzExIyQxIyQzIyQ3OSQ0NjEwMDIjNjEjJDEjJDQjJDgz";
+        String id = Facility.idOf("hira", Facility.urlSafeSegment(capturedYkiho));
+
+        assertThatThrownBy(() -> serviceAt(FRIDAY_AFTERNOON).detail(id))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
 

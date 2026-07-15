@@ -11,12 +11,14 @@ import com.mermaid.facility.domain.FacilityOperation;
 import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.facility.domain.OpenInterval;
 import com.mermaid.facility.domain.WeeklyHours;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -42,6 +44,8 @@ public class FacilityService {
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
     /** NMC 기관ID (HPID): one letter + seven digits, e.g. {@code C1110693}. Widen only if a real id is rejected. */
     private static final Pattern HPID_PATTERN = Pattern.compile("[A-Za-z][0-9]{7}");
+    /** HIRA ykiho decoded from the captured standard-base64 value, e.g. {@code $481881#51#$1#…}. */
+    private static final Pattern HIRA_YKIHO_PATTERN = Pattern.compile("\\$\\d+(?:[#\\$]+\\d+)+");
     private static final int METRES_PER_KM = 1000;
     private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
     /**
@@ -141,11 +145,7 @@ public class FacilityService {
             return pharmacyDetail(recordId);
         }
         if (HOSPITAL_PROVIDER.equals(provider)) {
-            try {
-                // A ykiho travels as base64url (spec §4-3). One that cannot decode is a malformed id
-                // (→ 404), distinct from a well-formed ykiho whose detail path is simply unbuilt (→ 501).
-                Facility.decodeSegment(recordId);
-            } catch (IllegalArgumentException e) {
+            if (!isWellFormedHospitalId(recordId)) {
                 throw new NotFoundException("malformed hospital id: " + recordId);
             }
             // TODO(team): hospital detail-by-id (DEV-205) needs a HIRA by-ykiho identity source. The
@@ -156,6 +156,25 @@ public class FacilityService {
                             + " (name/address/coordinates); see FacilityService#detail");
         }
         throw new NotFoundException("unknown facility provider: " + provider);
+    }
+
+    /**
+     * HIRA returns its opaque ykiho as standard base64; our URL id wraps that value in base64url.
+     * Requiring both canonical encodings and the captured decoded grammar keeps arbitrary path text
+     * from reaching an unimplemented detail route as a misleading 501.
+     */
+    private static boolean isWellFormedHospitalId(String recordId) {
+        try {
+            String ykiho = Facility.decodeSegment(recordId);
+            if (!Facility.urlSafeSegment(ykiho).equals(recordId)) {
+                return false;
+            }
+            String decodedYkiho =
+                    new String(Base64.getDecoder().decode(ykiho), StandardCharsets.UTF_8);
+            return HIRA_YKIHO_PATTERN.matcher(decodedYkiho).matches();
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
     }
 
     private Facility pharmacyDetail(String hpid) {
