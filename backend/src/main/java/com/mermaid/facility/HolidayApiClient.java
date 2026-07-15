@@ -42,7 +42,7 @@ public class HolidayApiClient {
     /** A calendar is immutable for its year; cache the full date set rather than individual dates. */
     @Cacheable(value = "holidaysByYear.v1", key = "#root.target.cacheKeyFor(#year)", sync = true)
     public HolidayYear holidaysFor(int year) {
-        if (dataMode.isFixtureOnly() || !properties.isConfigured()) {
+        if (usesFixtureCalendar()) {
             return fixtureYear(year);
         }
 
@@ -57,9 +57,17 @@ public class HolidayApiClient {
         }
     }
 
-    /** Fixture dates must never be reused as a live calendar decision after a mode change. */
+    /**
+     * Fixture fallback and configured live lookup need separate Redis entries even in the same app
+     * mode: a restart after adding the service key must not reuse a keyless fixture calendar.
+     */
     public String cacheKeyFor(int year) {
-        return year + ":" + dataMode.dataMode().wire();
+        String origin = usesFixtureCalendar() ? "fixture" : "live";
+        return year + ":" + dataMode.dataMode().wire() + ":" + origin;
+    }
+
+    private boolean usesFixtureCalendar() {
+        return dataMode.isFixtureOnly() || !properties.isConfigured();
     }
 
     URI uriFor(int year) {

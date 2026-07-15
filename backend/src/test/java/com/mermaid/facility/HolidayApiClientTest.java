@@ -123,6 +123,24 @@ class HolidayApiClientTest {
         assertThat(fixtureClient().cacheKeyFor(2026)).isNotEqualTo(live.cacheKeyFor(2026));
     }
 
+    @Test
+    @DisplayName("a keyless hybrid fixture fallback cannot populate a configured hybrid live cache")
+    void keylessAndConfiguredHybridCalendarsDoNotShareCacheKeys() {
+        var keylessHybrid =
+                new HolidayApiClient(
+                        null,
+                        PROPERTIES,
+                        new DataModeProperties(DataModeProperties.DataMode.HYBRID));
+        var configuredHybrid =
+                new HolidayApiClient(
+                        null,
+                        configuredProperties(),
+                        new DataModeProperties(DataModeProperties.DataMode.HYBRID));
+
+        assertThat(keylessHybrid.cacheKeyFor(2026))
+                .isNotEqualTo(configuredHybrid.cacheKeyFor(2026));
+    }
+
     private static PublicApiProperties configuredProperties() {
         return new PublicApiProperties(
                 "decoding-key",
