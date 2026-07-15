@@ -1,0 +1,144 @@
+{
+  "schema_version": "deep-security-round-06-semantic-authority-manifest-v1",
+  "target": {
+    "commit": "654f906e00e81648d1482210b6a9171747dddd75",
+    "tree": "a14388f597c0c2a17e0dbcfc2d951a390c877214"
+  },
+  "frozen_canonical": {
+    "path": "artifacts/04_reconciliation/deduped_candidates.jsonl",
+    "bytes": 3954212,
+    "rows": 185,
+    "sha256": "0d5b39b868863b55edc96ff71ef2126b01917b102c1aa7c3ff6c1a49c16bc8a8"
+  },
+  "prior_canonical_ledgers": {
+    "algorithm": "sha256 of ordered lines: <file-sha256><two spaces><scan-relative-path><newline>",
+    "count": 185,
+    "rows": 1268,
+    "bytes": 8444259,
+    "sha256": "6636f5b33e3ac8909631b442e8f82c2bed540d8436c2f0aad9d6845c7c214096"
+  },
+  "semantic_authority": {
+    "path": "artifacts/deep_merge/round-06_semantic_final_authority.json",
+    "bytes": 25191,
+    "sha256": "93ef34ade615c54c6069f6c53115576b0090c8574b786f5ebccb63b323605b5a"
+  },
+  "semantic_report": {
+    "path": "artifacts/deep_merge/round-06_semantic_final_review.md",
+    "bytes": 7732,
+    "sha256": "c6b0ac9e24cde6b256ae951dbc960d884d355134b55c270eb44008de66a70f61"
+  },
+  "parts": [
+    {
+      "part_id": "part-01",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-01.jsonl",
+      "bytes": 28319,
+      "rows": 7,
+      "sha256": "9756f769bd9eb30933c27d0b98fd1e0b9e7df3715907e17498f71d658ccb6aa6"
+    },
+    {
+      "part_id": "part-02",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-02.jsonl",
+      "bytes": 25099,
+      "rows": 7,
+      "sha256": "3fad14f07c5082cdb61734d71f77fef20cd57aa22ea318e1e18193b7a6588343"
+    },
+    {
+      "part_id": "part-03",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-03.jsonl",
+      "bytes": 45763,
+      "rows": 12,
+      "sha256": "f6f6d5bbc9a4ebeb884b8781057e7651ca931d354456edc5221947890eeba2a9"
+    },
+    {
+      "part_id": "part-04",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-04.jsonl",
+      "bytes": 43752,
+      "rows": 11,
+      "sha256": "eab0b2b23c48effe0547c1b261f2bc5d85a1b271d20f3c2f5d3599d2511be3b0"
+    },
+    {
+      "part_id": "part-05",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-05.jsonl",
+      "bytes": 32456,
+      "rows": 10,
+      "sha256": "1cb48f76ae06d7c701108f4f8084a9a241882bf5fc29cd863a78e4632c1691f6"
+    },
+    {
+      "part_id": "part-06",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-06.jsonl",
+      "bytes": 40612,
+      "rows": 10,
+      "sha256": "effdb89ee99215013cb162860b7ef2a4490ddf75c15d407fa644174db8887194"
+    },
+    {
+      "part_id": "part-07",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-07.jsonl",
+      "bytes": 44348,
+      "rows": 10,
+      "sha256": "f89980d24e7247d87882549f1697939801329563776c3c8348dd0f3163d60b63"
+    },
+    {
+      "part_id": "part-08",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-08.jsonl",
+      "bytes": 30527,
+      "rows": 9,
+      "sha256": "34d3b747894f99dc195d7044e420efd70d5f97cc5adee18fd3dbb7b0f4eac4fb"
+    },
+    {
+      "part_id": "part-09",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-09.jsonl",
+      "bytes": 47193,
+      "rows": 12,
+      "sha256": "eaf4675335981a58137783c165f9ae4cd2178eb2ac55459bab17e792220ca33f"
+    },
+    {
+      "part_id": "part-10",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-10.jsonl",
+      "bytes": 52125,
+      "rows": 12,
+      "sha256": "5e545a4a2a1e2f4b2e8bae695cb57658c908d8b4c4272912e5f2878a6ee54f2c"
+    },
+    {
+      "part_id": "part-11",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-11.jsonl",
+      "bytes": 31749,
+      "rows": 8,
+      "sha256": "95d3fb5c106d739a594d3570d91653a08311c60d4af8dc9f03f956e3634c1c95"
+    },
+    {
+      "part_id": "part-12",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-12.jsonl",
+      "bytes": 33133,
+      "rows": 8,
+      "sha256": "5b700a2dacffa3564751323ed180cafae9cccaba2b5af2e3f7d6ad430bd0fb8a"
+    },
+    {
+      "part_id": "part-13",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-13.jsonl",
+      "bytes": 29575,
+      "rows": 8,
+      "sha256": "d112269aadb8f78a2d301a773bbedf6d7a8736e761cd7b28896b3fc438e51c05"
+    },
+    {
+      "part_id": "part-14",
+      "path": "artifacts/deep_merge/round-06_semantic_parts/part-14.jsonl",
+      "bytes": 31417,
+      "rows": 7,
+      "sha256": "1a7abd5c247760a5841e3c0be32d5b696dd7cc2611e0ccd1044e6d2ce0c2165b"
+    }
+  ],
+  "source_row_count": 131,
+  "classification_counts": {
+    "prior_canonical_recurrence": 114,
+    "partial_recurrence_with_new_residue": 1,
+    "new_cluster_member": 3,
+    "suppression": 13
+  },
+  "terminal_decision": {
+    "state": "capped",
+    "reason": "capped_by_user_deadline_after_round_06",
+    "completed_round": "round-06",
+    "saturation_proven": false,
+    "centralized_validation_may_begin": true
+  }
+}

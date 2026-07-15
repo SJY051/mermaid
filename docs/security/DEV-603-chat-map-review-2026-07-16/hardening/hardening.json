@@ -1,0 +1,483 @@
+{
+  "documentType": "codex-security.hardening-analysis",
+  "schemaVersion": "1.0",
+  "analysisId": "hardening_final",
+  "sourceScan": {
+    "scanId": "mermaid_654f906e_round06",
+    "targetRevision": "654f906e00e81648d1482210b6a9171747dddd75",
+    "targetTree": "a14388f597c0c2a17e0dbcfc2d951a390c877214",
+    "canonicalCandidateSha256": "274fd61156b7ae3ebeadb1c905258fbe001a5f81380891b9d2491b44652477b8",
+    "sourceDrift": "present",
+    "integrityStatus": "final_batches_pre_adoption",
+    "centralAdoption": "pending_due_concurrent_repository_diff"
+  },
+  "sourceEvidence": {
+    "kind": "mixed_scan_and_diagnostic_collection",
+    "label": "Round-06 final batch validations, Track A/B/C audits, threat model, and exact-origin browser evidence",
+    "collectionSha256": "02e1481352ee74f2b7284a22d0fa4b5e5ee6a6dba0461c81ff58352d56317d74",
+    "artifactCount": 13,
+    "sourceDrift": "present"
+  },
+  "assessment": {
+    "outcome": "opportunities_identified",
+    "summary": "Six repeated control-owner boundaries support structural hardening proposals; none is implemented, and central adoption of the corrected 101/22/65 final counts remains pending."
+  },
+  "validationSummary": {
+    "canonicalRows": 188,
+    "reportable": 101,
+    "needsReview": 22,
+    "notReportable": 65,
+    "reportableP0": 33,
+    "reportableP1": 44,
+    "status": "staged_pending_central_adoption"
+  },
+  "constraints": {
+    "profile": "balanced",
+    "changeHorizons": ["incremental", "medium_term", "foundational"],
+    "nonNegotiables": [
+      "Preserve every AGENTS.md section 2 safety invariant.",
+      "Do not treat model text or public-API strings as safety, provenance, or workflow authority.",
+      "Do not implement or modify repository source from this design analysis.",
+      "Retain human clinical attestation and reviewer ownership.",
+      "Treat needs-review candidates as unresolved rather than promoted or dismissed."
+    ],
+    "assumptions": [
+      "The public login-free Spring/React architecture and OpenAI-compatible provider remain.",
+      "Fixture mode, Redis, MariaDB, and government/Naver integrations remain required.",
+      "No measured latency, memory, cache-hit, or telemetry-volume budget was supplied.",
+      "Clinical, product/accessibility, privacy, operations, and release/security review gates are available before implementation.",
+      "The moving workspace is not evidence for immutable-target behavior."
+    ]
+  },
+  "evidenceRegistry": [
+    {"evidenceId": "EV-CANON", "title": "Round-06 canonical candidate stream", "path": "../artifacts/04_reconciliation/deduped_candidates.jsonl", "sha256": "274fd61156b7ae3ebeadb1c905258fbe001a5f81380891b9d2491b44652477b8"},
+    {"evidenceId": "EV-TM", "title": "Repository threat model", "path": "../artifacts/01_context/threat_model.md", "sha256": "2fbf3600fa6bd9ef2b646d787d22174349ba67f4db99b62574ce81a5456c7450"},
+    {"evidenceId": "EV-A", "title": "Track A final chat-failure audit", "path": "../artifacts/finalization/track_a_final_audit.md", "sha256": "6042d9dd489118caae727afc6de7916658ff6d4798386acca9c18cf4b791e057"},
+    {"evidenceId": "EV-B", "title": "Track B final map/facility audit", "path": "../artifacts/finalization/track_b_final_audit.md", "sha256": "760d124148e3bab8a4fccf8edb9af596627bc35a3e2d01e4cb8b4141ab88893e"},
+    {"evidenceId": "EV-C", "title": "Track C final adversarial audit", "path": "../artifacts/finalization/track_c_final_audit.md", "sha256": "721073151e36429c0a2aaf9d987da4faa2924ca6b271b430e07532cb58f0fb50"},
+    {"evidenceId": "EV-DIAG", "title": "Integrated diagnostic and security prefinal", "path": "../artifacts/finalization/diagnostic_security_review_round06_prefinal.md", "sha256": "3cea2871af41501355345f69b782e9a082107dd3f0f366c7543abac55d8c2790"},
+    {"evidenceId": "EV-NAVER", "title": "Exact-origin Naver console and network capture", "path": "../diagnostic_drafts/evidence/naver_5173_console_network_20260716.md", "sha256": "cbab96008330ef853f46405324bc6115cc90968f7a3e72b05dd5aac87c7d468c"},
+    {"evidenceId": "EV-B1", "title": "Final validation batch 01", "path": "../artifacts/central_validation_round06/batch-01/validation.jsonl", "sha256": "7c6b132d11a0c3644c2e169ff5f12183faff22e19d6a5e715dc98c208680d358"},
+    {"evidenceId": "EV-B2", "title": "Final validation batch 02", "path": "../artifacts/central_validation_round06/batch-02/validation.jsonl", "sha256": "ed5af1803d829d0623097506b172fb0ed3da6e1ea98a4944754620ed628976ed"},
+    {"evidenceId": "EV-B3", "title": "Final validation batch 03", "path": "../artifacts/central_validation_round06/batch-03/validation.jsonl", "sha256": "1a9d0428b08304586a2853897998d6d69a43e9a200c8b38e9fda190cb94e7bac"},
+    {"evidenceId": "EV-B4", "title": "Final validation batch 04", "path": "../artifacts/central_validation_round06/batch-04/validation.jsonl", "sha256": "d5392b53f366566817786ebd1807dccc20b0ad3206e390b620958e2f1b7cd805"},
+    {"evidenceId": "EV-B5", "title": "Final validation batch 05", "path": "../artifacts/central_validation_round06/batch-05/validation.jsonl", "sha256": "83c67554861df3ed6d506a772eb614dc4d6b5a3dc459c827d71fd4b73b06b28f"},
+    {"evidenceId": "EV-GATE", "title": "Superseded central check-only verification", "path": "../artifacts/central_validation_round06/FINAL_CHECK_ONLY_VERIFICATION.md", "sha256": "4d26e0e4cc6a973ea5426b34a712096cae53bd6688729d4cc00e6ec3fdb75c9d"}
+  ],
+  "opportunities": [
+    {
+      "opportunityId": "conversation-release-boundary",
+      "title": "Create a typed conversation release boundary",
+      "summary": "Compile hostile model candidates into a server-owned released answer bound to exact evidence and reviewed semantic policy.",
+      "diagnosis": "Role normalization, external-context authority, grounding, semantic checks, server-owned fields, and rendering are distributed conventions rather than one complete release decision.",
+      "evidence": [
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-018", "path": "backend/src/main/java/com/mermaid/chat/AnswerValidator.java", "claim": "Schema-valid diagnostic, curative, and dangerous word-form dosing prose reached the final HTTP answer."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-027", "path": "backend/src/main/java/com/mermaid/chat/ChatProxyService.java", "claim": "Client-authored assistant history is preserved while safety prescans consume only user text."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-021", "path": "backend/src/main/java/com/mermaid/chat/ChatProxyService.java", "claim": "Government narrative is elevated into privileged model context."},
+        {"claimType": "inferred", "sourceKind": "threat_model", "evidenceId": "EV-TM", "path": "../artifacts/01_context/threat_model.md", "claim": "A single explicit authority transition would reduce recurrence across roles, context, identity, semantics, and rendering."}
+      ],
+      "desiredInvariants": [
+        "All client history and external strings remain untrusted data.",
+        "Only ReleasedAnswer can cross the backend-to-browser medical-answer boundary.",
+        "Every released medical/provenance field has an exact evidence binding or server-authored policy decision.",
+        "Semantic policy is clinically reviewed and reason-coded without logging rejected text."
+      ],
+      "proposalPath": "proposals/conversation-release-boundary.md",
+      "humanReviewGates": ["clinical semantic policy", "product degradation behavior", "accessibility safety presentation"],
+      "options": [
+        {
+          "optionId": "conversation-local-guards",
+          "title": "Consolidated local guards",
+          "kind": "incremental",
+          "summary": "Keep the answer DTO while strengthening role filtering, context delimiting, exact identity joins, and semantic checks.",
+          "diagramPaths": {"before": "diagrams/conversation-release-boundary-before.mmd", "after": "diagrams/conversation-release-boundary-local-guards-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-018", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Adds explicit prose checks to the existing release path."},
+            {"findingId": "R01-CAN-021", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "Delimits external context but retains the shared prompt boundary."},
+            {"findingId": "R01-CAN-027", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Normalizes the known client role path."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Known role, context, identity, and prose gaps gain explicit checks, while future field drift remains.", "validationPlan": "Replay sealed provider cases and mutate every answer field/role."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "Checks are bounded in-process work beneath existing response limits.", "validationPlan": "Benchmark maximum-size answers against the current validator."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "No new retained representation is required.", "validationPlan": "Compare allocation profiles for maximum-size answers."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Known unsafe candidates fail closed, but whole-answer rejection can reduce availability.", "validationPlan": "Measure legitimate-answer rejection and degradation outcomes."},
+            {"dimension": "operability", "direction": "improves", "confidence": "medium", "basis": "hypothetical", "assessment": "Reason codes improve diagnosis if they remain value-free.", "validationPlan": "Verify stage/reason correlation without user content."},
+            {"dimension": "migration", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "The public wire DTO can remain unchanged.", "validationPlan": "Run current FE-BE contract coverage."}
+          ],
+          "residualRisks": ["Distributed checks can drift when fields or branches are added.", "Unreviewed semantic filters can over-reject legitimate answers."]
+        },
+        {
+          "optionId": "conversation-typed-release",
+          "title": "Candidate-to-release compiler",
+          "kind": "structural",
+          "summary": "Make CandidateAnswer unrenderable until a complete server-owned compiler emits ReleasedAnswer.",
+          "diagramPaths": {"before": "diagrams/conversation-release-boundary-before.mmd", "after": "diagrams/conversation-release-boundary-typed-release-gate-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-018", "effect": "addresses", "tacticalFixRequired": true, "rationale": "All answer prose requires a semantic release decision."},
+            {"findingId": "R01-CAN-019", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Translations bind to exact evidence fields before release."},
+            {"findingId": "R01-CAN-021", "effect": "addresses", "tacticalFixRequired": true, "rationale": "External data enters a data-only evidence projection."},
+            {"findingId": "R01-CAN-027", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Conversation normalization removes caller-selected authority."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "One complete type transition owns role, identity, semantic, and server-field authority.", "validationPlan": "Prove no controller/UI path accepts CandidateAnswer."},
+            {"dimension": "performance", "direction": "regresses", "confidence": "low", "basis": "hypothetical", "assessment": "A bounded validation/copy step is added; upstream I/O should still dominate.", "validationPlan": "Benchmark CPU and tail latency at maximum response size."},
+            {"dimension": "memory", "direction": "regresses", "confidence": "medium", "basis": "source-derived", "assessment": "Candidate and released objects coexist briefly.", "validationPlan": "Compare peak allocations per chat request."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Typed per-field degradation can avoid unnecessary whole-answer loss; the compiler becomes critical path.", "validationPlan": "Fault-inject each field and assert deterministic released/degraded/refused outcomes."},
+            {"dimension": "operability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Complete release reason codes support value-free audit trails.", "validationPlan": "Reconstruct release decisions by request ID and reason only."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "Internal and possibly FE-BE answer contracts must change together.", "validationPlan": "Verify an adapter/compatibility boundary and rollback path."}
+          ],
+          "residualRisks": ["Clinical policy can still be wrong.", "Provider retention and malicious but correctly identified upstream facts remain outside this boundary."]
+        }
+      ],
+      "recommendedOptionId": "conversation-typed-release",
+      "recommendation": "Use the explicit release compiler after clinical/product review; retain local guards until it is authoritative."
+    },
+    {
+      "opportunityId": "safety-state-machine",
+      "title": "Own emergency and allergy transitions in one server state machine",
+      "summary": "Normalize raw safety events once and make forbidden model/UI transitions and output combinations unrepresentable.",
+      "diagnosis": "Emergency/allergy truth is split among regexes, retrieval shortcuts, model fields, answer IDs, frontend state, and picker refreshes.",
+      "evidence": [
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-020", "path": "backend/src/main/java/com/mermaid/chat/AnswerValidator.java", "claim": "Emergency urgency and a medicine card survived together in a sealed final response."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-028", "path": "backend/src/main/java/com/mermaid/chat/AllergyDeclaration.java", "claim": "Common reaction language bypasses the fail-closed allergy path."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-034", "path": "backend/src/main/java/com/mermaid/chat/ChatProxyController.java", "claim": "Model answerId can select a server-only allergy workflow."},
+        {"claimType": "inferred", "sourceKind": "threat_model", "evidenceId": "EV-TM", "path": "../artifacts/01_context/threat_model.md", "claim": "Central transition ownership can handle fail-open and over-strong fail-closed behavior together."}
+      ],
+      "desiredInvariants": [
+        "Raw text and exclusions are normalized before any model call.",
+        "Only server events transition safety state.",
+        "Emergency and unresolved-allergy states structurally cannot contain model medicine suggestions.",
+        "Clinical rules and copy are human-reviewed and versioned."
+      ],
+      "proposalPath": "proposals/safety-state-machine.md",
+      "humanReviewGates": ["clinical category/equivalence review", "rescue-medication copy review", "product/accessibility state presentation"],
+      "options": [
+        {
+          "optionId": "safety-expanded-guards",
+          "title": "Expanded deterministic guards",
+          "kind": "incremental",
+          "summary": "Add missing categories, negation/reaction handling, exclusion preservation, and state/action/card checks in place.",
+          "diagramPaths": {"before": "diagrams/safety-state-machine-before.mmd", "after": "diagrams/safety-state-machine-local-guards-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-020", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Rejects emergency-plus-card combinations."},
+            {"findingId": "R01-CAN-028", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Adds common reaction declarations."},
+            {"findingId": "R01-CAN-029", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Adds acknowledged emergency categories."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Known input/output gaps close, while split ownership remains.", "validationPlan": "Mutation-test categories, declarations, actions, and card exclusions."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Bounded local classification/checks add little work.", "validationPlan": "Benchmark maximum conversation text."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No retained state structure is required.", "validationPlan": "Compare allocation per classification."},
+            {"dimension": "reliability", "direction": "unknown", "confidence": "medium", "basis": "source-derived", "assessment": "Fewer misses but possible false-positive lock-in from expanded rules.", "validationPlan": "Clinician-review affirmative, negated, historical, and ambiguous corpus outcomes."},
+            {"dimension": "operability", "direction": "improves", "confidence": "medium", "basis": "hypothetical", "assessment": "Rule-specific reason codes can expose drift.", "validationPlan": "Verify versioned rule/reason telemetry without text."},
+            {"dimension": "migration", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Existing DTOs and flow remain.", "validationPlan": "Run current API/browser contract tests."}
+          ],
+          "residualRisks": ["Backend and frontend representations can diverge.", "Clinical false positives/negatives remain distributed."]
+        },
+        {
+          "optionId": "safety-owned-machine",
+          "title": "Owned safety state machine",
+          "kind": "structural",
+          "summary": "Use reviewed events/states and a server composer; the model explains only in states that permit it.",
+          "diagramPaths": {"before": "diagrams/safety-state-machine-before.mmd", "after": "diagrams/safety-state-machine-owned-machine-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-020", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Emergency output type cannot contain cards."},
+            {"findingId": "R01-CAN-034", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Model output has no transition capability."},
+            {"findingId": "R01-CAN-046", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Lossless unresolved exclusion state prevents silent no-match."},
+            {"findingId": "R02-CAN-003", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Model urgency is not authoritative state."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "One reviewed transition table owns all model/UI permissions and output combinations.", "validationPlan": "Exhaustively test every state/event transition and serialized output."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "Deterministic normalization/state transition is bounded.", "validationPlan": "Measure classification latency on maximum input."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "Only small event/state objects are added.", "validationPlan": "Compare per-request allocation."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Explicit ambiguity states reduce silent fallthrough; the machine is a critical choke point.", "validationPlan": "Fault-inject normalization and assert server-authored safe fallback."},
+            {"dimension": "operability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Rule version and transition reasons are auditable.", "validationPlan": "Reconstruct safety decisions without raw text."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "FE-BE state/action contracts and clinical governance must migrate together.", "validationPlan": "Verify comparison adapter and state-exhaustive browser rendering."}
+          ],
+          "residualRisks": ["Human-approved rules can still be incomplete.", "Unknown clinical cross-reactivity remains outside software authority."]
+        }
+      ],
+      "recommendedOptionId": "safety-owned-machine",
+      "recommendation": "Select the owned state machine only after clinical and product/accessibility approval; keep direct guards during migration."
+    },
+    {
+      "opportunityId": "evidence-identity",
+      "title": "Carry identity, freshness, and data mode in a provenanced evidence envelope",
+      "summary": "Make query satisfaction and provenance inseparable from cached, fallback, grounded, and rendered facts.",
+      "diagnosis": "Adapters and caches return ordinary values, so downstream services reconstruct identity, time, and mode from the current request.",
+      "evidence": [
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-098", "path": "backend/src/main/java/com/mermaid/facility/FacilityService.java", "claim": "Cached pharmacy facts are restamped as freshly retrieved."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-109", "path": "backend/src/main/java/com/mermaid/drug/DrugPermissionApiClient.java", "claim": "A fixed fixture product can be bound to an arbitrary requested ID."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R05-CAN-023", "path": "backend/src/main/java/com/mermaid/drug/DrugService.java", "claim": "Cached drug facts lose original observation time."},
+        {"claimType": "inferred", "sourceKind": "threat_model", "evidenceId": "EV-TM", "path": "../artifacts/01_context/threat_model.md", "claim": "Treating provenance as part of the value reduces cross-adapter/cache recurrence."}
+      ],
+      "desiredInvariants": [
+        "Every fact records stable provider identity and the query contract it satisfied.",
+        "Agency, observation time, data mode, and fallback chain survive caching unchanged.",
+        "Fixture evidence cannot serialize as live and unrelated fallback cannot satisfy a request.",
+        "Grounding/source references join on stable identity rather than display text."
+      ],
+      "proposalPath": "proposals/evidence-identity.md",
+      "humanReviewGates": ["product hybrid/fixture policy", "operations freshness/cache policy", "agency identity mapping review"],
+      "options": [
+        {
+          "optionId": "evidence-binding-guards",
+          "title": "Binding checks and cache namespaces",
+          "kind": "incremental",
+          "summary": "Patch endpoint identity checks, mode/origin keys, timestamp preservation, and fallback labeling.",
+          "diagramPaths": {"before": "diagrams/evidence-identity-before.mmd", "after": "diagrams/evidence-identity-local-guards-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-098", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Preserves cached observation time."},
+            {"findingId": "R01-CAN-109", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Binds returned ID to requested ID."},
+            {"findingId": "R01-CAN-113", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Binds warnings to requested medicine."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Known query/mode/time mismatches gain direct checks; future paths can omit them.", "validationPlan": "Replay every fixed-fixture and restamping case."},
+            {"dimension": "performance", "direction": "regresses", "confidence": "medium", "basis": "source-derived", "assessment": "Correct key partitioning lowers unsafe cache reuse.", "validationPlan": "Compare hit rate and latency by mode/origin/query."},
+            {"dimension": "memory", "direction": "regresses", "confidence": "medium", "basis": "source-derived", "assessment": "More cache key variants can coexist.", "validationPlan": "Measure Redis key count and bytes under representative workloads."},
+            {"dimension": "reliability", "direction": "unknown", "confidence": "medium", "basis": "source-derived", "assessment": "Wrong results fall to unavailable/miss, improving integrity but reducing fallback availability.", "validationPlan": "Exercise live/fixture/hybrid outage paths."},
+            {"dimension": "operability", "direction": "improves", "confidence": "medium", "basis": "hypothetical", "assessment": "Per-adapter binding/mode reason codes aid diagnosis.", "validationPlan": "Verify cache/fallback reasons in value-free telemetry."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "medium", "basis": "source-derived", "assessment": "Affected caches require versioning/invalidation.", "validationPlan": "Test old-entry treatment as miss, never fresh evidence."}
+          ],
+          "residualRisks": ["Identity/freshness logic remains repeated.", "New caches/adapters can omit the required tuple."]
+        },
+        {
+          "optionId": "evidence-provenanced-envelope",
+          "title": "Provenanced evidence envelope",
+          "kind": "structural",
+          "summary": "Carry query identity, provider ID, agency, observation time, mode, and fallback chain in one typed value.",
+          "diagramPaths": {"before": "diagrams/evidence-identity-before.mmd", "after": "diagrams/evidence-identity-provenanced-envelope-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-098", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Observation time is immutable envelope data."},
+            {"findingId": "R01-CAN-105", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Fixture/hybrid mode is type-carried and cannot become live."},
+            {"findingId": "R01-CAN-109", "effect": "addresses", "tacticalFixRequired": true, "rationale": "The envelope must satisfy the exact query contract."},
+            {"findingId": "R05-CAN-023", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Drug caches preserve original evidence metadata."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Identity/freshness/mode cannot be detached from the value silently.", "validationPlan": "Property-test all query/mode/origin mutations."},
+            {"dimension": "performance", "direction": "regresses", "confidence": "medium", "basis": "hypothetical", "assessment": "More metadata and correct partitioning add serialization and misses.", "validationPlan": "Measure endpoint latency and cache hit rate by workload."},
+            {"dimension": "memory", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "Each cached value carries metadata and namespaces no longer collide.", "validationPlan": "Measure serialized bytes and peak Redis memory."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Invalid evidence becomes explicit unavailable/unknown; broad migration can introduce adapter errors.", "validationPlan": "Fault-inject old cache, wrong identity, stale time, and mode mismatch."},
+            {"dimension": "operability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Uniform evidence reasons expose fallback/freshness behavior.", "validationPlan": "Audit sourceRef and telemetry from the same envelope identity."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "Drug/facility/cache/sourceRef representations must migrate coherently.", "validationPlan": "Validate versioned serializers and old-entry invalidation."}
+          ],
+          "residualRisks": ["Authoritative upstream facts can still be wrong.", "Freshness policy and provider identity mappings require human ownership."]
+        }
+      ],
+      "recommendedOptionId": "evidence-provenanced-envelope",
+      "recommendation": "Adopt the envelope as the cross-domain destination while preserving direct adapter binding checks."
+    },
+    {
+      "opportunityId": "value-free-observability",
+      "title": "Replace value-bearing logs with a correlated event contract",
+      "summary": "Record request/build/mode/stage/outcome facts without health, location, profile-capability, provider-body, or secret values.",
+      "diagnosis": "Current logging preserves sensitive values yet omits the correlation and runtime identity required for reliable root-cause attribution.",
+      "evidence": [
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-069", "path": "backend/src/main/java/com/mermaid/chat/DrugContextRetriever.java", "claim": "Accepted health-related search terms persist in logs."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R06-CAN-003", "path": "backend/src/main/java/com/mermaid/common/GlobalExceptionHandler.java", "claim": "Malformed chat text can reach catch-all full-Throwable logging."},
+        {"claimType": "observed", "sourceKind": "document", "evidenceId": "EV-A", "path": "../artifacts/finalization/track_a_final_audit.md", "claim": "Returned request IDs could not be joined to runtime stacks without timestamp inference."},
+        {"claimType": "inferred", "sourceKind": "document", "evidenceId": "EV-B", "path": "../artifacts/finalization/track_b_final_audit.md", "claim": "Value-free stage/build/mode events would improve both privacy and stale-runtime attribution."}
+      ],
+      "desiredInvariants": [
+        "Every stage event carries request ID, build ID, and data mode.",
+        "No telemetry field accepts raw user, location, profile capability, provider body, URL query, or secret values.",
+        "Failures are classified before logging and client errors remain generic.",
+        "Telemetry export cannot block care requests and has reviewed retention/access."
+      ],
+      "proposalPath": "proposals/value-free-observability.md",
+      "humanReviewGates": ["privacy field and retention review", "operations failure/backpressure review", "incident-response diagnostic sufficiency"],
+      "options": [
+        {
+          "optionId": "observability-redaction-mdc",
+          "title": "Redaction plus MDC repair",
+          "kind": "incremental",
+          "summary": "Remove known values, attach request ID to log patterns, and sanitize exception messages.",
+          "diagramPaths": {"before": "diagrams/value-free-observability-before.mmd", "after": "diagrams/value-free-observability-local-guards-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-059", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Removes device capability from known logs."},
+            {"findingId": "R01-CAN-069", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Removes exact health-related terms."},
+            {"findingId": "R06-CAN-003", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Sanitizes malformed-body exception logging."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Known sensitive sinks close; future free-form strings can recur.", "validationPlan": "Canary-test every known sensitive value on success/error paths."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Redaction/MDC are small bounded log-path work.", "validationPlan": "Compare request throughput with representative logging."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No new buffers/services are introduced.", "validationPlan": "Compare allocation under error bursts."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Correlation improves; excessive sanitization can hide failure class detail.", "validationPlan": "Re-run Track A/B attribution using request IDs only."},
+            {"dimension": "operability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Direct request-stack joins replace timestamp inference.", "validationPlan": "Verify unique request trail across stages."},
+            {"dimension": "migration", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Existing logging stack remains.", "validationPlan": "Run log-format and error-envelope compatibility checks."}
+          ],
+          "residualRisks": ["New free-form log statements can reintroduce values.", "Third-party library logs remain outside local redaction."
+          ]
+        },
+        {
+          "optionId": "observability-event-contract",
+          "title": "Value-free event contract",
+          "kind": "structural",
+          "summary": "Use approved typed fields for stage/outcome/count/duration/build/mode and a sanitized exception classifier.",
+          "diagramPaths": {"before": "diagrams/value-free-observability-before.mmd", "after": "diagrams/value-free-observability-event-contract-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-059", "effect": "addresses", "tacticalFixRequired": true, "rationale": "The event API has no device-ID field."},
+            {"findingId": "R01-CAN-061", "effect": "addresses", "tacticalFixRequired": true, "rationale": "The event API records facility operation/reason, not coordinates."},
+            {"findingId": "R01-CAN-069", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Only term counts/reason classes are representable."},
+            {"findingId": "R06-CAN-003", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Exceptions are classified before emitting bounded fields."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Positive schema prevents arbitrary application value fields.", "validationPlan": "Mutation-test attempts to add arbitrary strings/values."},
+            {"dimension": "performance", "direction": "regresses", "confidence": "low", "basis": "hypothetical", "assessment": "Structured encoding/export adds bounded work.", "validationPlan": "Load-test event throughput and request tail latency."},
+            {"dimension": "memory", "direction": "unknown", "confidence": "low", "basis": "hypothetical", "assessment": "Exporter buffers may retain events depending on implementation.", "validationPlan": "Measure buffer size/peak RSS during sink outage."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "hypothetical", "assessment": "Stage trails improve diagnosis; exporter must fail open for request availability.", "validationPlan": "Fault-inject backpressure and sink failure."},
+            {"dimension": "operability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Stable event names/reasons support exact cross-stage analysis.", "validationPlan": "Reconstruct each Track A/B path from structured events."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "Call sites and operational queries must migrate.", "validationPlan": "Inventory all application logs and validate safe bridge coverage."}
+          ],
+          "residualRisks": ["Ingress/access/vendor logs can still retain data.", "Low-cardinality metadata and event retention require privacy review."]
+        }
+      ],
+      "recommendedOptionId": "observability-event-contract",
+      "recommendation": "Adopt the positive event schema after immediate value-log removal and privacy/operations approval."
+    },
+    {
+      "opportunityId": "facility-truthful-results",
+      "title": "Model facility availability with an exhaustive result algebra",
+      "summary": "Separate loading, complete, partial, verified-empty, unavailable, unsupported, and tri-state-hours outcomes across backend and UI.",
+      "diagnosis": "Lists, exceptions, booleans, nulls, and UI timing conventions cannot carry search completeness and row certainty consistently.",
+      "evidence": [
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-037", "path": "frontend/src/components/NearbyFacilities.tsx", "claim": "Pending lookup renders as completed no-results."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-094", "path": "backend/src/main/java/com/mermaid/facility/FacilityService.java", "claim": "Malformed hospital hours collapse to closed rather than unknown."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R03-CAN-001", "path": "backend/src/main/java/com/mermaid/facility/FacilityService.java", "claim": "One hospital detail failure discards otherwise valid nearby rows."},
+        {"claimType": "observed", "sourceKind": "document", "evidenceId": "EV-B", "path": "../artifacts/finalization/track_b_final_audit.md", "claim": "Map SDK was healthy; facility 500s came from stale runtime, clean controls returned rows, ER was unsupported, and assistant UI had transient false-empty."}
+      ],
+      "desiredInvariants": [
+        "Verified empty is constructible only after successful completed search.",
+        "Failure cannot serialize as empty and unsupported cannot serialize as no coverage.",
+        "Hours remain open, closed, or unknown; unknown rows are not discarded by open-now.",
+        "Partial provider failure preserves valid facts and one orchestrator owns deadline/quota/cancellation budget.",
+        "Frontend rendering is exhaustive over every result state."
+      ],
+      "proposalPath": "proposals/facility-truthful-results.md",
+      "humanReviewGates": ["product/accessibility state copy", "operations quota/deadline budgets", "facility provenance alignment"],
+      "options": [
+        {
+          "optionId": "facility-branch-hardening",
+          "title": "Harden existing branches",
+          "kind": "incremental",
+          "summary": "Add loading, tri-state parsing, per-row degradation, envelope validation, and local fan-out bounds.",
+          "diagramPaths": {"before": "diagrams/facility-truthful-results-before.mmd", "after": "diagrams/facility-truthful-results-local-guards-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-037", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Adds explicit loading before no-results."},
+            {"findingId": "R01-CAN-094", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Maps malformed hours to unknown."},
+            {"findingId": "R03-CAN-001", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Degrades failed details per row."},
+            {"findingId": "R04-CAN-013", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Rejects malformed success envelopes."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Known empty/closed/partial collapse paths are corrected; cross-surface convention remains.", "validationPlan": "Exercise every settled/pending/failure/unknown case."},
+            {"dimension": "performance", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Bounded fan-out can reduce tail work; fewer rows may be enriched.", "validationPlan": "Measure call count, time-to-first-row, and completion latency."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No persistent new representation is required.", "validationPlan": "Compare peak rows/allocations."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Per-row degradation preserves valid care locations.", "validationPlan": "Fault-inject one/all detail failures and malformed envelopes."},
+            {"dimension": "operability", "direction": "improves", "confidence": "medium", "basis": "hypothetical", "assessment": "Endpoint-specific failure/partial reasons become visible.", "validationPlan": "Verify value-free facility outcome telemetry."},
+            {"dimension": "migration", "direction": "neutral", "confidence": "medium", "basis": "source-derived", "assessment": "Most public DTOs can remain; partial warnings may need extension.", "validationPlan": "Run API/browser compatibility coverage."}
+          ],
+          "residualRisks": ["List completeness remains implicit.", "Main map, chat surface, and new adapters can diverge."]
+        },
+        {
+          "optionId": "facility-result-algebra",
+          "title": "Typed facility result algebra",
+          "kind": "structural",
+          "summary": "Return complete/partial/verified-empty/unavailable/unsupported outcomes with tri-state rows and one request budget.",
+          "diagramPaths": {"before": "diagrams/facility-truthful-results-before.mmd", "after": "diagrams/facility-truthful-results-result-algebra-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-037", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Loading and verified-empty are distinct types."},
+            {"findingId": "R01-CAN-094", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Tri-state hours survive serialization/rendering."},
+            {"findingId": "R03-CAN-001", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Partial outcome retains valid rows."},
+            {"findingId": "R04-CAN-011", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Unknown-hours rows are a valid result, not filter failure."},
+            {"findingId": "R04-CAN-013", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Malformed provider response cannot construct VerifiedEmpty."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Outcome collapse becomes harder across backend and UI.", "validationPlan": "Prove exhaustive serialization/rendering of every algebra case."},
+            {"dimension": "performance", "direction": "improves", "confidence": "medium", "basis": "hypothetical", "assessment": "Orchestrator budgets bound fan-out; metadata cost is small.", "validationPlan": "Benchmark call budget, time-to-first-row, and tail latency."},
+            {"dimension": "memory", "direction": "regresses", "confidence": "low", "basis": "hypothetical", "assessment": "Outcome/degradation metadata adds bounded bytes.", "validationPlan": "Compare response size and peak allocations."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Partial/unavailable states preserve truth; orchestrator is a new critical path.", "validationPlan": "Fault-inject adapters, deadlines, cancellation, and quota exhaustion."},
+            {"dimension": "operability", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Uniform outcomes and budget reasons support alerting/capacity review.", "validationPlan": "Verify outcome and upstream-call telemetry."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "API and every facility UI consumer must migrate exhaustively.", "validationPlan": "Contract-test old/new adapters and forbid partial/unavailable-to-empty mapping."}
+          ],
+          "residualRisks": ["Budgets/caps can still omit a real facility.", "Copy can still miscommunicate partial or unknown results without human review."]
+        }
+      ],
+      "recommendedOptionId": "facility-result-algebra",
+      "recommendation": "Use the result algebra after direct P0/P1 fixes, aligning row provenance with the evidence-envelope proposal."
+    },
+    {
+      "opportunityId": "demo-artifact-integrity",
+      "title": "Run the demo from an attested artifact under one owning supervisor",
+      "summary": "Bind source, dependencies, classes, resources, configuration, data mode, process, and port identity before readiness.",
+      "diagnosis": "Lexical/path/name guards and manual process startup cannot prove which coherent artifact a fixed demo port is serving.",
+      "evidence": [
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R01-CAN-008", "path": ".codex/hooks/pre_tool_use_policy.py", "claim": "No-verify commits can bypass the secret pre-commit control."},
+        {"claimType": "observed", "sourceKind": "finding", "findingId": "R04-CAN-001", "path": ".githooks/pre-commit", "claim": "Nested .env paths bypass filename protection."},
+        {"claimType": "observed", "sourceKind": "document", "evidenceId": "EV-A", "path": "../artifacts/finalization/track_a_final_audit.md", "claim": "A stale JVM from a deleted worktree produced missing-class/resource chat failures."},
+        {"claimType": "observed", "sourceKind": "document", "evidenceId": "EV-B", "path": "../artifacts/finalization/track_b_final_audit.md", "claim": "The same stale runtime returned facility 500s while clean servers returned rows."},
+        {"claimType": "inferred", "sourceKind": "threat_model", "evidenceId": "EV-TM", "path": "../artifacts/01_context/threat_model.md", "claim": "Publication and execution should share one artifact-identity boundary instead of heuristic/process-memory controls."}
+      ],
+      "desiredInvariants": [
+        "Every demo runtime exposes immutable source/tree/build/resource/config/data-mode identity.",
+        "Only a launcher/supervisor that verified the manifest owns the demo port and child process.",
+        "Backend/frontend compatibility and required resources are checked before readiness.",
+        "CI content scanning and a browser-public environment allowlist are authoritative publication controls.",
+        "Rollback selects another coherent verified bundle, never an unknown surviving process."
+      ],
+      "proposalPath": "proposals/demo-artifact-integrity.md",
+      "humanReviewGates": ["release/security attestation and secret policy", "operations process/port ownership", "public build-identity disclosure review"],
+      "options": [
+        {
+          "optionId": "demo-preflight-guards",
+          "title": "Repaired guards plus launch preflight",
+          "kind": "incremental",
+          "summary": "Fix guard gaps, require clean builds, reject stale ports/classpaths/resources, and expose build/mode identity.",
+          "diagramPaths": {"before": "diagrams/demo-artifact-integrity-before.mmd", "after": "diagrams/demo-artifact-integrity-local-guards-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-008", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Repairs known command parser bypasses."},
+            {"findingId": "R04-CAN-001", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Expands protected secret paths."},
+            {"findingId": "R04-CAN-003", "effect": "addresses", "tacticalFixRequired": true, "rationale": "Makes hook installation failure visible."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Known secret/workflow/stale-launch paths close when prescribed tools are used.", "validationPlan": "Replay bypasses and stale-port/classpath/resource startup."},
+            {"dimension": "performance", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Checks affect startup, not request path.", "validationPlan": "Measure preflight/startup duration."},
+            {"dimension": "memory", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "No resident component is added.", "validationPlan": "Confirm runtime RSS unchanged."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Known incoherent runtime is rejected; manual bypass remains possible.", "validationPlan": "Start via prescribed and manual paths and verify detection."},
+            {"dimension": "operability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Build/mode metadata and preflight failures aid demo diagnosis.", "validationPlan": "Verify browser/health identity and actionable failures."},
+            {"dimension": "migration", "direction": "neutral", "confidence": "high", "basis": "source-derived", "assessment": "Existing build outputs and local workflow remain.", "validationPlan": "Exercise macOS/Windows documented launch paths."}
+          ],
+          "residualRisks": ["Manual process startup can bypass preflight.", "Heuristic secret scanners and local hooks are not publication attestation."]
+        },
+        {
+          "optionId": "demo-attested-bundle",
+          "title": "Attested bundle and owning supervisor",
+          "kind": "structural",
+          "summary": "Build a manifest-bound immutable bundle and let one supervisor verify it, own the port, and expose readiness identity.",
+          "diagramPaths": {"before": "diagrams/demo-artifact-integrity-before.mmd", "after": "diagrams/demo-artifact-integrity-attested-bundle-after.mmd"},
+          "findingCoverage": [
+            {"findingId": "R01-CAN-008", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "Authoritative publication gate limits impact even if a local hook is bypassed."},
+            {"findingId": "R04-CAN-001", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "CI scans content of the complete bundle/repository input."},
+            {"findingId": "R04-CAN-002", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "Reviewed content policy replaces broad placeholder suppression as authority."},
+            {"findingId": "R04-CAN-003", "effect": "mitigates", "tacticalFixRequired": true, "rationale": "Local installation is defense in depth rather than the sole publication control."}
+          ],
+          "tradeoffs": [
+            {"dimension": "security", "direction": "improves", "confidence": "high", "basis": "source-derived", "assessment": "Execution/publication bind to coherent verified artifact identity.", "validationPlan": "Attempt mismatched source/resource/config/port/secret bundles."},
+            {"dimension": "performance", "direction": "regresses", "confidence": "medium", "basis": "hypothetical", "assessment": "CI and startup digest verification add time; request path remains neutral.", "validationPlan": "Measure bundle build and verification duration."},
+            {"dimension": "memory", "direction": "regresses", "confidence": "low", "basis": "hypothetical", "assessment": "A small supervisor and manifest remain resident.", "validationPlan": "Measure supervisor and child RSS."},
+            {"dimension": "reliability", "direction": "improves", "confidence": "medium", "basis": "source-derived", "assessment": "Incoherent artifacts never become ready; supervisor is a new dependency.", "validationPlan": "Fault-inject crash/restart/rollback/port conflicts."},
+            {"dimension": "operability", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "Bundle lifecycle, port lease, manifest, and possibly signing keys require ownership.", "validationPlan": "Run incident and rollback exercises."},
+            {"dimension": "migration", "direction": "regresses", "confidence": "high", "basis": "source-derived", "assessment": "CI/release/demo operating model changes.", "validationPlan": "Verify current development paths and a documented verified fallback."}
+          ],
+          "residualRisks": ["Compromised CI/signing authority can attest malicious content.", "Dependencies and operator configuration still require independent controls."]
+        }
+      ],
+      "recommendedOptionId": "demo-attested-bundle",
+      "recommendation": "Use the attested bundle for demo/release while repairing local guards as immediate defense in depth."
+    }
+  ],
+  "openQuestions": [
+    "Which proposal options do clinical, product/accessibility, privacy, operations, and release/security owners approve?",
+    "When will the concurrent repository diff clear so the corrected batches can receive fresh central adoption?",
+    "What measured latency, memory, cache, quota, telemetry, and startup budgets should govern design selection?",
+    "Which needs-review candidates gain or lose relevance after their external or clinical proof gaps are resolved?"
+  ]
+}

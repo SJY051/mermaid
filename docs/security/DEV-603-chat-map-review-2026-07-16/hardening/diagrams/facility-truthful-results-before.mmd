@@ -1,0 +1,14 @@
+flowchart LR
+  Q["Facility query"] --> S["FacilityService fan-out"]
+  S --> L["List adapter"]
+  S --> D["Detail/hour adapters"]
+  L --> J["Rows + numeric/schedule parsing"]
+  D --> J
+  J --> F["Filter, cap, open-now decision"]
+  F --> B["HTTP rows or error"]
+  B --> UI["MapScreen / NearbyFacilities"]
+  UI --> N["Loading / empty / unavailable /\nopen / closed / unknown copy"]
+  classDef untrusted fill:#fee2e2,stroke:#b91c1c,color:#111827
+  classDef control fill:#dbeafe,stroke:#1d4ed8,color:#111827
+  class Q,L,D untrusted
+  class F control
