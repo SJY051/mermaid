@@ -103,8 +103,9 @@ class DrugServiceFixtureTest {
             var emptyPermission =
                     new DrugPermissionApiClient(null, props, mode, loader) {
                         @Override
-                        public java.util.Optional<PermittedDetail> detail(String itemSeq) {
-                            return java.util.Optional.empty();
+                        public PermissionDetailBatch detailBatch(String itemSeq) {
+                            return new PermissionDetailBatch(
+                                    null, SourceRef.DataMode.FIXTURE, CLOCK.instant());
                         }
                     };
             var svc =
@@ -130,6 +131,22 @@ class DrugServiceFixtureTest {
             assertThat(d.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
             assertThat(d.source().recordId()).isEqualTo(TYLENOL);
             assertThat(d.source().id()).isEqualTo("src:mfds:202005623");
+        }
+
+        @Test
+        @DisplayName("retrieval deduplicates by the actual detail record, not the requested list id")
+        void retrievalDeduplicatesByActualRecordIdentity() {
+            DrugService.RetrievedContext retrieved = service().retrieve(
+                    new DrugService.RetrievalQuery(List.of("Acetaminophen"), List.of()), Set.of());
+
+            assertThat(retrieved.drugs()).singleElement().satisfies(drug -> {
+                assertThat(drug.itemSeq()).isEqualTo(TYLENOL);
+                assertThat(drug.source().recordId()).isEqualTo(TYLENOL);
+            });
+            assertThat(retrieved.sources())
+                    .singleElement()
+                    .extracting(SourceRef::recordId)
+                    .isEqualTo(TYLENOL);
         }
     }
 

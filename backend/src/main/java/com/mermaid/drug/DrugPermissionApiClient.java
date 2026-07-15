@@ -1,20 +1,27 @@
 package com.mermaid.drug;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mermaid.common.ApiException;
+import com.mermaid.common.ErrorCode;
 import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
+import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import com.mermaid.drug.domain.PrescriptionStatus;
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
+import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -42,7 +49,6 @@ import org.springframework.web.reactive.function.client.WebClient;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DrugPermissionApiClient {
 
     private static final String OP_LIST = "getDrugPrdtPrmsnInq07";
@@ -58,11 +64,45 @@ public class DrugPermissionApiClient {
     private final PublicApiProperties properties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
+    private final Clock clock;
+
+    @Autowired
+    public DrugPermissionApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            Clock clock) {
+        this.publicApiWebClient = publicApiWebClient;
+        this.properties = properties;
+        this.dataMode = dataMode;
+        this.fixtures = fixtures;
+        this.clock = clock;
+    }
+
+    DrugPermissionApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, dataMode, fixtures, Clock.systemUTC());
+    }
 
     /** Products whose name contains {@code itemName}. */
-    @Cacheable(value = "permissionByName", key = "#itemName")
     public List<Permitted> findByName(String itemName) {
-        return list(Map.of("item_name", itemName), FIXTURE_LIST);
+        return findByNameBatch(itemName).rows();
+    }
+
+    @Cacheable(value = "permissionByNameV2", key = "#root.target.cacheRoute() + '|name=' + #itemName")
+    public PermissionBatch findByNameBatch(String itemName) {
+        return list(
+                Map.of("item_name", itemName),
+                FIXTURE_LIST,
+                permitted ->
+                        permitted.itemSeq() != null
+                                && permitted.nameKo() != null
+                                && permitted.nameKo().contains(itemName),
+                "permission_name");
     }
 
     /**
@@ -70,51 +110,160 @@ public class DrugPermissionApiClient {
      *
      * @param ingredientEn <b>English, capitalised</b>: {@code "Ibuprofen"}, not {@code "ibuprofen"}
      */
-    @Cacheable(value = "permissionByIngredient", key = "#ingredientEn")
     public List<Permitted> findByIngredient(String ingredientEn) {
-        return list(Map.of("item_ingr_name", ingredientEn), FIXTURE_BY_INGREDIENT);
+        return findByIngredientBatch(ingredientEn).rows();
+    }
+
+    @Cacheable(
+            value = "permissionByIngredientV2",
+            key = "#root.target.cacheRoute() + '|ingredient=' + #ingredientEn")
+    public PermissionBatch findByIngredientBatch(String ingredientEn) {
+        return list(
+                Map.of("item_ingr_name", ingredientEn),
+                FIXTURE_BY_INGREDIENT,
+                permitted ->
+                        permitted.itemSeq() != null
+                                && permitted.ingredientsEn().stream()
+                                        .anyMatch(value -> value.contains(ingredientEn)),
+                "permission_ingredient");
     }
 
     /**
      * The only place {@code MAIN_INGR_ENG} exists. One product, by its {@code ITEM_SEQ}.
      *
-     * <p>{@code unless} guards the same trap as {@code EasyDrugApiClient#findBySeq}: an empty Optional
-     * is unwrapped to null before caching, and null caching is disabled.
+     * <p>The cached batch itself is never null. A missing product is represented by a null {@code
+     * row} inside the batch, so Redis can preserve the fetch origin and time for that result too.
      */
-    @Cacheable(value = "permissionDetail", key = "#itemSeq", unless = "#result == null")
     public Optional<PermittedDetail> detail(String itemSeq) {
-        JsonNode raw = fetch(OP_DETAIL, Map.of("item_seq", itemSeq), FIXTURE_DETAIL);
-        return PublicApiResponse.of(raw).requireOk().items().stream()
-                .findFirst()
-                .map(DrugPermissionApiClient::toDetail);
+        return Optional.ofNullable(detailBatch(itemSeq).row());
     }
 
-    private List<Permitted> list(Map<String, Object> params, String fixture) {
-        JsonNode raw = fetch(OP_LIST, params, fixture);
+    @Cacheable(value = "permissionDetailV2", key = "#root.target.cacheRoute() + '|seq=' + #itemSeq")
+    public PermissionDetailBatch detailBatch(String itemSeq) {
+        if (dataMode.isFixtureOnly()) {
+            return fixtureDetail(itemSeq, false);
+        }
+        requireConfigured("permission_detail");
+
+        List<PermittedDetail> rows;
+        try {
+            rows = parseDetails(fetchLive(OP_DETAIL, Map.of("item_seq", itemSeq)));
+        } catch (RuntimeException failure) {
+            if (dataMode.allowsFallback()) {
+                return fixtureDetail(itemSeq, true);
+            }
+            throw unavailable("permission_detail", "UPSTREAM_FAILURE");
+        }
+        if (rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
+            throw payloadInvalid("permission_detail");
+        }
+        return new PermissionDetailBatch(rows.stream().findFirst().orElse(null), SourceRef.DataMode.LIVE, now());
+    }
+
+    private PermissionBatch list(
+            Map<String, Object> params,
+            String fixture,
+            Predicate<Permitted> binding,
+            String operationCode) {
+        if (dataMode.isFixtureOnly()) {
+            return new PermissionBatch(parseList(fixtures.load(fixture)), SourceRef.DataMode.FIXTURE, now());
+        }
+        requireConfigured(operationCode);
+
+        List<Permitted> rows;
+        try {
+            rows = parseList(fetchLive(OP_LIST, params));
+        } catch (RuntimeException failure) {
+            if (dataMode.allowsFallback()) {
+                return fixtureList(fixture, binding, operationCode);
+            }
+            throw unavailable(operationCode, "UPSTREAM_FAILURE");
+        }
+        if (rows.stream().anyMatch(binding.negate())) {
+            throw payloadInvalid(operationCode);
+        }
+        return new PermissionBatch(rows, SourceRef.DataMode.LIVE, now());
+    }
+
+    private PermissionBatch fixtureList(
+            String fixture, Predicate<Permitted> binding, String operationCode) {
+        List<Permitted> rows;
+        try {
+            rows = parseList(fixtures.load(fixture));
+        } catch (RuntimeException fixtureFailure) {
+            throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
+        }
+        if (rows.isEmpty() || rows.stream().anyMatch(binding.negate())) {
+            throw unavailable(operationCode, "FIXTURE_UNBOUND");
+        }
+        log.warn("drug_api_fallback operation={} reason=UPSTREAM_FAILURE", operationCode);
+        return new PermissionBatch(rows, SourceRef.DataMode.FIXTURE, now());
+    }
+
+    private PermissionDetailBatch fixtureDetail(String itemSeq, boolean requireBinding) {
+        List<PermittedDetail> rows;
+        try {
+            rows = parseDetails(fixtures.load(FIXTURE_DETAIL));
+        } catch (RuntimeException fixtureFailure) {
+            throw unavailable("permission_detail", "FIXTURE_UNAVAILABLE");
+        }
+        if (requireBinding
+                && (rows.isEmpty() || rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq())))) {
+            throw unavailable("permission_detail", "FIXTURE_UNBOUND");
+        }
+        if (requireBinding) {
+            log.warn("drug_api_fallback operation=permission_detail reason=UPSTREAM_FAILURE");
+        }
+        return new PermissionDetailBatch(
+                rows.stream().findFirst().orElse(null), SourceRef.DataMode.FIXTURE, now());
+    }
+
+    private static List<Permitted> parseList(JsonNode raw) {
         return PublicApiResponse.of(raw).requireOk().items().stream()
                 .map(DrugPermissionApiClient::toPermitted)
-                .filter(p -> p.itemSeq() != null)
                 .toList();
     }
 
-    private JsonNode fetch(String operation, Map<String, Object> params, String fixture) {
-        if (dataMode.isFixtureOnly() || !properties.isConfigured()) {
-            return fixtures.load(fixture);
+    private static List<PermittedDetail> parseDetails(JsonNode raw) {
+        return PublicApiResponse.of(raw).requireOk().items().stream()
+                .map(DrugPermissionApiClient::toDetail)
+                .toList();
+    }
+
+    private JsonNode fetchLive(String operation, Map<String, Object> params) {
+        return publicApiWebClient
+                .get()
+                .uri(uriFor(operation, params))
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+    }
+
+    public String cacheRoute() {
+        return "mode="
+                + dataMode.dataMode().wire()
+                + "|route="
+                + (properties.isConfigured() ? "configured" : "keyless");
+    }
+
+    private void requireConfigured(String operationCode) {
+        if (!properties.isConfigured()) {
+            throw unavailable(operationCode, "KEY_MISSING");
         }
-        try {
-            return publicApiWebClient
-                    .get()
-                    .uri(uriFor(operation, params))
-                    .retrieve()
-                    .bodyToMono(JsonNode.class)
-                    .block();
-        } catch (Exception e) {
-            if (dataMode.allowsFallback()) {
-                log.warn("허가정보 {} failed, falling back to fixture: {}", operation, e.getMessage());
-                return fixtures.load(fixture);
-            }
-            throw new PublicApiException("허가정보 " + operation + " failed", e);
-        }
+    }
+
+    private PublicApiException unavailable(String operationCode, String reason) {
+        log.warn("drug_api_rejected operation={} reason={}", operationCode, reason);
+        return new PublicApiException("SOURCE_UNAVAILABLE");
+    }
+
+    private ApiException payloadInvalid(String operationCode) {
+        log.warn("drug_api_rejected operation={} reason=SOURCE_PAYLOAD_INVALID", operationCode);
+        return new ApiException(ErrorCode.SOURCE_PAYLOAD_INVALID, "SOURCE_PAYLOAD_INVALID");
+    }
+
+    private Instant now() {
+        return Instant.now(clock);
     }
 
     URI uriFor(String operation, Map<String, Object> params) {
@@ -201,4 +350,20 @@ public class DrugPermissionApiClient {
             List<String> ingredientsEn,
             String mainIngredientKo,
             PrescriptionStatus prescriptionStatus) {}
+
+    public record PermissionBatch(List<Permitted> rows, SourceRef.DataMode origin, Instant retrievedAt) {
+        public PermissionBatch {
+            rows = List.copyOf(rows);
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(retrievedAt);
+        }
+    }
+
+    public record PermissionDetailBatch(
+            PermittedDetail row, SourceRef.DataMode origin, Instant retrievedAt) {
+        public PermissionDetailBatch {
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(retrievedAt);
+        }
+    }
 }

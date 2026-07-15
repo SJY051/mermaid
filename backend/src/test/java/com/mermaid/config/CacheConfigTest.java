@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.SourceRef;
+import com.mermaid.drug.DrugPermissionApiClient;
+import com.mermaid.drug.DurApiClient;
+import com.mermaid.drug.EasyDrugApiClient;
 import com.mermaid.facility.EmergencyRoomApiClient;
 import com.mermaid.facility.HospitalApiClient;
 import com.mermaid.facility.HospitalDetailApiClient;
@@ -11,6 +14,7 @@ import com.mermaid.facility.HolidayApiClient;
 import com.mermaid.facility.PharmacyApiClient;
 import com.mermaid.facility.domain.DutyTable;
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -164,5 +168,28 @@ class CacheConfigTest {
         Object restored = pair().read(pair().write(year));
 
         assertThat(restored).isEqualTo(year);
+    }
+
+    @Test
+    @DisplayName("typed drug cache values round-trip with actual origin, time, and nullable detail rows")
+    void typedDrugCacheValuesRoundTrip() {
+        Instant fetchedAt = Instant.parse("2026-07-16T04:30:00Z");
+        List<Object> values =
+                List.of(
+                        new DrugPermissionApiClient.PermissionBatch(
+                                List.of(), SourceRef.DataMode.FIXTURE, fetchedAt),
+                        new DrugPermissionApiClient.PermissionDetailBatch(
+                                null, SourceRef.DataMode.LIVE, fetchedAt),
+                        new EasyDrugApiClient.NarratedBatch(
+                                List.of(), SourceRef.DataMode.LIVE, fetchedAt),
+                        new EasyDrugApiClient.NarratedDetailBatch(
+                                null, SourceRef.DataMode.FIXTURE, fetchedAt),
+                        new DurApiClient.DurKindBatch(
+                                List.of(), SourceRef.DataMode.FIXTURE, fetchedAt),
+                        new DurApiClient.DurBatch(
+                                List.of(), SourceRef.DataMode.LIVE, fetchedAt));
+
+        RedisSerializationContext.SerializationPair<Object> pair = pair();
+        assertThat(values).allSatisfy(value -> assertThat(pair.read(pair.write(value))).isEqualTo(value));
     }
 }

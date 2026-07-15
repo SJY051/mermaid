@@ -1,18 +1,25 @@
 package com.mermaid.drug;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.mermaid.common.ApiException;
+import com.mermaid.common.ErrorCode;
 import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
 import com.mermaid.common.PublicApiUriBuilder;
+import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import com.mermaid.drug.domain.Drug;
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
-import lombok.RequiredArgsConstructor;
+import java.util.function.Predicate;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -32,7 +39,6 @@ import org.springframework.web.reactive.function.client.WebClient;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class EasyDrugApiClient {
 
     private static final String OP = "getDrbEasyDrugList";
@@ -43,45 +49,163 @@ public class EasyDrugApiClient {
     private final PublicApiProperties properties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
+    private final Clock clock;
+
+    @Autowired
+    public EasyDrugApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            Clock clock) {
+        this.publicApiWebClient = publicApiWebClient;
+        this.properties = properties;
+        this.dataMode = dataMode;
+        this.fixtures = fixtures;
+        this.clock = clock;
+    }
+
+    EasyDrugApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, dataMode, fixtures, Clock.systemUTC());
+    }
 
     /** Partial name match: {@code "타이레놀"} finds seven products. */
-    @Cacheable(value = "easyDrugByName", key = "#itemName")
     public List<Narrated> findByName(String itemName) {
-        return call(param("itemName", itemName));
+        return findByNameBatch(itemName).rows();
+    }
+
+    @Cacheable(value = "easyDrugByNameV2", key = "#root.target.cacheRoute() + '|name=' + #itemName")
+    public NarratedBatch findByNameBatch(String itemName) {
+        return list(
+                param("itemName", itemName),
+                row ->
+                        row.itemSeq() != null
+                                && row.nameKo() != null
+                                && row.nameKo().contains(itemName),
+                "easy_name");
     }
 
     /**
      * Exact product lookup, for the detail view and for the ITEM_SEQ join.
      *
-     * <p>{@code unless} matters: Spring unwraps an {@code Optional} return value before caching, so an
-     * {@code Optional.empty()} arrives at Redis as a null and {@code disableCachingNullValues()}
-     * throws. Not every licensed product has consumer guidance — export-only drugs have none — and a
-     * missing narrative is a fact, not a failure.
+     * <p>The cached batch itself is never null. A missing narrative is represented by a null {@code
+     * row} inside the batch, so Redis can preserve the fetch origin and time for that fact too.
      */
-    @Cacheable(value = "easyDrugBySeq", key = "#itemSeq", unless = "#result == null")
     public Optional<Narrated> findBySeq(String itemSeq) {
-        return call(param("itemSeq", itemSeq)).stream().findFirst();
+        return Optional.ofNullable(findBySeqBatch(itemSeq).row());
+    }
+
+    @Cacheable(value = "easyDrugBySeqV2", key = "#root.target.cacheRoute() + '|seq=' + #itemSeq")
+    public NarratedDetailBatch findBySeqBatch(String itemSeq) {
+        if (dataMode.isFixtureOnly()) {
+            return fixtureDetail(itemSeq, false);
+        }
+        requireConfigured("easy_seq");
+
+        List<Narrated> rows;
+        try {
+            rows = parse(fetchLive(param("itemSeq", itemSeq)));
+        } catch (RuntimeException failure) {
+            if (dataMode.allowsFallback()) {
+                return fixtureDetail(itemSeq, true);
+            }
+            throw unavailable("easy_seq", "UPSTREAM_FAILURE");
+        }
+        if (rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq()))) {
+            throw payloadInvalid("easy_seq");
+        }
+        return new NarratedDetailBatch(rows.stream().findFirst().orElse(null), SourceRef.DataMode.LIVE, now());
     }
 
     private java.util.Map<String, Object> param(String k, String v) {
         return java.util.Map.of(k, v);
     }
 
-    private List<Narrated> call(java.util.Map<String, Object> params) {
-        if (dataMode.isFixtureOnly() || !properties.isConfigured()) {
-            return parse(fixtures.load(FIXTURE));
+    private NarratedBatch list(
+            java.util.Map<String, Object> params, Predicate<Narrated> binding, String operationCode) {
+        if (dataMode.isFixtureOnly()) {
+            return new NarratedBatch(parse(fixtures.load(FIXTURE)), SourceRef.DataMode.FIXTURE, now());
         }
+        requireConfigured(operationCode);
+
+        List<Narrated> rows;
         try {
-            JsonNode raw =
-                    publicApiWebClient.get().uri(uriFor(params)).retrieve().bodyToMono(JsonNode.class).block();
-            return parse(raw);
-        } catch (Exception e) {
+            rows = parse(fetchLive(params));
+        } catch (RuntimeException failure) {
             if (dataMode.allowsFallback()) {
-                log.warn("e약은요 lookup failed, falling back to fixture: {}", e.getMessage());
-                return parse(fixtures.load(FIXTURE));
+                return fixtureList(binding, operationCode);
             }
-            throw new PublicApiException("e약은요 lookup failed", e);
+            throw unavailable(operationCode, "UPSTREAM_FAILURE");
         }
+        if (rows.stream().anyMatch(binding.negate())) {
+            throw payloadInvalid(operationCode);
+        }
+        return new NarratedBatch(rows, SourceRef.DataMode.LIVE, now());
+    }
+
+    private NarratedBatch fixtureList(Predicate<Narrated> binding, String operationCode) {
+        List<Narrated> rows = loadFixture(operationCode);
+        if (rows.isEmpty() || rows.stream().anyMatch(binding.negate())) {
+            throw unavailable(operationCode, "FIXTURE_UNBOUND");
+        }
+        log.warn("drug_api_fallback operation={} reason=UPSTREAM_FAILURE", operationCode);
+        return new NarratedBatch(rows, SourceRef.DataMode.FIXTURE, now());
+    }
+
+    private NarratedDetailBatch fixtureDetail(String itemSeq, boolean requireBinding) {
+        List<Narrated> rows = loadFixture("easy_seq");
+        if (requireBinding
+                && (rows.isEmpty() || rows.stream().anyMatch(row -> !itemSeq.equals(row.itemSeq())))) {
+            throw unavailable("easy_seq", "FIXTURE_UNBOUND");
+        }
+        if (requireBinding) {
+            log.warn("drug_api_fallback operation=easy_seq reason=UPSTREAM_FAILURE");
+        }
+        return new NarratedDetailBatch(
+                rows.stream().findFirst().orElse(null), SourceRef.DataMode.FIXTURE, now());
+    }
+
+    private List<Narrated> loadFixture(String operationCode) {
+        try {
+            return parse(fixtures.load(FIXTURE));
+        } catch (RuntimeException fixtureFailure) {
+            throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
+        }
+    }
+
+    private JsonNode fetchLive(java.util.Map<String, Object> params) {
+        return publicApiWebClient.get().uri(uriFor(params)).retrieve().bodyToMono(JsonNode.class).block();
+    }
+
+    public String cacheRoute() {
+        return "mode="
+                + dataMode.dataMode().wire()
+                + "|route="
+                + (properties.isConfigured() ? "configured" : "keyless");
+    }
+
+    private void requireConfigured(String operationCode) {
+        if (!properties.isConfigured()) {
+            throw unavailable(operationCode, "KEY_MISSING");
+        }
+    }
+
+    private PublicApiException unavailable(String operationCode, String reason) {
+        log.warn("drug_api_rejected operation={} reason={}", operationCode, reason);
+        return new PublicApiException("SOURCE_UNAVAILABLE");
+    }
+
+    private ApiException payloadInvalid(String operationCode) {
+        log.warn("drug_api_rejected operation={} reason=SOURCE_PAYLOAD_INVALID", operationCode);
+        return new ApiException(ErrorCode.SOURCE_PAYLOAD_INVALID, "SOURCE_PAYLOAD_INVALID");
+    }
+
+    private Instant now() {
+        return Instant.now(clock);
     }
 
     URI uriFor(java.util.Map<String, Object> params) {
@@ -111,10 +235,24 @@ public class EasyDrugApiClient {
                                                 PublicApiResponse.text(row, "intrcQesitm"),
                                                 PublicApiResponse.text(row, "seQesitm"),
                                                 PublicApiResponse.text(row, "depositMethodQesitm"))))
-                .filter(n -> n.itemSeq() != null)
                 .toList();
     }
 
     /** A product's Korean guidance text, keyed by the id that joins to the other two APIs. */
     public record Narrated(String itemSeq, String nameKo, String manufacturerKo, Drug.Narrative narrative) {}
+
+    public record NarratedBatch(List<Narrated> rows, SourceRef.DataMode origin, Instant retrievedAt) {
+        public NarratedBatch {
+            rows = List.copyOf(rows);
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(retrievedAt);
+        }
+    }
+
+    public record NarratedDetailBatch(Narrated row, SourceRef.DataMode origin, Instant retrievedAt) {
+        public NarratedDetailBatch {
+            Objects.requireNonNull(origin);
+            Objects.requireNonNull(retrievedAt);
+        }
+    }
 }
