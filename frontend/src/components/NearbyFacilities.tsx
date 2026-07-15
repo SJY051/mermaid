@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react'
 import { FacilityMap } from './FacilityMap'
-import { fetchFacilities, resolveLocation, type ResolvedLocation } from '../lib/facilities'
-import type { Facility, FacilityType } from '../lib/types'
+import {
+  fetchFacilities,
+  fetchGeocode,
+  locationNotice,
+  resolveLocation,
+  SEOUL_CITY_HALL,
+  type ResolvedLocation,
+} from '../lib/facilities'
+import { setManualLocation } from '../lib/storage'
+import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 
 export interface NearbyFacilitiesProps {
   /** Straight from the assistant's `OPEN_FACILITY_MAP` payload. */
@@ -29,19 +37,33 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
 
   useEffect(() => {
     let cancelled = false
-    const controller = new AbortController()
 
     resolveLocation()
       .then((resolved) => {
-        if (cancelled) return
-        setLocation(resolved)
-        return fetchFacilities(
-          { lat: resolved.lat, lng: resolved.lng, radiusM, openNow, type },
-          controller.signal,
-        )
+        if (!cancelled) setLocation(resolved)
       })
+      .catch((e: Error) => {
+        if (!cancelled && e.name !== 'AbortError') setError(e.message)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!location) return
+    let cancelled = false
+    const controller = new AbortController()
+
+    setFacilities([])
+    setError(null)
+    fetchFacilities(
+      { lat: location.lat, lng: location.lng, radiusM, openNow, type },
+      controller.signal,
+    )
       .then((found) => {
-        if (!cancelled && found) setFacilities(found)
+        if (!cancelled) setFacilities(found)
       })
       .catch((e: Error) => {
         if (!cancelled && e.name !== 'AbortError') setError(e.message)
@@ -51,7 +73,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       cancelled = true
       controller.abort()
     }
-  }, [type, radiusM, openNow])
+  }, [location, type, radiusM, openNow])
 
   if (!location) {
     return <p className="text-sm text-secondary">Finding your location…</p>
@@ -60,16 +82,39 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
   const plural = type === 'pharmacy' ? 'pharmacies' : 'hospitals'
   const caption = `${plural} within ${radiusM}m${openNow ? ', open now' : ''}`
 
+  function useManualLocation(center: { lat: number; lng: number }, label = 'Chosen map spot') {
+    setManualLocation({ ...center, label })
+    setLocation({ ...center, source: 'manual', label })
+  }
+
+  function useAddress(result: GeocodeResult) {
+    const label = result.roadAddress || result.jibunAddress || result.englishAddress
+    useManualLocation({ lat: result.latitude, lng: result.longitude }, label)
+  }
+
+  function clearManualLocation() {
+    setManualLocation(null)
+    setLocation({ ...SEOUL_CITY_HALL, source: 'fallback' })
+  }
+
   return (
     <div className="space-y-2">
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
         facilities={facilities}
         caption={caption}
-        notice={
-          location.fromDevice
+        notice={locationNotice(location)}
+        manualLocation={
+          location.source === 'device'
             ? undefined
-            : 'Centred on Seoul City Hall — we could not read your location, so these are not near you.'
+            : {
+                canClear: location.source === 'manual',
+                onUseSpot: useManualLocation,
+                onSearchAddress: fetchGeocode,
+                onUseAddress: useAddress,
+                currentLabel: location.source === 'manual' ? location.label : undefined,
+                onClear: clearManualLocation,
+              }
         }
       />
 

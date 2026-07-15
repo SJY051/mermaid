@@ -82,11 +82,30 @@ public class SystemPromptProvider {
               "ingredients": [{"nameEn": "Acetaminophen", "nameKo": null, "amount": null, "unit": null}],
               "indicationSummary": "<what officialTextKo.efficacy says, in English>",
               "directionsSummary": "<what officialTextKo.useMethod says, in English>",
-              "warnings": ["<every durWarnings entry, plus anything in caution/warning>"],
-              "prescriptionStatus": "otc" | "prescription" | "unknown",
+              "labelCautions": "<what officialTextKo.caution, .warning, .interaction and .sideEffect say, in English>",
+              "warnings": [],
+              "prescriptionStatus": "unknown",
               "allergyCheck": {"status": "<copy from DRUG_CONTEXT>", "matchedIngredients": [], "message": "<copy>"},
               "sourceRefId": "<copy verbatim from DRUG_CONTEXT>"
             }
+
+            Leave each card's `warnings` empty and its `prescriptionStatus` as "unknown". The server \
+            writes both from the government record — they are facts it holds, not text to translate. \
+            The summaries above them are the translation, and they are yours.
+
+            NEVER STATE A DOSE. Not in `indicationSummary`, not in `labelCautions`, not in `summary`, \
+            not in `guidance`, not anywhere. No amount, no frequency, no duration — not in digits \
+            ("2 tablets", "3 times a day"), not in words ("two tablets", "twice daily", "a couple of \
+            pills"), and not as a comparison ("half the usual amount"). `directionsSummary` is \
+            written by the server, from the ministry's own text, and it is the ONLY place a dose \
+            appears. If a person asks how much to take, say that the dosing is on the card in the \
+            ministry's own words and that a pharmacist will read it with them.
+
+            `indicationSummary` answers WHAT THIS MEDICINE IS FOR. A quantity has no business in it.
+
+            Every number you write in `directionsSummary` or `labelCautions` must be a number that \
+            appears in the ministry's own text for that medicine. The server removes the section if \
+            it is not.
 
             Each entry of `guidance` uses: `id`, `title`, `body`, `evidence` \
             ("official_data" | "general_safety" | "model_summary"), and `sourceRefIds`. \

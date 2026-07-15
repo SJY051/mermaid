@@ -13,7 +13,18 @@
 const SCHEMA_VERSION = '1.0'
 
 const DEVICE_ID_KEY = 'mermaid.deviceId.v1'
-const CHAT_SESSION_KEY = 'mermaid.chatSession.v1'
+// v2, and the bump IS the fix. A turn stored before the grounding invariants (7 and 8) carries a
+// card whose directions, warnings and prescription status the MODEL wrote — and the card that renders
+// it now labels `directionsSummary` as "official dosing from the Ministry of Food and Drug Safety, in
+// Korean, we do not translate doses". Restore one of those turns and English prose the model invented
+// is presented as the ministry's own words, under the verified footer. A reload is enough.
+//
+// There is no migration to write: the missing facts were never in the blob, so nothing can recover
+// them. Renaming the key makes the old shape unreadable, which is the honest outcome — the
+// conversation is gone, and it was never meant to outlive the tab anyway (§2-5). Bumping the shared
+// SCHEMA_VERSION instead would have taken the user's saved location and preferences with it.
+const CHAT_SESSION_KEY = 'mermaid.chatSession.v2'
+const CHAT_SESSION_KEY_V1 = 'mermaid.chatSession.v1'
 const SAVED_FACILITIES_KEY = 'mermaid.savedFacilities.v1'
 const PREFERENCES_KEY = 'mermaid.preferences.v1'
 
@@ -22,13 +33,17 @@ interface Versioned<T> {
   data: T
 }
 
-function read<T>(store: Storage, key: string, fallback: T): T {
+function read<T>(store: Storage, key: string, fallback: T, isValid?: (value: unknown) => value is T): T {
   const raw = store.getItem(key)
   if (!raw) return fallback
   try {
     const parsed = JSON.parse(raw) as Versioned<T>
     if (parsed.schemaVersion !== SCHEMA_VERSION) {
       // An older or newer shape. Do not guess at a migration we have not written.
+      store.removeItem(key)
+      return fallback
+    }
+    if (isValid && !isValid(parsed.data)) {
       store.removeItem(key)
       return fallback
     }
@@ -68,23 +83,50 @@ export interface ChatSession {
   messages: StoredMessage[]
   /** Ingredients the user mentioned this session. NOT persisted unless they opt in. */
   allergies: string[]
+  /** User-authored allergen names that have no reviewed dictionary binding. */
+  unverifiedAllergens: string[]
   /**
-   * The user declared an allergy that is not in our option list ("My allergy isn't listed"), so
-   * drug lookup is ended for this conversation. Persisted with the conversation because it is a
-   * safety lock: a reload restores the prior turns and allergies, and without this the lock would
-   * reset and retrieval could proceed on a list missing the unlisted allergen (§2-2).
+   * The user closed a clarification without adding a verified selection or unverified name, so drug
+   * lookup is ended for this conversation. Persisted with the conversation because it is a safety
+   * lock: without it a reload could proceed on lists that do not cover the latest declaration.
    */
   unverifiableAllergy: boolean
+  /**
+   * A question that was asked and never answered — the request failed, or the tab was reloaded
+   * mid-flight. `messages` holds answered turns only, so without this the question would vanish
+   * on reload, and a failed "I am allergic to ibuprofen" would be gone before the next request.
+   * The server's allergy scan reads the questions in the request (spec 005 FR-013), so a question
+   * it never sees cannot guard anything. Kept here, it comes back in the composer and rides along
+   * with the next send. Cleared the moment an answer arrives.
+   */
+  pendingQuestion: string
+  /**
+   * When the person last confirmed their allergy list, or `''` if they never have.
+   *
+   * <p>The cut-off for `unanswered_questions` (spec 005 FR-013). A question that failed never got
+   * its clarification, so a declaration inside it never reached the picker — the server has to be
+   * told, or it will trust a list that was built for an earlier declaration. But once the picker HAS
+   * been confirmed, everything said before it was in front of the person, pre-filled, and they told
+   * us what to avoid. Without a cut-off, one failed sentence would demand a clarification it has
+   * already received, on every question, for the rest of the conversation.
+   */
+  allergiesConfirmedAt: string
 }
 
 const EMPTY_SESSION: ChatSession = {
   sessionId: '',
   messages: [],
   allergies: [],
+  unverifiedAllergens: [],
   unverifiableAllergy: false,
+  pendingQuestion: '',
+  allergiesConfirmedAt: '',
 }
 
 export function loadChatSession(): ChatSession {
+  // Sweep the pre-grounding blob rather than leaving it to expire with the tab: it holds a medical
+  // conversation, and a key nobody reads is still a key someone can read.
+  sessionStorage.removeItem(CHAT_SESSION_KEY_V1)
   return read(sessionStorage, CHAT_SESSION_KEY, EMPTY_SESSION)
 }
 
@@ -102,15 +144,55 @@ export interface SavedFacility {
   id: string
   facilityId: string
   /** Display-only. Never treat as current opening hours — refetch on open. */
-  snapshot: { nameKo: string; type: string; addressKo: string | null }
+  snapshot: {
+    nameKo: string
+    type: import('./types').FacilityType
+    addressKo: string | null
+    operation: import('./types').FacilityOperation
+    source: import('./types').SourceRef
+  }
   alias: string
   note: string
   createdAt: string
   updatedAt: string
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string'
+}
+
+function isSavedFacility(value: unknown): value is SavedFacility {
+  if (!isRecord(value) || !isRecord(value.snapshot)) return false
+  const { snapshot } = value
+  const source = snapshot.source
+  const operation = snapshot.operation
+  return (
+    typeof value.id === 'string' && typeof value.facilityId === 'string' &&
+    typeof value.alias === 'string' && typeof value.note === 'string' &&
+    typeof value.createdAt === 'string' && typeof value.updatedAt === 'string' &&
+    typeof snapshot.nameKo === 'string' &&
+    (snapshot.type === 'pharmacy' || snapshot.type === 'hospital' || snapshot.type === 'emergency_room') &&
+    isNullableString(snapshot.addressKo) && isRecord(operation) &&
+    (operation.isOpenNow === true || operation.isOpenNow === false || operation.isOpenNow === null) &&
+    (operation.status === 'open' || operation.status === 'closed' || operation.status === 'unknown') &&
+    (operation.statusConfidence === 'official_realtime' || operation.statusConfidence === 'official_schedule' || operation.statusConfidence === 'inferred' || operation.statusConfidence === 'unknown') &&
+    isNullableString(operation.verifiedAt) && typeof operation.notice === 'string' &&
+    isRecord(source) && typeof source.id === 'string' && typeof source.provider === 'string' &&
+    isNullableString(source.recordId) && typeof source.retrievedAt === 'string' &&
+    (source.dataMode === 'live' || source.dataMode === 'fixture') && typeof source.title === 'string'
+  )
+}
+
+function isSavedFacilities(value: unknown): value is SavedFacility[] {
+  return Array.isArray(value) && value.every(isSavedFacility)
+}
+
 export function loadSavedFacilities(): SavedFacility[] {
-  return read<SavedFacility[]>(localStorage, SAVED_FACILITIES_KEY, [])
+  return read<SavedFacility[]>(localStorage, SAVED_FACILITIES_KEY, [], isSavedFacilities)
 }
 
 export function saveSavedFacilities(items: SavedFacility[]): void {
@@ -123,20 +205,34 @@ export interface Preferences {
   rememberAllergies: boolean
   allergies: string[]
   defaultRadiusM: number
+  manualLocation: ManualLocation | null
+}
+
+export interface ManualLocation {
+  lat: number
+  lng: number
+  label: string
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
   rememberAllergies: false,
   allergies: [],
   defaultRadiusM: 1000,
+  manualLocation: null,
 }
 
 export function loadPreferences(): Preferences {
-  const prefs = read(localStorage, PREFERENCES_KEY, DEFAULT_PREFERENCES)
+  const stored = read(localStorage, PREFERENCES_KEY, DEFAULT_PREFERENCES)
+  // Preferences written before DEV-206 have no manualLocation field.
+  const prefs = { ...stored, manualLocation: stored.manualLocation ?? null }
   // Invariant: allergies are only kept when the user said so.
   return prefs.rememberAllergies ? prefs : { ...prefs, allergies: [] }
 }
 
 export function savePreferences(prefs: Preferences): void {
   write(localStorage, PREFERENCES_KEY, prefs.rememberAllergies ? prefs : { ...prefs, allergies: [] })
+}
+
+export function setManualLocation(manualLocation: ManualLocation | null): void {
+  savePreferences({ ...loadPreferences(), manualLocation })
 }

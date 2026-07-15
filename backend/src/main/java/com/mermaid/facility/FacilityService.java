@@ -1,6 +1,7 @@
 package com.mermaid.facility;
 
 import com.mermaid.common.GeoUtils;
+import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.facility.domain.DutyTable;
@@ -10,6 +11,7 @@ import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.facility.domain.OpenInterval;
 import com.mermaid.facility.domain.WeeklyHours;
 import java.time.Clock;
+import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
@@ -35,38 +37,94 @@ public class FacilityService {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private static final String PHARMACY_PROVIDER = "nmc"; // 국립중앙의료원
+    private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
     private static final int METRES_PER_KM = 1000;
+    private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
+    /**
+     * How many distance-ranked candidates an {@code open_now=true} request inspects before returning
+     * the nearest confirmed-open results. Looking only as far as the returned pin limit would hide a
+     * farther open facility behind nearer closed ones.
+     *
+     * <p>100 is the pharmacy location endpoint's own row cap, so for pharmacies it drops nothing. HIRA
+     * supplies more — the Seoul City Hall fixture reports {@code totalCount: 440} — so for hospitals
+     * this is a deliberate cap, and an open hospital ranked 101st or farther stays invisible.
+     *
+     * <p>Quota is not what bounds this. The daily budgets are 1,000 calls for the pharmacy APIs — the
+     * tightest we hold — and 10,000 for HIRA; both detail lookups are cached per id ({@code @Cacheable}),
+     * so a second map load over the same area re-spends nothing. Hospitals share the pharmacy's cap
+     * because latency is the binding constraint, not because HIRA is scarce: with 10x the headroom it
+     * has no reason to be the more conservative of the two.
+     *
+     * <p>Measured live at Seoul City Hall, radius 2,000 m, cold cache (2026-07-14):
+     *
+     * <pre>
+     *   hospital open_now=true  (100 candidates)  27.6 s
+     *   hospital open_now=false ( 10 candidates)  18.4 s
+     *   hospital list paging alone (limit=1)      20.7 s   &lt;-- dominates
+     *   pharmacy open_now=true  (100 candidates)   1.1 s
+     *   any of the above, warm cache              0.07 s
+     * </pre>
+     *
+     * <p>So widening the candidate set costs roughly 7-9 s, and <b>this constant is not the dial that
+     * matters</b>: HIRA's list paging is sequential ({@code HospitalApiClient} walks totalCount page by
+     * page) and costs ~20 s on its own. Lowering this cap would buy back seconds while leaving a sick
+     * person waiting twenty of them. Fetch the pages concurrently first, then re-measure before tuning
+     * anything here.
+     */
+    private static final int MAX_OPEN_NOW_CANDIDATES = 100;
+    private static final int HOSPITAL_DETAIL_CONCURRENCY = 4;
+    /** HIRA 종별코드 for 요양병원 (long-term-care hospitals) — the stable code, not the label. */
+    private static final String NURSING_HOSPITAL_CODE = "28";
+    /** The public API's maximum number of returned map pins. */
+    public static final int MAX_FACILITY_RESULTS = 50;
 
     private final PharmacyApiClient pharmacyApiClient;
+    private final HospitalApiClient hospitalApiClient;
+    private final HospitalDetailApiClient hospitalDetailApiClient;
     private final HolidayCalendar holidayCalendar;
     private final Clock clock;
 
     public List<Facility> findNearby(
             double lat, double lng, int radiusMeters, boolean openNow, FacilityType type) {
+        return findNearby(lat, lng, radiusMeters, openNow, type, MAX_FACILITY_RESULTS);
+    }
 
+    /** Returns the nearest requested number of facilities. */
+    public List<Facility> findNearby(
+            double lat, double lng, int radiusMeters, boolean openNow, FacilityType type, int limit) {
         return switch (type) {
-            case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow);
-            case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow);
+            case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow, limit);
+            case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow, limit);
         };
     }
 
-    private List<Facility> pharmacies(double lat, double lng, int radiusMeters, boolean openNow) {
+    private List<Facility> pharmacies(
+            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         Instant retrievedAt = now.toInstant();
 
         PharmacyApiClient.PharmacyBatch batch = pharmacyApiClient.findNear(lat, lng);
-        return batch.pharmacies().stream()
+        int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
+        List<PharmacyApiClient.RawPharmacy> candidates =
+                batch.pharmacies().stream()
                 // The location API has no radius parameter and can return 100 rows. Filter before
                 // toFacility() so an out-of-radius pharmacy never spends an HPID detail call.
                 .filter(raw -> distanceMetres(raw, lat, lng) <= radiusMeters)
-                // TODO(BE-2): Fetch the remaining weekly timetables with bounded concurrency. An
-                // unbounded fan-out would trade the 1,000/day quota for a short first map load.
-                .map(raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
+                .sorted(Comparator.comparingDouble(raw -> distanceMetres(raw, lat, lng)))
+                .limit(candidateLimit)
+                .toList();
+
+        return Parallel.map(
+                        candidates,
+                        PHARMACY_WEEKLY_HOURS_CONCURRENCY,
+                        raw -> toFacility(raw, batch.origin(), lat, lng, now, holiday, retrievedAt))
+                .stream()
                 // `open_now=true` returns only status=open. A pharmacy whose timetable we could not
                 // read is excluded rather than guessed at, in either direction (spec §2-13).
                 .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
                 .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .limit(limit)
                 .toList();
     }
 
@@ -114,7 +172,9 @@ public class FacilityService {
                 weeklyHoursLookupFailed
                         ? FacilityOperation.unknown(retrievedAt)
                         : operationOf(raw, weekly, now, holiday, retrievedAt),
-                sourceOf(raw, retrievedAt, origin));
+                sourceOf(raw, retrievedAt, origin),
+                null, // the pharmacy API has no emergency-room flags
+                null);
     }
 
     /**
@@ -173,40 +233,137 @@ public class FacilityService {
                 "National Medical Center — pharmacy directory");
     }
 
-    /**
-     * TODO(BE-2, DEV-203): hospitals need two upstream calls, unlike pharmacies.
-     *
-     * <ol>
-     *   <li>{@code hospInfoServicev2/getHospBasisList?xPos=&yPos=&radius=} — this one <i>does</i> take
-     *       a radius, in metres. It gives you {@code ykiho} and coordinates, but no hours. {@code
-     *       radius} is not optional: omit it and you get all 79,727 hospitals in the country.
-     *   <li>{@code MadmDtlInfoService2.8/getDtlInfo2.8?ykiho=} — per hospital, for {@code trmtMonStart}…
-     *       {@code trmtSatEnd}, {@code lunchWeek}, {@code noTrmtSun}, {@code emyNgtYn}. <b>The version
-     *       suffix appears twice</b>: on the service and on the operation. {@code …2.8/getDtlInfo}
-     *       answers 404 — which means that operation name is wrong, not that the service is absent.
-     * </ol>
-     *
-     * <p>Both are approved and answer 200 (2026-07-10). Real responses are in {@code
-     * fixtures/hospital_list.json} and {@code hospital_detail.json}; read {@code fixtures/README.md}
-     * items 12-17 before writing the parser. In particular: this API reports {@code distance} in
-     * <b>metres</b> while the pharmacy API reports <b>kilometres</b>, and {@code XPos} is longitude.
-     *
-     * <p>Run {@code ./bin/check-api-access.py} if a call starts failing; it separates 401 (unknown
-     * key) from 403 (unapproved service) from 404 (wrong operation name).
-     *
-     * <p>The two are a pair: the detail service has no search operation, and only the list service
-     * issues a {@code ykiho}. That second step is one call per hospital: a classic N+1. Cache it per
-     * {@code ykiho} — a hospital's opening hours change about once a year. Namespace the id as {@code
-     * facility:hira:<ykiho>}.
-     *
-     * <p>Hospitals with no timetable must keep {@code isOpenNow == null}. Sunday has no field at all:
-     * {@code trmtSunStart} is absent and {@code noTrmtSun: "휴진"} is what you get instead.
-     */
-    private List<Facility> hospitals(double lat, double lng, int radiusMeters, boolean openNow) {
-        // Returning an empty list here told the caller "there are no hospitals near you" when the
-        // truth is "we cannot look". That is the same lie as rendering no_match_found as "safe": an
-        // absence of data presented as a fact about the world. 501 says which one it is.
-        throw new UnsupportedOperationException(
-                "Hospital search is not implemented — see FacilityService#hospitals (DEV-203)");
+    private List<Facility> hospitals(
+            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
+        boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
+        HospitalApiClient.HospitalBatch batch = hospitalApiClient.findNear(lat, lng, radiusMeters);
+
+        // HIRA's radius is authoritative, but its distance is a decimal string. Resolve each metre
+        // value once — here, so a malformed/out-of-contract row is dropped before the detail fan-out
+        // and the same figure is reused on the card instead of recomputed (Haversine twice).
+        //
+        // HIRA classifies 요양병원 (long-term-care hospitals) under 종별코드 28. The default search is
+        // for acute care, so omit only that exact code before any detail call, matching the stable code
+        // rather than the display label; unknown/other codes remain visible rather than guessed out.
+        //
+        // HIRA detail calls are per-ykiho. For an ordinary map load, inspect only pins that can be
+        // returned; for open-now, inspect a wider but fixed candidate set so a farther open hospital
+        // is not hidden behind nearer closed ones.
+        int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
+        List<NearbyHospital> candidates =
+                batch.hospitals().stream()
+                        .map(h -> new NearbyHospital(h, hospitalDistanceMetres(h, lat, lng)))
+                        .filter(h -> h.distanceMeters() <= radiusMeters)
+                        .filter(h -> !NURSING_HOSPITAL_CODE.equals(h.raw().classificationCode()))
+                        .sorted(Comparator.comparingDouble(NearbyHospital::distanceMeters))
+                        .limit(candidateLimit)
+                        .toList();
+
+        return Parallel.map(
+                        candidates,
+                        HOSPITAL_DETAIL_CONCURRENCY,
+                        h ->
+                                toHospital(
+                                        h.raw(),
+                                        h.distanceMeters(),
+                                        batch.origin(),
+                                        batch.retrievedAt(),
+                                        now,
+                                        holiday))
+                .stream()
+                .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
+                .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .limit(limit)
+                .toList();
+    }
+
+    /** A list row paired with its distance, resolved once before the detail fan-out. */
+    private record NearbyHospital(HospitalApiClient.RawHospital raw, double distanceMeters) {}
+
+    private Facility toHospital(
+            HospitalApiClient.RawHospital raw,
+            double distanceMeters,
+            SourceRef.DataMode listOrigin,
+            Instant listRetrievedAt,
+            ZonedDateTime now,
+            boolean holiday) {
+        HospitalDetailApiClient.HospitalDetailBatch detailBatch =
+                hospitalDetailApiClient.findByYkiho(raw.ykiho());
+        SourceRef.DataMode origin =
+                listOrigin == SourceRef.DataMode.LIVE && detailBatch.origin() == SourceRef.DataMode.LIVE
+                        ? SourceRef.DataMode.LIVE
+                        : SourceRef.DataMode.FIXTURE;
+        HospitalDetailApiClient.HospitalDetail detail = detailBatch.detail();
+        return new Facility(
+                Facility.idOf(HOSPITAL_PROVIDER, Facility.urlSafeSegment(raw.ykiho())),
+                FacilityType.HOSPITAL,
+                raw.nameKo(),
+                null,
+                raw.addressKo(),
+                null,
+                raw.phone(),
+                raw.latitude(),
+                raw.longitude(),
+                distanceMeters,
+                hospitalOperation(detail, now, holiday, detailBatch.retrievedAt()),
+                new SourceRef(
+                        "src:" + HOSPITAL_PROVIDER + ":" + raw.ykiho(),
+                        "건강보험심사평가원 병원정보서비스",
+                        raw.ykiho(),
+                        listRetrievedAt,
+                        origin,
+                        "Health Insurance Review & Assessment Service — hospital directory"),
+                detail.emergencyDay(),
+                detail.emergencyNight());
+    }
+
+    /** HIRA reports metres (unlike the pharmacy API's kilometres); only malformed omissions use Haversine. */
+    private double hospitalDistanceMetres(
+            HospitalApiClient.RawHospital raw, double originLat, double originLng) {
+        return raw.distanceMeters() != null
+                ? raw.distanceMeters()
+                : GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
+    }
+
+    private FacilityOperation hospitalOperation(
+            HospitalDetailApiClient.HospitalDetail detail,
+            ZonedDateTime now,
+            boolean holiday,
+            Instant retrievedAt) {
+        if (holiday && detail.holidayClosed()) {
+            return FacilityOperation.closed(retrievedAt);
+        }
+        if (now.getDayOfWeek() == DayOfWeek.SUNDAY && detail.sundayClosed()) {
+            return FacilityOperation.closed(retrievedAt);
+        }
+        if (detail.weekdayHours().isEmpty()) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        if (holiday) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        if (now.getDayOfWeek() == DayOfWeek.SUNDAY) {
+            if (!detail.weekdayHours().containsKey(DayOfWeek.SUNDAY.getValue())) {
+                return FacilityOperation.unknown(retrievedAt);
+            }
+        }
+
+        WeeklyHours hours = WeeklyHours.fromDutyTimes(detail.weekdayHours());
+        if (!hours.hasAnySchedule()) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        LocalTime at = now.toLocalTime();
+        // HIRA labels this weekday-only field lunchWeek. Its separate lunchSat value is not part of
+        // DEV-203, so Saturday remains based on published treatment hours rather than guessed closed.
+        if (now.getDayOfWeek().getValue() <= DayOfWeek.FRIDAY.getValue()
+                && detail.lunchBreak()
+                .filter(lunch -> !at.isBefore(lunch.start()) && at.isBefore(lunch.end()))
+                .isPresent()) {
+            return FacilityOperation.closed(retrievedAt);
+        }
+        return hours.isOpenAt(now, false)
+                ? FacilityOperation.open(retrievedAt)
+                : FacilityOperation.closed(retrievedAt);
     }
 }

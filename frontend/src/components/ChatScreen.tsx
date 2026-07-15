@@ -1,7 +1,6 @@
 import { useRef, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
-import { Card } from '@astryxdesign/core/Card'
 import {
   ChatComposer,
   ChatLayout,
@@ -12,10 +11,11 @@ import {
 } from '@astryxdesign/core/Chat'
 import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
+import { CircleAlert, Ellipsis } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
 import type { MermAidAnswer } from '../lib/types'
-import { AllergyBadge } from './AllergyBadge'
 import { AllergenPicker } from './AllergenPicker'
+import { DrugCard } from './DrugCard'
 import { NearbyFacilities } from './NearbyFacilities'
 
 const SESSION_COPY =
@@ -25,7 +25,11 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   return (
     // aria-live so a screen reader hears that something is happening — a silent wait
     // hides the safety information that an answer is on its way (P1, Review guidelines).
-    <section data-testid="chat-progress" aria-live="polite" className="flex flex-col gap-2">
+    <section
+      data-testid="chat-progress"
+      aria-live="polite"
+      className="chat-waiting-indicator flex flex-col gap-2"
+    >
       <ProgressBar isIndeterminate variant="accent" label="Waiting for the answer" />
       <p className="text-sm text-primary">
         Checking your symptoms against verified government drug data and writing an answer.
@@ -46,20 +50,70 @@ function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   )
 }
 
-function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }) {
+/**
+ * A question that got no answer, and is no longer the one the composer is holding.
+ *
+ * <p>Either it failed and the person moved on — they edited their question, and the new one was
+ * answered — or it came back from storage, where a failure's cause does not survive. Both cases
+ * have the same honest shape: we know it was asked and never answered, and we do not know that
+ * asking it again would work. So there is no Try again here, and no claim that it is in the box:
+ * the box holds whatever the person is writing now. The question itself is still in the record, and
+ * still in every request we send (FR-013), which is what it is there for.
+ */
+function UnansweredQuestion() {
+  return (
+    <p data-testid="chat-unanswered" className="text-sm text-secondary">
+      This question was never answered. It is still part of this conversation — ask it again if you
+      still need it.
+    </p>
+  )
+}
+
+function FailedAnswer({
+  turn,
+  onRetry,
+  onStartOver,
+}: {
+  turn: ChatTurn
+  onRetry: () => void
+  onStartOver: () => void
+}) {
   const sendError = turn.error
   if (!sendError) return null
 
   return (
     <section data-testid="chat-error" className="flex flex-col gap-3">
       <Banner
-        status="error"
+        status="warning"
+        icon={<CircleAlert aria-hidden="true" size={20} />}
         title="We could not get an answer."
         description={
           (sendError.retryable
-            ? 'Your question was not lost — it is still in the box above. '
-            : 'Sending the same question again will not fix this one. ' +
-              'Edit your question to ask something different, or come back later. ') +
+            ? // Always true now, and cheap to keep true: the box is never cleared until an answer
+              // arrives, so the question that failed is the question still sitting in it.
+              'Your question was not lost — it is still in the box above. '
+            : // The question stays in this conversation, so it also rides in the next request — we
+              // keep it because it may be the sentence that declared an allergy (FR-013), and it is
+              // the only place that declaration lives. Which means a request the server refused for
+              // what this question CONTAINS will be refused again. Editing may work; if it does not,
+              // the way out is a new conversation, and saying so beats letting someone try forever.
+              // The escape we are recommending resets the conversation, and everything the person
+              // told us goes with it — the allergy list the retrieval filter is built from, AND the
+              // declarations that never became a list because their turn failed.
+              //
+              // This used to be conditional on `allergies.length > 0`, and that was wrong in the one
+              // case that matters most: when the FAILED TURN ITSELF is the declaration ("I am
+              // allergic to ibuprofen"), the lists are still empty, so the warning did not show — and
+              // starting over discarded the only place that allergy existed. The next "what can I
+              // take?" would then retrieve unfiltered.
+              //
+              // The client cannot fix that by classifying harder. It does not know which sentence
+              // declares an allergy; that judgement is the server's, and it is the whole point of the
+              // redesign. So we stop classifying and say the thing that is always true.
+              'Asking this exact question again will not help. Try asking it differently — and if ' +
+              'that keeps failing, start a new conversation. That clears this whole conversation, ' +
+              'including anything you have told us about allergies, so you will need to tell us ' +
+              'again. ') +
           `Technical detail: ${sendError.message}`
         }
       />
@@ -71,8 +125,10 @@ function FailedAnswer({ turn, onRetry }: { turn: ChatTurn; onRetry: () => void }
       )}
       {/* The backend's `retryable` flag is the contract for whether this button is honest
           (types.ts). Showing it on a non-retryable failure sends a sick person into a loop. */}
-      {sendError.retryable && (
+      {sendError.retryable ? (
         <Button label="Try again" variant="secondary" onClick={onRetry} />
+      ) : (
+        <Button label="Start a new conversation" variant="secondary" onClick={onStartOver} />
       )}
     </section>
   )
@@ -88,6 +144,7 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
       {emergency && (
         <Banner
           status="error"
+          icon={<CircleAlert aria-hidden="true" size={20} />}
           title={answer.urgency.title}
           description={answer.urgency.message}
         />
@@ -95,20 +152,26 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
 
       <p className="whitespace-pre-wrap text-primary">{answer.summary}</p>
 
-      {/* TODO(team): proper medication cards with dosage pictograms — DEV-308 */}
+      {/* Answer-level warnings — the server-authored unverified-allergen caveat lands here (§2-2,
+          FR-017). It must be visible even when no drug card carries a per-card warning, or a
+          name-only allergy check reads as a full one. role=status so a screen reader hears it. */}
+      {answer.warnings.length > 0 && (
+        <div
+          role="status"
+          className="flex flex-col gap-1 rounded border border-yellow-ring bg-yellow-subtle p-3 text-sm text-yellow-vivid"
+        >
+          {answer.warnings.map((warning, index) => (
+            <p key={index}>{warning}</p>
+          ))}
+        </div>
+      )}
+
       {answer.drugs.map((drug) => (
-        <Card key={drug.id}>
-          <div className="flex flex-col gap-2 p-4">
-            <h2 className="text-lg font-medium text-primary">{drug.productNameKo}</h2>
-            {drug.productNameEn && <p className="text-sm text-secondary">{drug.productNameEn}</p>}
-            <AllergyBadge check={drug.allergyCheck} />
-            {drug.warnings.map((warning, index) => (
-              <p key={index} className="text-sm text-secondary">
-                {warning}
-              </p>
-            ))}
-          </div>
-        </Card>
+        <DrugCard
+          key={drug.id}
+          drug={drug}
+          source={answer.sourceRefs.find((source) => source.id === drug.sourceRefId)}
+        />
       ))}
 
       {/* The assistant asks for the map through `uiActions`; it never calls a tool (spec §2-1). */}
@@ -141,13 +204,18 @@ export function ChatScreen() {
     sendError,
     latestAnswer,
     allergies,
+    unverifiedAllergens,
     unverifiableAllergy,
+    allergiesConfirmedAt,
+    pendingQuestion,
     send,
     confirmAllergies,
     declareUnverifiableAllergy,
     newConversation,
   } = useChatSession()
-  const [input, setInput] = useState('')
+  // Seeded from the session: a question asked but never answered (the request failed, or the tab
+  // was reloaded mid-flight) comes back into the box, because that is the only place it lives.
+  const [input, setInput] = useState(pendingQuestion)
   const [menuOpen, setMenuOpen] = useState(false)
   // The clarification this user has already answered — by confirming a selection OR by
   // dismissing it. A LATER clarification is a different answer object, so it re-opens the
@@ -160,13 +228,44 @@ export function ChatScreen() {
   const [editingAllergies, setEditingAllergies] = useState(false)
   const composerRef = useRef<HTMLTextAreaElement>(null)
 
+  // A clarification the person has ALREADY answered, restored from storage after a reload.
+  //
+  // `handledClarification` is React state: it dies with the tab. `latestAnswer` does not — it is
+  // rebuilt from the stored transcript. So after a reload the old clarification came back with
+  // nothing marking it answered, and the picker reopened as if the SERVER had just asked. Confirming
+  // it then stamped a fresh cut-off (that is what `clarificationNeedsSelection` authorises below),
+  // and the cut-off swallowed a failed declaration the person had never seen in the picker — the
+  // exact seam `unanswered_questions` exists to close, reopened by pressing F5.
+  //
+  // The fact that closes it was already on disk. `allergiesConfirmedAt` is persisted; if it is later
+  // than the clarification's own turn, that clarification HAS been answered, whatever this tab
+  // remembers. No new state — the answer was in the session all along, the screen just could not see
+  // it. A LATER clarification has a later turn, so it still opens the picker, as it must.
+  const latestClarificationTurn = [...turns]
+    .reverse()
+    .find((turn) => turn.answer?.answerId === 'allergy-clarification')
+  const clarificationAlreadyAnswered =
+    allergiesConfirmedAt !== '' &&
+    latestClarificationTurn != null &&
+    allergiesConfirmedAt > latestClarificationTurn.createdAt
+
   const clarificationNeedsSelection =
     latestAnswer?.answerId === 'allergy-clarification' &&
-    latestAnswer !== handledClarification
+    latestAnswer !== handledClarification &&
+    !clarificationAlreadyAnswered
   const pickerOpen = editingAllergies || clarificationNeedsSelection
-  const composerPlaceholder = allergies.length
-    ? 'Ask your question again — answers will avoid your selected ingredients.'
-    : "I have a sore throat and a fever, and it's 11pm."
+  // Two lists, two different promises, and conflating them overstates the safety of one. Only
+  // `allergies` become `exclude_ingredients` — resolved keys the backend filters retrieval on.
+  // `unverifiedAllergens` are strings the user typed: the backend matches them against ingredient
+  // names and warns, and never excludes a product on their account (§2-6 — an unsigned binding may
+  // not block). "Answers will avoid" would promise a filter that does not run for them.
+  const composerPlaceholder = unverifiedAllergens.length
+    ? allergies.length
+      ? 'Ask again — answers avoid your selected ingredients. The allergens you typed are checked by name only.'
+      : 'Ask again — the allergens you typed are checked by name only, not avoided.'
+    : allergies.length
+      ? 'Ask your question again — answers will avoid your selected ingredients.'
+      : "I have a sore throat and a fever, and it's 11pm."
 
   // `retryable: false` means "this exact request will not succeed if resent" — so the block
   // lifts the moment the question is edited. Locking Ask outright would trap the user whose
@@ -180,9 +279,32 @@ export function ChatScreen() {
   // (dismiss) before anything is sent. The picker itself, not the composer, is the next action.
   const submitBlocked = !input.trim() || streaming || askBlocked || pickerOpen
 
-  function submit(text: string) {
-    if (!text.trim() || streaming || askBlocked || pickerOpen) return
-    void send(text)
+  // The box empties when — and only when — the answer arrives.
+  //
+  // Clearing at send instead (the first fix for "…ibuprofenibuprofen", where a question left in
+  // the box was resent glued to the front of the next one) opened a state space: for the ~100s a
+  // cold answer takes, the box was free to hold something OTHER than the question in flight. A
+  // draft. Everything that could then happen to it — retry sends the draft, retry sends the failed
+  // question twice, a different follow-up drops the failed question from the request, a reload
+  // drops it from sessionStorage — was a separate defect in a separate layer, and review found
+  // them one at a time, six in a row.
+  //
+  // There is no draft here. The box holds exactly one thing: the question that has not been
+  // answered yet. It is locked while that question is in flight (below), it survives a failure
+  // untouched, it is persisted so a reload brings it back, and it empties on success. The state
+  // space is not guarded — it does not exist.
+  async function submit(text: string) {
+    if (submitBlocked) return
+    const answered = await send(text)
+    if (answered) setInput('')
+  }
+
+  // Try again sends whatever the box holds — which is the failed question, unless the person has
+  // since edited it, and then the edit is what they mean to ask. Sending a remembered copy instead
+  // would send the old text and then clear the new: their edited symptom or allergy would go
+  // nowhere, and vanish. There is one send path, and it reads the box.
+  function retryFailed() {
+    void submit(input)
   }
 
   function startNewConversation() {
@@ -193,8 +315,16 @@ export function ChatScreen() {
     setEditingAllergies(false)
   }
 
-  function confirmSelectedAllergies(keys: string[]) {
-    confirmAllergies(keys)
+  function confirmSelectedAllergies(keys: string[], unverified: string[]) {
+    // Confirming is the user asserting "this list — selections plus unverified chips — is my
+    // allergies". It covers the declaration whether or not it added a NEW entry: re-stating an
+    // already-selected allergy (ibuprofen selected, then "…and I'm allergic to ibuprofen") must
+    // proceed on the existing list, not lock the conversation. Only "My allergy isn't listed"
+    // (dismiss) declares something the list cannot express and ends lookup.
+    // One picker, two ways in — the server's clarification, and the user opening "Edit allergy
+    // list" themselves. Only the first was asked for, and only the first may cut off the questions
+    // that went unanswered before it (chatSession.confirmAllergies says why).
+    confirmAllergies(keys, unverified, clarificationNeedsSelection)
     // Confirming answers the current clarification: close the picker until a LATER one arrives.
     // The composer takes the picker's place again on the next render — its reappearance is the
     // cue to ask again, so no explicit focus call (which would race that remount) is needed.
@@ -203,13 +333,13 @@ export function ChatScreen() {
   }
 
   function dismissAllergenPicker() {
-    // "My allergy isn't listed" — the one allergen the user needs is not one we can bind, so no
-    // medicine in this conversation can be checked against it. End lookup rather than proceed on
-    // an incomplete list (the 3rd-P0 fix: a stale/partial list must not read as a complete one).
-    // The lock is persisted in the session so a reload cannot lift it (the 5th-P0 fix).
     setHandledClarification(latestAnswer)
     setEditingAllergies(false)
-    declareUnverifiableAllergy()
+    if (clarificationNeedsSelection) {
+      // Closing a clarification without adding an item leaves the new declaration uncovered.
+      // Persist the lock so reload cannot silently resume on the older, incomplete lists.
+      declareUnverifiableAllergy()
+    }
   }
 
   // Drug lookup ended for this conversation: an allergy we cannot verify was declared.
@@ -233,6 +363,7 @@ export function ChatScreen() {
     <div className="px-3 pb-2">
       <AllergenPicker
         initialSelectedKeys={allergies}
+        initialUnverifiedAllergens={unverifiedAllergens}
         onConfirm={confirmSelectedAllergies}
         onDismiss={dismissAllergenPicker}
       />
@@ -241,7 +372,7 @@ export function ChatScreen() {
 
   const composerPanel = (
     <div className="flex flex-col gap-2 pb-2">
-      {allergies.length > 0 && (
+      {(allergies.length > 0 || unverifiedAllergens.length > 0) && (
         <div className="flex justify-end px-3">
           <Button
             label="Edit allergy list"
@@ -259,6 +390,10 @@ export function ChatScreen() {
           onSubmit={submit}
           placeholder={composerPlaceholder}
           input={
+            /* Locked while the answer is in flight. The box holds the question that was asked, and
+               for the ~100s a cold answer takes it must keep holding exactly that — an editable box
+               is a draft, and a draft is what the six review findings were all made of. It unlocks
+               on the answer (empty) or on the failure (the question, ready to edit or resend). */
             <TextArea
               ref={composerRef}
               label="Describe your symptoms"
@@ -267,6 +402,11 @@ export function ChatScreen() {
               rows={3}
               value={input}
               onChange={setInput}
+              isDisabled={streaming}
+              // Not a bare `disabled`: with a message, astryx keeps the field focusable and marks
+              // it aria-disabled, so a keyboard or screen-reader user is told WHY it will not take
+              // their text. A silently dead box during a 100-second wait reads as a broken app.
+              disabledMessage="Your question is being answered. The box unlocks when the answer arrives."
             />
           }
           sendButton={
@@ -275,7 +415,7 @@ export function ChatScreen() {
               variant="primary"
               isLoading={streaming}
               isDisabled={submitBlocked}
-              onClick={() => submit(input)}
+              onClick={() => void submit(input)}
             />
           }
         />
@@ -303,10 +443,10 @@ export function ChatScreen() {
             type="button"
             aria-label="Conversation menu"
             aria-expanded={menuOpen}
-            className="min-h-11 min-w-11 rounded border border-primary px-2 text-primary"
+            className="grid min-h-11 min-w-11 place-items-center rounded border border-primary px-2 text-primary"
             onClick={() => setMenuOpen((open) => !open)}
           >
-            •••
+            <Ellipsis aria-hidden="true" size={20} />
           </button>
           {menuOpen && (
             <div
@@ -338,15 +478,31 @@ export function ChatScreen() {
           {turns.map((turn, index) => {
             const pending =
               streaming && index === turns.length - 1 && !turn.answer && !turn.error
+            // Try again sends the composer, and the composer holds the question that has not been
+            // answered — which is this turn only while it is the last one. Once the person edits it
+            // into something else and that succeeds, this turn is history: the box has moved on, so
+            // a Try again here would send the wrong text, and "it is still in the box above" would
+            // be a lie. History says what it knows and offers no button.
+            const active = index === turns.length - 1
             return (
               <div key={turn.id} className="flex flex-col gap-2">
                 <ChatMessage sender="user">
                   <ChatMessageBubble>{turn.question}</ChatMessageBubble>
                 </ChatMessage>
                 <ChatMessage sender="assistant">
-                  <ChatMessageBubble variant="ghost">
+                  <ChatMessageBubble variant="ghost" className="w-full max-w-none">
                     {pending && <PendingAnswer elapsedS={elapsedS} />}
-                    {turn.error && <FailedAnswer turn={turn} onRetry={() => submit(input)} />}
+                    {turn.error &&
+                      (active ? (
+                        <FailedAnswer
+                          turn={turn}
+                          onRetry={retryFailed}
+                          onStartOver={startNewConversation}
+                        />
+                      ) : (
+                        <UnansweredQuestion />
+                      ))}
+                    {turn.unanswered && <UnansweredQuestion />}
                     {turn.answer && <AnsweredTurn turn={turn} />}
                   </ChatMessageBubble>
                 </ChatMessage>

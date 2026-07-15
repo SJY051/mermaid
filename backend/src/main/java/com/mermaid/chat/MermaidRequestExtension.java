@@ -12,7 +12,8 @@ import java.util.Set;
  *   "messages": [ … ],           ← OpenAI's
  *   "stream": false,             ← OpenAI's
  *   "mermaid": {                 ← ours
- *     "exclude_ingredients": ["Ibuprofen", "Paracetamol 500mg"]
+ *     "exclude_ingredients": ["Ibuprofen"],
+ *     "unverified_allergens": ["Yellow dye"]
  *   }
  * }
  * </pre>
@@ -26,15 +27,20 @@ import java.util.Set;
  * still has an allergy, and it still has to filter their results. The browser holds it; the browser
  * sends it; we never store it.
  *
- * <p>Bounded on purpose. An unbounded list would become one upstream search per entry.
+ * <p>Bounded on purpose. A verified entry affects upstream filtering, and neither user-authored
+ * list may become an unbounded request payload.
  */
 final class MermaidRequestExtension {
 
     static final String FIELD = "mermaid";
 
     private static final String EXCLUDE_INGREDIENTS = "exclude_ingredients";
-    private static final int MAX_EXCLUDED = 10;
+    private static final String UNVERIFIED_ALLERGENS = "unverified_allergens";
+    private static final String UNANSWERED_QUESTIONS = "unanswered_questions";
+    private static final int MAX_ENTRIES = 10;
     private static final int MAX_TERM_LENGTH = 100;
+    /** A question, not an ingredient name — it gets a sentence's worth of room. */
+    private static final int MAX_QUESTION_LENGTH = 2000;
 
     private MermaidRequestExtension() {}
 
@@ -47,9 +53,16 @@ final class MermaidRequestExtension {
      * show a product containing the dropped allergen as {@code no_match_found}. The gate treats an
      * incomplete list exactly like an unresolved entry: it clarifies (spec 005 FR-004).
      */
-    record StructuredExclusions(Set<String> terms, boolean incomplete) {
-        static final StructuredExclusions NONE = new StructuredExclusions(Set.of(), false);
+    record StructuredExclusions(
+            Set<String> terms,
+            Set<String> unverifiedTerms,
+            Set<String> unansweredQuestions,
+            boolean incomplete) {
+        static final StructuredExclusions NONE =
+                new StructuredExclusions(Set.of(), Set.of(), Set.of(), false);
     }
+
+    private record ParsedList(Set<String> terms, boolean incomplete) {}
 
     /**
      * Raw, unnormalised ingredient strings as the user typed them. Never null.
@@ -66,14 +79,25 @@ final class MermaidRequestExtension {
             return StructuredExclusions.NONE;
         }
         if (!extension.isObject()) {
-            return new StructuredExclusions(Set.of(), true);
+            return new StructuredExclusions(Set.of(), Set.of(), Set.of(), true);
         }
-        JsonNode node = extension.path(EXCLUDE_INGREDIENTS);
+        ParsedList exclusions = parseList(extension, EXCLUDE_INGREDIENTS, MAX_TERM_LENGTH);
+        ParsedList unverified = parseList(extension, UNVERIFIED_ALLERGENS, MAX_TERM_LENGTH);
+        ParsedList unanswered = parseList(extension, UNANSWERED_QUESTIONS, MAX_QUESTION_LENGTH);
+        return new StructuredExclusions(
+                exclusions.terms(),
+                unverified.terms(),
+                unanswered.terms(),
+                exclusions.incomplete() || unverified.incomplete() || unanswered.incomplete());
+    }
+
+    private static ParsedList parseList(JsonNode extension, String field, int maxLength) {
+        JsonNode node = extension.path(field);
         if (node.isMissingNode() || node.isNull()) {
-            return StructuredExclusions.NONE;
+            return new ParsedList(Set.of(), false);
         }
         if (!node.isArray()) {
-            return new StructuredExclusions(Set.of(), true);
+            return new ParsedList(Set.of(), true);
         }
         Set<String> terms = new LinkedHashSet<>();
         boolean incomplete = false;
@@ -89,7 +113,7 @@ final class MermaidRequestExtension {
             if (raw.isEmpty()) {
                 continue; // a blank string carries no allergen; dropping it loses nothing
             }
-            if (raw.length() > MAX_TERM_LENGTH || terms.size() >= MAX_EXCLUDED) {
+            if (raw.length() > maxLength || terms.size() >= MAX_ENTRIES) {
                 // A real entry we cannot keep. The bounds stay (an unbounded list is one upstream
                 // search per entry), but dropping silently would launder the loss — flag it.
                 incomplete = true;
@@ -97,6 +121,6 @@ final class MermaidRequestExtension {
             }
             terms.add(raw);
         }
-        return new StructuredExclusions(terms, incomplete);
+        return new ParsedList(java.util.Collections.unmodifiableSet(terms), incomplete);
     }
 }

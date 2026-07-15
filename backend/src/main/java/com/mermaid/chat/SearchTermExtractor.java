@@ -125,9 +125,50 @@ public class SearchTermExtractor {
         } catch (Exception e) {
             // A failed extraction must not fail the conversation. The user gets an ungrounded reply
             // that names no medicine, which is exactly what an empty context should produce.
-            log.warn("search_term_extraction_failed code=UPSTREAM_FAILURE count=1");
+            //
+            // But it must not fail SILENTLY either. Pass 1a is the whole retrieval: when it fails,
+            // the server queries nothing, the model is handed an empty context, and the person asks
+            // about a headache and is told we could not verify an answer. That is the entire feature
+            // gone, and the old line — a bare `code=UPSTREAM_FAILURE` — said only that something,
+            // somewhere, went wrong. It cost an evening to find out that "something" was a timeout.
+            //
+            // The exception's TYPE and a reason we classified ourselves — never the exception's own
+            // message. That message is not ours: a Jackson parse error quotes the text it choked on,
+            // which is the person's symptoms (§2-5), and any upstream can put CRLF in it and forge a
+            // log line. `reasonOf` maps the throwable to a fixed vocabulary (timeout / http_NNN /
+            // connect_failed / unclassified), so what lands in the log is a word we chose. Do not
+            // "improve" this by adding `e.getMessage()`.
+            log.warn(
+                    "search_term_extraction_failed code=UPSTREAM_FAILURE exception={} reason={}",
+                    e.getClass().getSimpleName(),
+                    reasonOf(e));
             return RetrievalQuery.EMPTY;
         }
+    }
+
+    /**
+     * Why the call failed, in a form that cannot carry the user's symptoms into a log file.
+     *
+     * <p>A log is a place things persist, and a consultation is not allowed to persist (§2-5). Some
+     * exceptions here would quote the text they choked on — a Jackson parse error names the source —
+     * so the message is not passed through: it is matched against the failures we actually get, and
+     * anything unrecognised is reported as its type alone. An unknown cause is a reason to look at
+     * the exception class, never a reason to print the person's message.
+     */
+    private static String reasonOf(Throwable e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.util.concurrent.TimeoutException
+                    || cause.getClass().getSimpleName().contains("Timeout")) {
+                return "timeout — the extraction budget (llm.extraction-timeout) elapsed";
+            }
+            if (cause instanceof org.springframework.web.reactive.function.client.WebClientResponseException http) {
+                return "http_" + http.getStatusCode().value();
+            }
+            if (cause instanceof java.net.ConnectException) {
+                return "connect_failed";
+            }
+        }
+        return "unclassified";
     }
 
     /**

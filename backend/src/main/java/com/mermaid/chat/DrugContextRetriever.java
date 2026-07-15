@@ -3,6 +3,7 @@ package com.mermaid.chat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
 import com.mermaid.drug.DrugService;
@@ -11,13 +12,17 @@ import com.mermaid.drug.DrugService.RetrievedContext;
 import com.mermaid.drug.IngredientNormalizer;
 import com.mermaid.drug.domain.Drug;
 import com.mermaid.drug.domain.DurWarning;
+import com.mermaid.profile.domain.MatchConfidence;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -72,14 +77,15 @@ public class DrugContextRetriever {
      *     requests; that boundary belongs to the first-party send-every-turn obligation, not to
      *     this scan. Server-owned pending-allergy state is out of scope on purpose: transcripts
      *     stay off the server (§2-5).
-     * @param exclusions the structured {@code mermaid.exclude_ingredients} field: the raw terms,
-     *     plus whether the parser had to drop any (bounds). By contract the client sends the
-     *     COMPLETE list; it is the only channel that may authorize retrieval under a declared
-     *     allergy — so a list we do not hold in full authorizes nothing.
+     * @param exclusions the two structured allergen fields, plus whether the parser had to drop any
+     *     entry. Verified terms alone enter the avoided set; unverified names only annotate retrieved
+     *     products. By contract the client sends both complete lists, so a list we do not hold in
+     *     full authorizes nothing.
      */
     public DrugContext retrieve(
             String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
         Set<String> excludedIngredients = exclusions.terms();
+        Set<String> unverifiedAllergens = exclusions.unverifiedTerms();
         // The allergy gate runs BEFORE the extractor, like EmergencyTriage runs before the model:
         // a turn that fails closed must not depend on — or pay for — a model call.
         //
@@ -92,8 +98,24 @@ public class DrugContextRetriever {
         // question, and only the client-complete structured list may proceed (spec 005, 2026-07-14).
         boolean currentTurnDeclares = AllergyDeclaration.presentIn(userText);
         boolean anyTurnDeclares = currentTurnDeclares || AllergyDeclaration.presentIn(allUserText);
+        // A question the client says never got an answer, and that declares an allergy, is the one
+        // declaration a structured list cannot be assumed to cover. The clarification is what turns a
+        // declaration into a list — so a declaration whose turn FAILED never reached the picker, and
+        // the list the client is sending was built for some earlier one. "I am also allergic to
+        // aspirin", lost to a network error, would otherwise sit quietly in the history while the
+        // request carried exclude_ingredients: ["ibuprofen"], and the gate — seeing a resolved,
+        // complete list — would let retrieval through and hand the person an aspirin product marked
+        // no_match_found. The client cannot decide this (it does not know what declares an allergy)
+        // and the server cannot see it (every question looks answered on the wire), so the client
+        // reports the fact and the server makes the judgement.
+        boolean unansweredDeclares =
+                exclusions.unansweredQuestions().stream().anyMatch(AllergyDeclaration::presentIn);
         boolean allergyDeclared =
-                anyTurnDeclares || !excludedIngredients.isEmpty() || exclusions.incomplete();
+                anyTurnDeclares
+                        || unansweredDeclares
+                        || !excludedIngredients.isEmpty()
+                        || !unverifiedAllergens.isEmpty()
+                        || exclusions.incomplete();
 
         Set<String> avoidedKeys = new HashSet<>();
         List<String> unresolved = new ArrayList<>();
@@ -115,12 +137,18 @@ public class DrugContextRetriever {
         //  - an allergy is in play (this turn, an earlier turn, or the field) and the structured
         //    list is absent or has any entry no signed row resolves (FR-004/FR-013).
         if (currentTurnDeclares
+                || unansweredDeclares
                 || exclusions.incomplete()
-                || (allergyDeclared && (avoidedKeys.isEmpty() || !unresolved.isEmpty()))) {
+                || !unresolved.isEmpty()
+                || (anyTurnDeclares && avoidedKeys.isEmpty() && unverifiedAllergens.isEmpty())) {
             log.info(
-                    "Allergy declared (currentTurn={}, structuredIncomplete={}, resolved={},"
-                            + " unresolved={}) — returning server clarification",
-                    currentTurnDeclares, exclusions.incomplete(), avoidedKeys.size(), unresolved.size());
+                    "Allergy declared (currentTurn={}, unansweredDeclares={}, structuredIncomplete={},"
+                            + " resolved={}, unresolved={}) — returning server clarification",
+                    currentTurnDeclares,
+                    unansweredDeclares,
+                    exclusions.incomplete(),
+                    avoidedKeys.size(),
+                    unresolved.size());
             return DrugContext.allergyClarification();
         }
 
@@ -143,6 +171,8 @@ public class DrugContextRetriever {
         long extractedAt = System.nanoTime();
 
         RetrievedContext retrieved = drugService.retrieve(query, avoidedKeys);
+        List<Drug> checkedDrugs = applyUnverifiedWarnings(retrieved.drugs(), unverifiedAllergens);
+        retrieved = new RetrievedContext(checkedDrugs, retrieved.allowedProductNames(), retrieved.sources());
         // Cold, the retrieval is roughly thirty sequential calls to 식약처. Warm, Redis answers.
         // Both numbers belong in the log; the gap between them is the case for parallelising.
         log.info("RAG pass 1: terms={}/{} → {} drug(s). extract {}ms, retrieve {}ms",
@@ -151,6 +181,89 @@ public class DrugContextRetriever {
 
         return new DrugContext(
                 render(retrieved, allergyDeclared), groundedDrugs(retrieved.drugs()), retrieved.sources());
+    }
+
+    private List<Drug> applyUnverifiedWarnings(List<Drug> drugs, Set<String> unverifiedAllergens) {
+        if (unverifiedAllergens.isEmpty()) {
+            return drugs;
+        }
+        return drugs.stream().map(drug -> applyUnverifiedWarning(drug, unverifiedAllergens)).toList();
+    }
+
+    private Drug applyUnverifiedWarning(Drug drug, Set<String> unverifiedAllergens) {
+        if (drug.allergyCheck().status() == AllergyCheck.Status.BLOCKED) {
+            return drug;
+        }
+
+        // No ingredient list, so the name check could not run at all. The verified checker already
+        // answers UNKNOWN in this case, but only when it has keys to compare — an unverified-only
+        // declaration leaves the avoided set empty, so the product arrives carrying NO_MATCH_FOUND.
+        // That state says "we looked and found nothing", and here we did not look (§2-2). Someone
+        // who has named an allergen must not read "No match found" off a product we cannot read.
+        if (drug.ingredientsEn().isEmpty()) {
+            return withAllergyCheck(
+                    drug,
+                    AllergyCheck.unknown(
+                            "We could not read this product's ingredients, so we could not check it "
+                                    + "against the allergens you named. Ask a pharmacist before taking it."));
+        }
+
+        Set<String> matchedIngredients = new LinkedHashSet<>();
+        Set<String> matchedNames = new LinkedHashSet<>();
+        for (String ingredient : drug.ingredientsEn()) {
+            for (String unverified : unverifiedAllergens) {
+                String unverifiedKey = normalizer.canonicalize(unverified);
+                if (normalizer.compare(ingredient, unverifiedKey) != MatchConfidence.UNKNOWN) {
+                    matchedIngredients.add(ingredient);
+                    matchedNames.add(unverified);
+                }
+            }
+        }
+        if (matchedIngredients.isEmpty()) {
+            return drug;
+        }
+
+        String nameMatchMessage = "Name match only: "
+                + String.join(", ", matchedIngredients)
+                + " matched the unverified allergen name "
+                + String.join(", ", matchedNames)
+                + ". A pharmacist must confirm this match.";
+
+        // A drug can already carry a WARNING from the verified check — a partial or compound match
+        // against exclude_ingredients. That warning names a reviewed ingredient the user actually
+        // declared; this one names a string they typed. Overwriting the first with the second would
+        // silently downgrade the verified finding to a name match, and the user would never hear
+        // about the allergen we did resolve. So carry both: verified message first, then the caveat.
+        AllergyCheck existing = drug.allergyCheck();
+        boolean hasVerifiedWarning = existing.status() == AllergyCheck.Status.WARNING;
+
+        Set<String> allMatched = new LinkedHashSet<>();
+        if (hasVerifiedWarning) {
+            allMatched.addAll(existing.matchedIngredients());
+        }
+        allMatched.addAll(matchedIngredients);
+
+        AllergyCheck warning = new AllergyCheck(
+                AllergyCheck.Status.WARNING,
+                List.copyOf(allMatched),
+                hasVerifiedWarning ? existing.message() + " " + nameMatchMessage : nameMatchMessage);
+        return withAllergyCheck(drug, warning);
+    }
+
+    private Drug withAllergyCheck(Drug drug, AllergyCheck check) {
+        return new Drug(
+                drug.id(),
+                drug.itemSeq(),
+                drug.nameKo(),
+                drug.nameEn(),
+                drug.manufacturerKo(),
+                drug.ingredientsEn(),
+                drug.mainIngredientKo(),
+                drug.prescriptionStatus(),
+                drug.narrative(),
+                drug.durWarnings(),
+                check,
+                drug.source());
     }
 
     private Map<String, GroundedDrug> groundedDrugs(List<Drug> drugs) {
@@ -179,12 +292,82 @@ public class DrugContextRetriever {
             // (INV6_PRODUCT_NOT_RETRIEVED — the #60 P1). INV6 still rejects any card that invents
             // ingredients for it: an empty grounded set never equals a non-empty answer set.
             grounded.put(
-                    drug.nameKo(), new GroundedDrug(drug.source().id(), Set.copyOf(ingredientKeys)));
+                    drug.nameKo(),
+                    new GroundedDrug(
+                            drug.source().id(),
+                            Set.copyOf(ingredientKeys),
+                            drug.allergyCheck(),
+                            drug.nameEn(),
+                            List.copyOf(drug.ingredientsEn()),
+                            drug.narrative() == null ? null : drug.narrative().useMethod(),
+                            drug.narrative() == null ? null : drug.narrative().efficacy(),
+                            MermAidAnswer.DrugCard.PrescriptionStatus.from(
+                                    drug.prescriptionStatus().wire()),
+                            cardWarnings(drug),
+                            officialCautionKo(drug)));
         }
         if (rejectedCount > 0) {
             log.warn("drug_grounding_failed code=UNNORMALIZABLE_INGREDIENT count={}", rejectedCount);
         }
         return Map.copyOf(grounded);
+    }
+
+    /**
+     * The card's warnings, finished, in the server's own words (invariant 8).
+     *
+     * <p>Until 2026-07-14 the model was <i>asked</i> to copy these onto the card, and nothing
+     * checked that it had. A model that dropped one dropped a government contraindication; a model
+     * that added one put an unsourced medical claim under a footer naming 식약처. Neither is
+     * detectable in an answer that is otherwise entirely correct — same product, same ingredients,
+     * same source — which is precisely why the copy could not stay the model's job. We hold the
+     * record. We render it.
+     *
+     * <p>병용금기 stays a count and not a list, as it was in the context: it is a property of a
+     * <i>pair</i>, 나르펜정400밀리그램 has twenty of them, and the twenty-six-warning card that came out of
+     * a live model named Korean medicines the reader has never heard of. Whether any of them applies
+     * depends on what else the person takes, which we did not ask. So the fact we can state is how
+     * many there are and who to tell; {@code GET /drugs/{id}} still returns every one.
+     */
+    private static List<String> cardWarnings(Drug drug) {
+        List<String> warnings = new ArrayList<>();
+        int combinations = 0;
+        for (DurWarning warning : drug.durWarnings()) {
+            if (warning.kind() == DurWarning.Kind.COMBINATION) {
+                combinations++;
+            } else {
+                warnings.add(warning.describe());
+            }
+        }
+        if (combinations > 0) {
+            warnings.add(
+                    "식약처 publishes "
+                            + combinations
+                            + (combinations == 1
+                                    ? " medicine that must not be taken with this one."
+                                    : " medicines that must not be taken with this one.")
+                            + " Tell the pharmacist everything else you are taking — they can check"
+                            + " the list against it. Source: MFDS DUR.");
+        }
+        return List.copyOf(warnings);
+    }
+
+    /**
+     * Everything the ministry says about using this medicine carefully, joined, in Korean.
+     *
+     * <p>All four fields, not just 주의사항: a card's {@code labelCautions} summarises the lot, so this
+     * is the text its numbers are checked against, and leaving 상호작용 out would make a faithful
+     * sentence about an interaction look invented.
+     */
+    private static String officialCautionKo(Drug drug) {
+        Drug.Narrative n = drug.narrative();
+        if (n == null) {
+            return null;
+        }
+        String joined =
+                Stream.of(n.caution(), n.warning(), n.interaction(), n.sideEffect())
+                        .filter(text -> text != null && !text.isBlank())
+                        .collect(Collectors.joining("\n"));
+        return joined.isBlank() ? null : joined;
     }
 
     private static long millisBetween(long fromNanos, long toNanos) {
@@ -222,13 +405,14 @@ public class DrugContextRetriever {
         putIfPresent(official, "interaction", n.interaction());
         putIfPresent(official, "sideEffect", n.sideEffect());
 
-        // Age, pregnancy and elderly warnings are properties of this medicine, and go in whole.
+        // The model no longer copies these onto the card — the server renders them itself, from the
+        // same record (see cardWarnings). They stay in the context because the model still has to
+        // write a responsible `summary` about a medicine it is being told is contraindicated in
+        // pregnancy, and it cannot do that without knowing.
         //
-        // 병용금기 is not: it is a property of a *pair*. 나르펜정400밀리그램 has twenty of them, and a model
-        // told to copy them dutifully produced a card with twenty-six warnings naming Korean medicines
-        // the reader has never heard of. Whether any applies depends on what else they take, which we
-        // did not ask. So the model gets the count and an instruction, and `GET /drugs/{id}` still
-        // returns every one of them for anyone who wants the list.
+        // 병용금기 remains a count and not a list, here and on the card, for the reason it always was:
+        // it is a property of a *pair*, 나르펜정400밀리그램 has twenty, and whether any applies depends on
+        // what else the person takes, which we did not ask.
         ArrayNode dur = node.putArray("durWarnings");
         int combinations = 0;
         for (DurWarning w : drug.durWarnings()) {
@@ -354,22 +538,77 @@ public class DrugContextRetriever {
                 fills it in.
 
                 `officialTextKo` is the ministry's own wording. Translate and summarise it. Do not add \
-                indications, dosages or warnings it does not state. Copy every entry of `durWarnings` \
-                into that drug's `warnings`. Never describe a medicine as safe.
+                indications, dosages or cautions it does not state. Never describe a medicine as safe.
 
-                Where `combinationContraindicationCount` is present, add exactly one warning saying \
-                that this many combination contraindications are published for the medicine and that \
-                the reader must tell a pharmacist what else they are taking. Do not invent the list — \
-                we did not ask what they take, so we do not know which apply.
+                Leave each drug card's `warnings` as an empty array and its `prescriptionStatus` as \
+                "unknown". The server writes both from the government record, as it does with \
+                `source_refs` — a warning is not yours to copy, and copying is not something we can \
+                check. `durWarnings` and `combinationContraindicationCount` are given to you so that \
+                you know what this medicine is contraindicated for; write nothing about them in the \
+                card.
                 """
                     .formatted(count);
         }
     }
 
     /** The narrow server facts needed by invariants 1 and 6; model-authored prose stays separate. */
-    public record GroundedDrug(String sourceRefId, Set<String> ingredientKeys) {
+    /**
+     * What the server knows about one retrieved product, and therefore what the model is not allowed
+     * to contradict: which source it came from, which ingredients it holds — and what our own allergy
+     * check said about it.
+     *
+     * <p>{@code allergyCheck} is here for the same reason {@code sourceRefId} is (spec 2-9): the model
+     * is handed the verdict and asked to carry it, and a model that carries it wrongly must not be
+     * able to change what the user sees. It writes {@code no_match_found} over a {@code blocked} and
+     * every other check still passes — same product, same ingredients, same source. So the server
+     * stamps its own verdict back onto the card in post-processing rather than trusting the copy.
+     */
+    public record GroundedDrug(
+            String sourceRefId,
+            Set<String> ingredientKeys,
+            AllergyCheck allergyCheck,
+            /**
+             * 식약처's own 용법용량 for this product, in Korean, exactly as retrieved — and the only
+             * dosing text that exists. The model translates it; post-processing checks that every
+             * number it wrote is one of these numbers. Null when the ministry gave us no dosing
+             * text: then there is nothing to check the model against, and nothing it may say.
+             */
+            /**
+             * The ministry's own display names — {@code Drug.nameEn} and {@code Drug.ingredientsEn},
+             * exactly as retrieved. The model copies them; post-processing stamps them back, AFTER
+             * validation, so a card can never SHOW a name the ministry did not return while invariant
+             * 6 still gets to judge the name the model actually claimed.
+             */
+            String productNameEn,
+            List<String> ingredientNamesEn,
+            String officialDosageKo,
+            /**
+             * 식약처's 효능효과 for this product, in Korean. What the model's {@code indicationSummary}
+             * is checked against — because a field the model owns is a field the model can put a DOSE
+             * in, and "For: take 8 tablets every 2 hours" renders above the official dose on the card.
+             */
+            String officialEfficacyKo,
+            /**
+             * The MFDS licence record's 전문/일반 classification. A server fact with a wire value
+             * already, so there is nothing for the model to add and nothing to check — the server
+             * writes it onto the card (invariant 8).
+             */
+            MermAidAnswer.DrugCard.PrescriptionStatus prescriptionStatus,
+            /**
+             * The card's {@code warnings}, rendered by the server from {@link Drug#durWarnings()} —
+             * the finished English strings, not the model's copy of them. Empty means 식약처 has
+             * published no DUR contraindication for this product, which the card says in words.
+             */
+            List<String> warnings,
+            /**
+             * 식약처's 주의사항·경고·상호작용·부작용 for this product, joined, in Korean. What a card's
+             * {@code labelCautions} is checked against, by the same digit rule as the dosing. Null
+             * when the ministry gave us none — then a caution on the card has no source at all.
+             */
+            String officialCautionKo) {
         public GroundedDrug {
             ingredientKeys = Set.copyOf(ingredientKeys);
+            warnings = List.copyOf(warnings);
         }
     }
 }

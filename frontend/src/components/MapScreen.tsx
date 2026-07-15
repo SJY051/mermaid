@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react'
-import { fetchFacilities, resolveLocation, type ResolvedLocation } from '../lib/facilities'
+import { Phone } from 'lucide-react'
+import {
+  fetchFacilities,
+  fetchGeocode,
+  locationNotice,
+  resolveLocation,
+  SEOUL_CITY_HALL,
+  type ResolvedLocation,
+} from '../lib/facilities'
 import { splitByOpenStatus } from '../lib/facilitySplit'
-import type { Facility, FacilityType } from '../lib/types'
+import { setManualLocation } from '../lib/storage'
+import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 import { FacilityMap } from './FacilityMap'
 
 const RADIUS_M = 1000
 const HOSPITAL_UNAVAILABLE = 'We cannot look up hospitals yet — pharmacy search works today.'
-const FALLBACK_NOTICE =
-  'Centred on Seoul City Hall — we could not read your location, so these are not near you.'
-
 type TypeFilter = 'all' | 'pharmacy' | 'hospital'
 
 const TYPE_FILTERS: Array<{ id: TypeFilter; label: string }> = [
@@ -190,6 +196,21 @@ export function MapScreen({ active }: MapScreenProps) {
     setTypeFilter(nextType)
   }
 
+  function useManualLocation(center: { lat: number; lng: number }, label = 'Chosen map spot') {
+    setManualLocation({ ...center, label })
+    setLocation({ ...center, source: 'manual', label })
+  }
+
+  function useAddress(result: GeocodeResult) {
+    const label = result.roadAddress || result.jibunAddress || result.englishAddress
+    useManualLocation({ lat: result.latitude, lng: result.longitude }, label)
+  }
+
+  function clearManualLocation() {
+    setManualLocation(null)
+    setLocation({ ...SEOUL_CITY_HALL, source: 'fallback' })
+  }
+
   if (!location) {
     return (
       <div className="flex flex-col gap-3 p-6">
@@ -243,8 +264,10 @@ export function MapScreen({ active }: MapScreenProps) {
             key={filter.id}
             type="button"
             aria-pressed={typeFilter === filter.id}
-            className={`min-h-11 rounded border px-2 text-sm font-medium text-primary ${
-              typeFilter === filter.id ? 'border-primary bg-secondary' : 'border-primary bg-surface'
+            className={`min-h-11 rounded border px-2 text-sm font-medium ${
+              typeFilter === filter.id
+                ? 'border-primary bg-primary text-surface'
+                : 'border-primary bg-surface text-primary'
             }`}
             onClick={() => selectType(filter.id)}
           >
@@ -270,7 +293,19 @@ export function MapScreen({ active }: MapScreenProps) {
         facilities={mapFacilities}
         additionalFixtureData={hasFixtureDataOnScreen}
         caption={`Nearby ${resultKind} within ${RADIUS_M}m`}
-        notice={location.fromDevice ? undefined : FALLBACK_NOTICE}
+        notice={locationNotice(location)}
+        manualLocation={
+          location.source === 'device'
+            ? undefined
+            : {
+                canClear: location.source === 'manual',
+                onUseSpot: useManualLocation,
+                onSearchAddress: fetchGeocode,
+                onUseAddress: useAddress,
+                currentLabel: location.source === 'manual' ? location.label : undefined,
+                onClear: clearManualLocation,
+              }
+        }
       />
 
       {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}
@@ -318,7 +353,11 @@ export function MapScreen({ active }: MapScreenProps) {
                   <span className="block text-sm text-primary">Hours unknown</span>
                 </span>
                 {facility.phone ? (
-                  <a className="shrink-0 text-sm text-primary underline" href={`tel:${facility.phone}`}>
+                  <a
+                    className="inline-flex shrink-0 items-center gap-1 text-sm text-primary underline"
+                    href={`tel:${facility.phone}`}
+                  >
+                    <Phone aria-hidden="true" size={14} />
                     {facility.phone}
                   </a>
                 ) : (

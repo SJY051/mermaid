@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.mermaid.chat.AnswerValidator.ViolationCode;
 import com.mermaid.chat.DrugContextRetriever.GroundedDrug;
+import com.mermaid.chat.dto.AllergyCheck;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.common.SourceRef;
 import com.mermaid.drug.IngredientNormalizer;
@@ -298,7 +299,17 @@ class AnswerContractTest {
     }
 
     private static GroundedDrug grounded(String sourceRefId, String... ingredientKeys) {
-        return new GroundedDrug(sourceRefId, Set.of(ingredientKeys));
+        return new GroundedDrug(
+                sourceRefId,
+                Set.of(ingredientKeys),
+                AllergyCheck.noMatch(),
+                null,
+                List.of(),
+                null,
+                null,
+                MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                List.of(),
+                null);
     }
 
     private static ViolationCode expectedViolationCode(Path fixture) {

@@ -57,7 +57,12 @@ fi
 
 echo "§2 의료기관"
 expect GET "/facilities?lat=37.4979&lng=127.0276&type=pharmacy" 200
-expect GET "/facilities?lat=37.4979&lng=127.0276&type=hospital" 501   # not an empty list
+expect GET "/facilities?lat=37.4979&lng=127.0276&type=hospital" 200
+hospital=$(curl -s "$BASE/facilities?lat=37.5663&lng=126.9779&radius_m=1000&type=hospital")
+echo "$hospital" | grep -q '"type":"hospital"'
+check "GET /facilities?type=hospital returns hospital facilities" $?
+echo "$hospital" | grep -q '"id":"facility:hira:'
+check "GET /facilities?type=hospital is not an empty legacy 200 response" $?
 expect GET "/facilities/facility:nmc:C1110693"                 501
 expect GET "/facilities?lat=999&lng=127.0"                     400
 expect GET "/facilities?lng=127.0"                             400   # lat is required

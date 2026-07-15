@@ -68,7 +68,8 @@ export async function* streamChat(
 
 export interface MermaidRequestExtension {
   mermaid?: {
-    exclude_ingredients: string[]
+    exclude_ingredients?: string[]
+    unverified_allergens?: string[]
   }
 }
 

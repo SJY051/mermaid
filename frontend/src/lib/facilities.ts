@@ -1,4 +1,5 @@
-import type { Facility, FacilityType } from './types'
+import type { Facility, FacilityType, GeocodeResult } from './types'
+import { loadPreferences } from './storage'
 
 export interface FacilityQuery {
   lat: number
@@ -37,6 +38,17 @@ export async function fetchFacilities(
   return response.json() as Promise<Facility[]>
 }
 
+/** Searches addresses through our server so the Naver Client Secret never enters the bundle. */
+export async function fetchGeocode(query: string, signal?: AbortSignal): Promise<GeocodeResult[]> {
+  const params = new URLSearchParams({ query })
+  const response = await fetch(`/api/v1/geocode?${params}`, { signal })
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    throw new Error(body?.error?.message ?? `Could not search addresses (HTTP ${response.status}).`)
+  }
+  return response.json() as Promise<GeocodeResult[]>
+}
+
 /**
  * Where to centre the map.
  *
@@ -46,16 +58,41 @@ export async function fetchFacilities(
  */
 export const SEOUL_CITY_HALL = { lat: 37.5663, lng: 126.9779 }
 
+export const FALLBACK_LOCATION_NOTICE =
+  'Centred on Seoul City Hall — we could not read your location, so these are not near you.'
+export const MANUAL_LOCATION_NOTICE =
+  "Centred on the spot you chose — not your device's location. Distances are measured from there."
+
+export type LocationSource = 'device' | 'manual' | 'fallback'
+
 export interface ResolvedLocation {
   lat: number
   lng: number
-  /** false when we fell back. The UI says so. */
-  fromDevice: boolean
+  source: LocationSource
+  /** Present only for a user-chosen manual centre. */
+  label?: string
+}
+
+export function locationNotice(location: ResolvedLocation): string | undefined {
+  if (location.source === 'manual') return MANUAL_LOCATION_NOTICE
+  if (location.source === 'fallback') return FALLBACK_LOCATION_NOTICE
+  return undefined
 }
 
 export function resolveLocation(timeoutMs = 8000): Promise<ResolvedLocation> {
+  const manualLocation = loadPreferences().manualLocation
+  const withoutDevice = (): ResolvedLocation =>
+    manualLocation
+      ? {
+          lat: manualLocation.lat,
+          lng: manualLocation.lng,
+          source: 'manual',
+          label: manualLocation.label,
+        }
+      : { ...SEOUL_CITY_HALL, source: 'fallback' }
+
   if (!navigator.geolocation) {
-    return Promise.resolve({ ...SEOUL_CITY_HALL, fromDevice: false })
+    return Promise.resolve(withoutDevice())
   }
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
@@ -63,10 +100,10 @@ export function resolveLocation(timeoutMs = 8000): Promise<ResolvedLocation> {
         resolve({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-          fromDevice: true,
+          source: 'device',
         }),
       // Denied, unavailable, or timed out. All three mean the same thing to us.
-      () => resolve({ ...SEOUL_CITY_HALL, fromDevice: false }),
+      () => resolve(withoutDevice()),
       { timeout: timeoutMs, maximumAge: 60_000 },
     )
   })

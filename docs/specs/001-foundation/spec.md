@@ -153,7 +153,7 @@ Sol Pro도 같은 결론입니다: *"의료기관·의약품 사실은 서버가
 | pass 2, 작은 컨텍스트 | 13.7초 |
 | pass 2, 실제 컨텍스트(3제품) | 40~120초+ |
 | **완전히 같은 웜 캐시 요청, 몇 분 간격** | **215초 → 87초** |
-| pass 1a 추출 | 5~21초 |
+| pass 1a 추출 | 5~21초 (2026-07-11 측정) · **최대 24.4초** (2026-07-14 브라우저 실측) |
 | **pass 1b 조회 (병렬화 후, 콜드)** | **4.7초** |
 | pass 1b 조회 (웜) | 0.15초 |
 
@@ -161,7 +161,8 @@ Sol Pro도 같은 결론입니다: *"의료기관·의약품 사실은 서버가
 다만 우리가 왕복을 2회로 늘려 노출을 두 배로 만들었습니다. 그래서:
 
 - `mermaid.llm.timeout` = **120초**. 60초는 경계선에 정확히 걸려, 같은 질문이 캐시 상태에 따라 답하거나 500을 내던 값입니다.
-- `mermaid.llm.extraction-timeout` = **30초**. 짧은 배열 두 개를 받는 호출에 답변과 같은 예산을 주면, 대기열에 걸린 프로바이더가 **조회를 시작하기도 전에** 3분을 태웁니다. 타임아웃 시 컨텍스트가 비고, 답변은 약을 하나도 지목하지 않은 채 "약국에 가세요"가 됩니다 — **degraded지, wrong이 아닙니다.**
+- `mermaid.llm.extraction-timeout` = **60초** (2026-07-14 개정. 원래 30초). 짧은 배열 두 개를 받는 호출에 답변과 같은 예산을 주면, 대기열에 걸린 프로바이더가 **조회를 시작하기도 전에** 3분을 태웁니다. 타임아웃 시 컨텍스트가 비고, 답변은 약을 하나도 지목하지 않은 채 "약국에 가세요"가 됩니다 — **degraded지, wrong이 아닙니다.**
+  - **그런데 30초는 응답의 *크기*를 보고 정한 값이었고, 프로바이더는 크기로 과금하지 않습니다.** 2026-07-14 브라우저 실측: **같은 추출 호출이 성공할 때 24.4초**, 같은 턴의 답변 호출이 100초. 예산이 실측 지연 **바로 위에** 얹혀 있어서, 상류가 조금만 느려지면 추출이 죽었습니다. 그리고 추출이 죽는 것은 작은 degradation이 아닙니다 — 검색어가 없으니 정부 조회가 0건이고, 모델은 빈 컨텍스트로 답을 쓰고, 검증기가 그걸 거부합니다. **두통을 물은 사람이 약을 하나도 못 받습니다.** 예산 안에 들어오면 같은 질문이 검증된 약 3종을 돌려줍니다. 느린 턴의 벽시계 시간이 조금 늘고, 옛 천장은 약을 잃었습니다.
 - 상류 실패는 **500이 아니라** 안전한 답변으로 내려갑니다. 느린 모델이 아픈 사람에게 "서버가 고장났다"고 말해선 안 됩니다.
 - `RAG pass 1` / `RAG pass 2` 로그가 각 구간의 밀리초를 찍습니다. 다음에 타임아웃을 만난 사람이 공공 API부터 의심하지 않도록.
 
@@ -523,7 +524,7 @@ user_profile (1) ──< (N) allergy_ingredient      [opt-in 시에만 채워짐
 
 ```
 facility:nmc:12345        (국립중앙의료원 hpid)
-facility:hira:<ykiho>     (심평원)
+facility:hira:<base64url(ykiho)>  (심평원; path-safe segment)
 drug:mfds:200000001       (식약처 ITEM_SEQ)
 ```
 
@@ -585,8 +586,8 @@ X-Data-Mode: live | hybrid | fixture
 | Method | URL | 비고 |
 |---|---|---|
 | POST | `/api/v1/chat/completions` | OpenAI 호환. `stream=true`도 **검증된 답변 1청크**로 옵니다. 비표준 확장 필드 `mermaid.exclude_ingredients[]`로 알레르기를 받습니다 |
-| GET | `/api/v1/facilities` | `?lat=&lng=&radius_m=&open_now=&type=&limit=&sort=` |
-| GET | `/api/v1/facilities/{id}` | `facility:nmc:12345` |
+| GET | `/api/v1/facilities` | `?lat=&lng=&radius_m=&open_now=&type=&limit=` |
+| GET | `/api/v1/facilities/{id}` | `facility:nmc:12345` 또는 `facility:hira:<base64url(ykiho)>` |
 | GET | `/api/v1/drugs` | `?query=&ingredient=&prescription_status=&limit=` |
 | GET | `/api/v1/drugs/{id}` | e약은요 + 허가정보 + DUR 병합 |
 | GET/POST/PATCH/DELETE | `/api/v1/profiles/{deviceId}/**` | CRUD |

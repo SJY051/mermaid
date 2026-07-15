@@ -1,6 +1,7 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { ChevronRight, Cross, Crosshair, Pill, Search } from 'lucide-react'
 import { useNaverMap } from '../hooks/useNaverMap'
-import type { Facility } from '../lib/types'
+import type { Facility, GeocodeResult } from '../lib/types'
 import { DetailDrawer } from './DetailDrawer'
 
 export interface FacilityMapProps {
@@ -11,8 +12,17 @@ export interface FacilityMapProps {
   additionalFixtureData?: boolean
   /** Rendered above the map. The assistant's own words about why it opened. */
   caption?: string
-  /** Shown when the centre is a fallback rather than the user's position. */
+  /** Shown when the centre is not the device position. */
   notice?: string
+  /** Available only when the device did not provide the centre. */
+  manualLocation?: {
+    canClear: boolean
+    onUseSpot: (center: { lat: number; lng: number }) => void
+    onSearchAddress: (query: string) => Promise<GeocodeResult[]>
+    onUseAddress: (result: GeocodeResult) => void
+    currentLabel?: string
+    onClear: () => void
+  }
 }
 
 /** `null` means "we could not tell", and it must never be drawn as "Closed" (spec §2-13). */
@@ -40,34 +50,69 @@ function operationStatus(facility: Facility): 'open' | 'closed' | 'unknown' {
   return 'unknown'
 }
 
-function markerColour(facility: Facility): string {
-  if (facility.operation.isOpenNow === true) return '#1a7a34'
-  if (facility.operation.isOpenNow === false) return '#9aa0a8'
-  return '#e0a800'
+interface MarkerTokens {
+  fill: string
+  ring: string
+  glyph: string
 }
 
-function markerKindIcon(facility: Facility, colour: string): string {
+function markerTokens(facility: Facility): MarkerTokens {
+  if (facility.operation.isOpenNow === true) {
+    return {
+      fill: 'var(--color-green-subtle)',
+      ring: 'var(--color-green-ring)',
+      glyph: 'var(--color-green-vivid)',
+    }
+  }
+  if (facility.operation.isOpenNow === false) {
+    return {
+      fill: 'var(--color-muted)',
+      ring: 'var(--color-border-strong)',
+      glyph: 'var(--color-secondary)',
+    }
+  }
+  return {
+    fill: 'var(--color-yellow-subtle)',
+    ring: 'var(--color-yellow-ring)',
+    glyph: 'var(--color-yellow-vivid)',
+  }
+}
+
+// Path data from Lucide Icons v1.23.0 (Pill, Cross, HeartPulse), ISC.
+// https://lucide.dev/icons/pill · https://lucide.dev/icons/cross · https://lucide.dev/icons/heart-pulse
+function markerKindIcon(facility: Facility, colour: string, pillFillId: string): string {
   if (facility.type === 'pharmacy') {
     return (
-      `<svg data-kind-icon="pharmacy" width="16" height="16" viewBox="0 0 16 16" ` +
-      `aria-hidden="true"><rect x="5" y="1.4" width="6" height="13.2" rx="3" ` +
-      `transform="rotate(45 8 8)" fill="${colour}"/></svg>`
+      `<svg data-kind-icon="pharmacy" xmlns="http://www.w3.org/2000/svg" width="16" height="16" ` +
+      `viewBox="0 0 24 24" fill="none" stroke="${colour}" stroke-width="2" ` +
+      `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+      `<defs><linearGradient id="${pillFillId}" x1="0%" y1="100%" x2="100%" y2="0%">` +
+      `<stop offset="50%" stop-color="${colour}" stop-opacity=".4"/>` +
+      `<stop offset="50%" stop-color="${colour}" stop-opacity="0"/>` +
+      `</linearGradient></defs>` +
+      `<path d="m10.5 20.5 10-10a4.95 4.95 0 1 0-7-7l-10 10a4.95 4.95 0 1 0 7 7Z" ` +
+      `fill="url(#${pillFillId})"/>` +
+      `<path d="m8.5 8.5 7 7"/></svg>`
     )
   }
   if (facility.type === 'hospital') {
     return (
-      `<svg data-kind-icon="hospital" width="15" height="15" viewBox="0 0 16 16" ` +
-      `aria-hidden="true"><path d="M6.5 2h3v4.5H14v3H9.5V14h-3V9.5H2v-3h4.5z" ` +
-      `fill="${colour}"/></svg>`
+      `<svg data-kind-icon="hospital" xmlns="http://www.w3.org/2000/svg" width="15" height="15" ` +
+      `viewBox="0 0 24 24" fill="none" stroke="${colour}" stroke-width="2" ` +
+      `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">` +
+      `<path d="M4 9a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h4a1 1 0 0 1 1 1v4a2 2 0 0 0 2 2h2` +
+      `a2 2 0 0 0 2-2v-4a1 1 0 0 1 1-1h4a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-4a1 1 0 0 1-1-1V4` +
+      `a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4a1 1 0 0 1-1 1z"/></svg>`
     )
   }
   return (
-    `<svg data-kind-icon="emergency_room" width="16" height="16" viewBox="0 0 16 16" ` +
-    `aria-hidden="true" style="transform:rotate(-45deg)">` +
-    `<path d="M8 13.5S2.7 10.4 2.7 6.2A2.8 2.8 0 0 1 8 4.8a2.8 2.8 0 0 1 5.3 1.4c0 4.2-5.3 7.3-5.3 7.3Z" ` +
-    `fill="none" stroke="${colour}" stroke-width="1.5"/>` +
-    `<path d="M1.8 8h3l1.1-2.1 1.8 4.2L9.2 8h5" fill="none" stroke="${colour}" ` +
-    `stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    `<svg data-kind-icon="emergency_room" xmlns="http://www.w3.org/2000/svg" width="16" height="16" ` +
+    `viewBox="0 0 24 24" fill="none" stroke="${colour}" stroke-width="2" ` +
+    `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ` +
+    `style="transform:rotate(-45deg)">` +
+    `<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5` +
+    `c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/>` +
+    `<path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/></svg>`
   )
 }
 
@@ -76,7 +121,8 @@ function markerButtonContent(facility: Facility, index: number, idPrefix: string
   const statusLabel = openLabel(facility)
   const kindLabel = facilityTypeLabel(facility)
   const glyph = operationGlyph(facility)
-  const pictogramColour = status === 'open' ? '#ffffff' : '#2a2d33'
+  const tokens = markerTokens(facility)
+  const pillFillId = `${idPrefix}-marker-${index}-pill-half`
   const borderRadius =
     facility.type === 'pharmacy' ? '50%' : facility.type === 'hospital' ? '8px' : '6px'
   const rotation = facility.type === 'emergency_room' ? 'transform:rotate(45deg);' : ''
@@ -94,17 +140,18 @@ function markerButtonContent(facility: Facility, index: number, idPrefix: string
     `style="position:relative;width:44px;height:44px;display:grid;place-items:center;border:0;` +
     `background:transparent;padding:7px;cursor:pointer;outline-offset:3px">` +
     `<span aria-hidden="true" style="position:relative;width:30px;height:30px;display:grid;` +
-    `place-items:center;border-radius:${borderRadius};background:${markerColour(facility)};` +
-    `border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.32);${rotation}">` +
-    `${markerKindIcon(facility, pictogramColour)}` +
+    `place-items:center;border-radius:${borderRadius};background:${tokens.fill};` +
+    `border:2px solid ${tokens.ring};box-shadow:0 2px 6px rgba(0,0,0,.32);${rotation}">` +
+    `${markerKindIcon(facility, tokens.glyph, pillFillId)}` +
     `</span>` +
     `<span aria-hidden="true" data-status-glyph="${status}" style="position:absolute;top:1px;` +
     `right:1px;width:16px;height:16px;display:grid;place-items:center;border-radius:50%;` +
-    `background:#fff;border:1.5px solid #2a2d33;color:#2a2d33;font:700 12px/1 system-ui">` +
+    `background:var(--color-surface);border:1.5px solid var(--color-border-strong);` +
+    `color:var(--color-primary);font:700 12px/1 system-ui">` +
     `${glyph}</span>` +
     `<span id="${nameId}" lang="ko" style="${visuallyHidden}">${escapeHtml(facility.nameKo)}</span>` +
     `<span id="${detailId}" style="${visuallyHidden}">${kindLabel}, ${statusLabel}, ` +
-    `${Math.round(facility.distanceMeters)} metres away. Open details.</span>` +
+    `${Math.round(facility.distanceMeters)} metres from the map centre. Open details.</span>` +
     `</button>`
   )
 }
@@ -130,12 +177,19 @@ export function FacilityMap({
   additionalFixtureData = false,
   caption,
   notice,
+  manualLocation,
 }: FacilityMapProps) {
   const { containerRef, map, ready, error } = useNaverMap({ center, zoom })
   const markerIdPrefix = useId().replaceAll(':', '')
   const markersRef = useRef<naver.maps.Marker[]>([])
   const [selectedFacility, setSelectedFacility] = useState<Facility | null>(null)
   const [markerError, setMarkerError] = useState<Error | null>(null)
+  const [choosingLocation, setChoosingLocation] = useState(false)
+  const [addressQuery, setAddressQuery] = useState('')
+  const [addressResults, setAddressResults] = useState<GeocodeResult[]>([])
+  const [addressSearchState, setAddressSearchState] = useState<
+    'idle' | 'loading' | 'results' | 'empty' | 'error'
+  >('idle')
 
   const visibleError = error ?? markerError
   const hasFixtureData =
@@ -207,6 +261,25 @@ export function FacilityMap({
 
   const displayedFacilityTypes = new Set(facilities.map((facility) => facility.type))
 
+  async function searchAddress(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!manualLocation || !addressQuery.trim()) return
+
+    setAddressSearchState('loading')
+    setAddressResults([])
+    try {
+      const results = await manualLocation.onSearchAddress(addressQuery.trim())
+      setAddressResults(results)
+      setAddressSearchState(results.length > 0 ? 'results' : 'empty')
+    } catch {
+      setAddressSearchState('error')
+    }
+  }
+
+  function addressLabel(result: GeocodeResult): string {
+    return result.roadAddress || result.jibunAddress || result.englishAddress
+  }
+
   return (
     <section className="space-y-2" aria-label="Nearby facilities map">
       {caption && <p className="text-sm text-secondary">{caption}</p>}
@@ -215,6 +288,95 @@ export function FacilityMap({
         <p data-testid="map-fixture-notice" className="text-sm text-primary">
           Sample data — availability may not reflect current conditions.
         </p>
+      )}
+
+      {manualLocation && (
+        <section aria-label="Set your location" className="space-y-2 rounded border border-primary p-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+              onClick={() => setChoosingLocation(true)}
+            >
+              Set your location
+            </button>
+            {manualLocation.canClear && (
+              <button
+                type="button"
+                className="min-h-11 rounded border border-primary bg-surface px-3 text-sm font-medium text-primary"
+                onClick={() => {
+                  setChoosingLocation(false)
+                  manualLocation.onClear()
+                }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+
+          <form className="space-y-2" onSubmit={searchAddress}>
+            <label htmlFor={`${markerIdPrefix}-address`} className="block text-sm font-medium text-primary">
+              Search an address
+            </label>
+            <div className="flex gap-2">
+              <input
+                id={`${markerIdPrefix}-address`}
+                type="search"
+                value={addressQuery}
+                onChange={(event) => setAddressQuery(event.target.value)}
+                className="min-h-11 min-w-0 flex-1 rounded border border-primary bg-surface px-3 text-sm text-primary"
+                autoComplete="street-address"
+              />
+              <button
+                type="submit"
+                disabled={!addressQuery.trim() || addressSearchState === 'loading'}
+                className="inline-flex min-h-11 items-center gap-2 rounded bg-primary px-4 text-sm font-medium text-surface disabled:opacity-50"
+              >
+                <Search aria-hidden="true" size={16} />
+                {addressSearchState === 'loading' ? 'Searching…' : 'Search'}
+              </button>
+            </div>
+          </form>
+
+          {manualLocation.currentLabel && (
+            <p className="text-sm text-primary">Chosen centre: {manualLocation.currentLabel}</p>
+          )}
+          {addressSearchState === 'empty' && (
+            <p className="text-sm text-secondary">No address matched. Try a more specific address.</p>
+          )}
+          {addressSearchState === 'error' && (
+            <p role="alert" className="text-sm text-secondary">
+              We could not search for that address. Please try again.
+            </p>
+          )}
+          {addressSearchState === 'results' && (
+            <ul aria-label="Address search results" className="space-y-1">
+              {addressResults.map((result) => {
+                const label = addressLabel(result)
+                return (
+                  <li key={`${result.latitude}:${result.longitude}:${label}`}>
+                    <button
+                      type="button"
+                      className="min-h-11 w-full rounded border border-primary px-3 py-2 text-left text-sm text-primary"
+                      onClick={() => {
+                        manualLocation.onUseAddress(result)
+                        setAddressQuery(label)
+                        setAddressResults([])
+                        setAddressSearchState('idle')
+                        setChoosingLocation(false)
+                      }}
+                    >
+                      <span className="block">{label}</span>
+                      {result.englishAddress && result.englishAddress !== label && (
+                        <span className="block text-xs text-secondary">{result.englishAddress}</span>
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </section>
       )}
 
       <div
@@ -229,7 +391,7 @@ export function FacilityMap({
               aria-hidden="true"
               className="grid h-4 w-4 place-items-center rounded-full border border-primary"
             >
-              <span className="h-1.5 w-2.5 rotate-45 rounded-full bg-primary" />
+              <Pill size={12} />
             </span>
             Pharmacy
           </span>
@@ -239,23 +401,23 @@ export function FacilityMap({
             <span
               data-legend-kind="hospital"
               aria-hidden="true"
-              className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary text-[13px] font-bold leading-none"
+              className="grid h-4 w-4 place-items-center rounded-[4px] border border-primary"
             >
-              +
+              <Cross size={12} />
             </span>
             Hospital
           </span>
         )}
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#1a7a34] text-[11px] font-bold text-white">✓</span>
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-green-ring bg-green-subtle text-[11px] font-bold text-green-vivid">✓</span>
           Open now
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#e0a800] text-[11px] font-bold text-[#1a1a1a]">?</span>
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-yellow-ring bg-yellow-subtle text-[11px] font-bold text-yellow-vivid">?</span>
           Hours unknown
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-[#9aa0a8] text-[11px] font-bold text-[#1a1a1a]">×</span>
+          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-strong bg-muted text-[11px] font-bold text-primary">×</span>
           Closed
         </span>
       </div>
@@ -263,10 +425,35 @@ export function FacilityMap({
       <div className="relative h-80 w-full overflow-hidden rounded-lg border border-primary">
         <div ref={containerRef} data-testid="naver-map" className="h-full w-full" />
 
+        {choosingLocation && !visibleError && (
+          <>
+            <div
+              aria-label="Chosen map centre"
+              role="img"
+              className="pointer-events-none absolute left-1/2 top-1/2 grid h-10 w-10 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border-2 border-primary bg-surface/90 text-2xl font-light text-primary shadow"
+            >
+              <Crosshair aria-hidden="true" size={22} />
+            </div>
+            <button
+              type="button"
+              disabled={!ready || !map}
+              className="absolute bottom-3 left-1/2 min-h-11 -translate-x-1/2 rounded bg-primary px-4 text-sm font-medium text-surface shadow disabled:opacity-50"
+              onClick={() => {
+                if (!map) return
+                const chosen = map.getCenter() as naver.maps.LatLng
+                manualLocation?.onUseSpot({ lat: chosen.lat(), lng: chosen.lng() })
+                setChoosingLocation(false)
+              }}
+            >
+              Use this spot
+            </button>
+          </>
+        )}
+
         {!ready && !visibleError && (
           <div
             data-testid="map-loading"
-            className="absolute inset-0 grid place-items-center bg-secondary text-sm text-secondary"
+            className="absolute inset-0 grid place-items-center bg-surface text-sm text-primary"
           >
             Loading map…
           </div>
@@ -276,11 +463,11 @@ export function FacilityMap({
           <div
             data-testid="map-error"
             role="alert"
-            className="absolute inset-0 grid place-items-center bg-secondary p-6 text-center text-sm text-primary"
+            className="absolute inset-0 grid place-items-center bg-surface p-6 text-center text-sm text-primary"
           >
             <div>
               <p className="font-medium">The map could not be loaded.</p>
-              <p className="mt-2 text-secondary">{visibleError.message}</p>
+              <p className="mt-2 text-primary">{visibleError.message}</p>
             </div>
           </div>
         )}
@@ -292,16 +479,21 @@ export function FacilityMap({
             <li key={facility.id}>
               <button
                 type="button"
-                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-secondary hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2"
+                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-primary hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
                 onClick={() => setSelectedFacility(facility)}
               >
-                <span className="truncate text-primary" lang="ko">
+                <span className="max-w-[35%] shrink-0 truncate text-primary" lang="ko">
                   {facility.nameKo}
                 </span>
-                <span className="flex shrink-0 items-center gap-1">
-                  <span aria-hidden="true" className="font-bold">{operationGlyph(facility)}</span>
-                  {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
-                  {Math.round(facility.distanceMeters)}m
+                <span className="flex min-w-0 flex-1 items-center justify-end gap-1 text-right">
+                  <span aria-hidden="true" className="shrink-0 font-bold">
+                    {operationGlyph(facility)}
+                  </span>
+                  <span className="min-w-0">
+                    {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
+                    {Math.round(facility.distanceMeters)}m from map centre
+                  </span>
+                  <ChevronRight aria-hidden="true" className="shrink-0" size={16} />
                 </span>
               </button>
             </li>

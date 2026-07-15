@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { Check, Phone, X } from 'lucide-react'
+import { useFavorites } from '../lib/favorites'
 import type { Facility } from '../lib/types'
 
 export interface DetailDrawerProps {
@@ -30,9 +32,13 @@ function operationGlyph(facility: Facility): string {
 }
 
 function operationGlyphClass(facility: Facility): string {
-  if (facility.operation.isOpenNow === true) return 'bg-[#1a7a34] text-white'
-  if (facility.operation.isOpenNow === false) return 'bg-[#9aa0a8] text-[#1a1a1a]'
-  return 'bg-[#e0a800] text-[#1a1a1a]'
+  if (facility.operation.isOpenNow === true) {
+    return 'border border-green-ring bg-green-subtle text-green-vivid'
+  }
+  if (facility.operation.isOpenNow === false) {
+    return 'border border-strong bg-muted text-primary'
+  }
+  return 'border border-yellow-ring bg-yellow-subtle text-yellow-vivid'
 }
 
 /**
@@ -45,6 +51,19 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   const titleId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const address = facility.addressEn ?? facility.addressKo
+  const { favorites, savingFacilityId, saveFacility } = useFavorites()
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const saved = favorites.some((favorite) => favorite.facilityId === facility.id)
+  const saving = savingFacilityId === facility.id
+
+  async function save() {
+    setSaveError(null)
+    try {
+      await saveFacility(facility)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : 'Could not save this place.')
+    }
+  }
 
   useEffect(() => {
     closeButtonRef.current?.focus()
@@ -57,8 +76,13 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   }, [onClose])
 
   return (
+    // `fixed` positions against the viewport, not the shell — so a drawer is exactly the way a
+    // screen opts out of the bound MobileShell places on everything else (007 FR-001), and on a
+    // desktop this one spanned all 1600px while the app behind it was 768. Centring the sheet and
+    // giving it the SAME max-width as the shell puts it back inside. The dim layer stays full-bleed
+    // on purpose: it is the part that should cover the screen.
     <div
-      className="fixed inset-0 z-50 flex items-end bg-black/45"
+      className="fixed inset-0 z-[10001] flex items-end justify-center bg-black/45"
       data-testid="detail-drawer-backdrop"
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
@@ -68,9 +92,9 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
+        className="appearance-sheet-enter max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-t-2xl border border-primary bg-surface p-5 shadow-2xl"
       >
-        <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-tertiary" aria-hidden="true" />
+        <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-muted" aria-hidden="true" />
 
         <header className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -86,7 +110,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
             className="grid h-10 w-10 shrink-0 place-items-center rounded-full border border-primary text-xl text-primary focus-visible:outline-2 focus-visible:outline-offset-2"
             onClick={onClose}
           >
-            <span aria-hidden="true">×</span>
+            <X aria-hidden="true" size={20} />
           </button>
         </header>
 
@@ -105,7 +129,9 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
               </span>
               {operationLabel(facility)}
             </span>
-            <span className="text-secondary">{Math.round(facility.distanceMeters)} m away</span>
+            <span className="text-secondary">
+              {Math.round(facility.distanceMeters)} m from map centre
+            </span>
           </div>
 
           <div>
@@ -122,11 +148,22 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
             <a
               href={`tel:${facility.phone}`}
               aria-label={`Call ${facility.phone}`}
-              className="flex min-h-11 items-center justify-center rounded-lg border border-primary px-4 py-2 font-medium text-primary"
+              className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-primary px-4 py-2 font-medium text-primary"
             >
+              <Phone aria-hidden="true" size={16} />
               Call {facility.phone}
             </a>
           )}
+
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center justify-center rounded-lg bg-primary px-4 py-2 font-medium text-surface disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => void save()}
+            disabled={saved || saving}
+          >
+            {saved ? 'Saved' : saving ? 'Saving…' : 'Save place'}
+          </button>
+          {saveError && <p role="alert" className="text-sm text-secondary">{saveError}</p>}
 
           {facility.operation.notice && (
             <p className="rounded-lg bg-muted p-3 text-primary">{facility.operation.notice}</p>
@@ -134,7 +171,7 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
 
           <div className="border-t border-primary pt-4">
             <p data-testid="facility-source" className="text-xs text-primary">
-              <span aria-hidden="true">✓ </span>
+              <Check aria-hidden="true" className="mr-1 inline-block" size={14} />
               <span>{facility.source.title}</span>
               {' · '}
               {facility.source.retrievedAt.slice(0, 10)}

@@ -158,6 +158,7 @@ class ProxyInjectionTest {
                 new StructuredOutputFallback(mapper),
                 new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
+                new IngredientNormalizer(),
                 mapper);
 
         MermAidAnswer answer = answerOf(controller.completions(request));
@@ -180,6 +181,7 @@ class ProxyInjectionTest {
                 new StructuredOutputFallback(mapper),
                 new AnswerValidator(new IngredientNormalizer()),
                 new EmergencyTriage(),
+                new IngredientNormalizer(),
                 mapper);
     }
 

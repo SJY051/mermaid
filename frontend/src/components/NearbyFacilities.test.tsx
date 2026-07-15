@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { NearbyFacilities } from './NearbyFacilities'
 import type { Facility } from '../lib/types'
@@ -21,11 +22,28 @@ vi.mock('../lib/facilities', async (importOriginal) => {
   return { ...actual, resolveLocation: resolveLocationMock, fetchFacilities: fetchFacilitiesMock }
 })
 vi.mock('./FacilityMap', () => ({
-  FacilityMap: (props: { facilities?: Facility[]; notice?: string; caption?: string }) => (
+  FacilityMap: (props: {
+    facilities?: Facility[]
+    notice?: string
+    caption?: string
+    manualLocation?: {
+      canClear: boolean
+      onUseSpot: (center: { lat: number; lng: number }) => void
+      onClear: () => void
+    }
+  }) => (
     <div data-testid="map-stub">
       <span data-testid="stub-count">{props.facilities?.length ?? 0}</span>
       {props.notice && <span data-testid="stub-notice">{props.notice}</span>}
       {props.caption && <span data-testid="stub-caption">{props.caption}</span>}
+      {props.manualLocation && (
+        <button
+          type="button"
+          onClick={() => props.manualLocation!.onUseSpot({ lat: 35.1796, lng: 129.0756 })}
+        >
+          Use this spot
+        </button>
+      )}
     </div>
   ),
 }))
@@ -43,6 +61,7 @@ const pharmacy = {
 const props = { types: ['pharmacy'], radiusM: 1000, openNow: true }
 
 afterEach(() => {
+  localStorage.clear()
   resolveLocationMock.mockReset()
   fetchFacilitiesMock.mockReset()
 })
@@ -56,17 +75,20 @@ describe('NearbyFacilities', () => {
   })
 
   it('passes the fetched facilities to the map, with the request echoed as a caption', async () => {
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, fromDevice: true })
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, source: 'device' })
     fetchFacilitiesMock.mockResolvedValue([pharmacy])
     render(<NearbyFacilities {...props} />)
 
-    expect(await screen.findByTestId('stub-count')).toHaveTextContent('1')
+    // The map renders as soon as the location resolves, with no facilities yet — the fetch lands a
+    // microtask later. Awaiting the ELEMENT therefore races the data: findBy resolves on the empty
+    // map and the count is 0 about half the time. Wait for the content, which is what is asserted.
+    await waitFor(() => expect(screen.getByTestId('stub-count')).toHaveTextContent('1'))
     expect(screen.getByTestId('stub-caption')).toHaveTextContent('pharmacies within 1000m, open now')
     expect(screen.queryByTestId('stub-notice')).not.toBeInTheDocument()
   })
 
   it('says out loud when the centre is a fallback, not the user (§ honesty about location)', async () => {
-    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, fromDevice: false })
+    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
     fetchFacilitiesMock.mockResolvedValue([])
     render(<NearbyFacilities {...props} />)
 
@@ -74,7 +96,7 @@ describe('NearbyFacilities', () => {
   })
 
   it('renders a fetch failure as an alert, not silence', async () => {
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, fromDevice: true })
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, source: 'device' })
     fetchFacilitiesMock.mockRejectedValue(new Error('Hospital search is not available yet.'))
     render(<NearbyFacilities {...props} />)
 
@@ -83,12 +105,28 @@ describe('NearbyFacilities', () => {
   })
 
   it('says in words that nothing was found, instead of showing a bare map', async () => {
-    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, fromDevice: true })
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127.0, source: 'device' })
     fetchFacilitiesMock.mockResolvedValue([])
     render(<NearbyFacilities {...props} />)
 
     expect(
       await screen.findByText(/no pharmacies found within 1000m/i),
     ).toBeInTheDocument()
+  })
+
+  it('refetches the chat map facilities from a manually chosen centre', async () => {
+    const user = userEvent.setup()
+    resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
+    fetchFacilitiesMock.mockResolvedValue([])
+    render(<NearbyFacilities {...props} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Use this spot' }))
+
+    await waitFor(() => {
+      expect(fetchFacilitiesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ lat: 35.1796, lng: 129.0756 }),
+        expect.any(AbortSignal),
+      )
+    })
   })
 })

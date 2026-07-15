@@ -27,7 +27,7 @@ public class FavoriteFacility {
     private UserProfile profile;
 
     /** Provider-namespaced, e.g. {@code facility:nmc:C1110693} (spec §4-3). Never a name. */
-    @Column(name = "facility_id", nullable = false, length = 120)
+    @Column(name = "facility_id", nullable = false, length = 255)
     private String facilityId;
 
     @Enumerated(EnumType.STRING)

@@ -1,6 +1,8 @@
 package com.mermaid.chat;
 
+import static org.assertj.core.api.Assertions.as;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.STRING;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,7 +66,11 @@ class DrugContextRetrieverTest {
 
     /** A complete structured list, as a well-behaved client sends it. */
     private static MermaidRequestExtension.StructuredExclusions exclusions(String... terms) {
-        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), false);
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(terms), Set.of(), Set.of(), false);
+    }
+
+    private static MermaidRequestExtension.StructuredExclusions unverified(String... terms) {
+        return new MermaidRequestExtension.StructuredExclusions(Set.of(), Set.of(terms), Set.of(), false);
     }
 
     private JsonNode contextJson(DrugContext context) throws Exception {
@@ -353,8 +359,39 @@ class DrugContextRetrieverTest {
         }
 
         @Test
-        @DisplayName("the model is told what to do with the count, and told not to invent the list")
-        void preambleExplainsTheCount() throws Exception {
+        @DisplayName("the count reaches the card as one server-authored sentence, naming no medicine")
+        void theServerWritesTheCountOntoTheCard() throws Exception {
+            // The model used to be asked to write this sentence itself. It is a fact about a
+            // government record — how many pairs are published — so the server states it, and the
+            // twenty Korean product names stay out of an English card either way.
+            List<String> warnings = groundedWarnings(
+                    of(DurWarning.Kind.COMBINATION, "아스피린정"),
+                    of(DurWarning.Kind.COMBINATION, "케토프로펜정"),
+                    of(DurWarning.Kind.PREGNANCY, "나르펜정"));
+
+            assertThat(warnings).hasSize(2);
+            assertThat(warnings)
+                    .anySatisfy(w -> assertThat(w).contains("Contraindicated during pregnancy"))
+                    .anySatisfy(w -> assertThat(w)
+                            .contains("2 medicines that must not be taken with this one")
+                            .contains("Tell the pharmacist"));
+            assertThat(String.join(" ", warnings))
+                    .doesNotContain("아스피린정")
+                    .doesNotContain("케토프로펜정");
+        }
+
+        @Test
+        @DisplayName("one 병용금기 is one medicine, not \"1 medicines\"")
+        void oneCombinationReadsAsOne() throws Exception {
+            assertThat(groundedWarnings(of(DurWarning.Kind.COMBINATION, "아스피린정")))
+                    .singleElement(as(STRING))
+                    .contains("1 medicine that must not be taken")
+                    .doesNotContain("1 medicines");
+        }
+
+        @Test
+        @DisplayName("the model is told to leave the card's warnings alone")
+        void preambleHandsWarningsToTheServer() throws Exception {
             Drug drug = new Drug(
                     "drug:mfds:1", "1", "나르펜정400밀리그램(이부프로펜)", null, "제조사", List.of("Ibuprofen"), null,
                     PrescriptionStatus.OTC, new Drug.Narrative("두통", null, null, null, null, null, null),
@@ -366,11 +403,93 @@ class DrugContextRetrieverTest {
                     .retrieve("headache", "headache", exclusions())
                     .systemMessage();
 
+            // The prompt is not the invariant — ChatProxyControllerTest holds that. But a prompt
+            // still telling the model to copy the warnings would have it write text the server then
+            // silently discards, and the two would drift apart unnoticed.
             assertThat(message)
-                    .contains("combinationContraindicationCount")
-                    .contains("tell a pharmacist")
-                    .contains("Do not invent the list");
+                    .contains("Leave each drug card's `warnings` as an empty array")
+                    .doesNotContain("Copy every entry of `durWarnings`");
         }
+    }
+
+    /** The DUR record, as the server renders it for the card. Post-processing invariant 8. */
+    @Nested
+    @DisplayName("the card's warnings, written by the server")
+    class CardWarnings {
+
+        @Test
+        @DisplayName("every published contraindication becomes an English sentence with its source")
+        void everyPublishedRecordIsRendered() throws Exception {
+            List<String> warnings = groundedWarnings(
+                    new DurWarning(DurWarning.Kind.PREGNANCY, "1", "타이레놀", "Acetaminophen",
+                            "임부에게 투여하지 말 것", "20140109", null, null),
+                    new DurWarning(DurWarning.Kind.ELDERLY, "1", "타이레놀", "Acetaminophen",
+                            null, "20140109", null, null));
+
+            // The Korean 금기 text rides along verbatim — a paraphrase of a government
+            // contraindication would be a new medical claim, and this way a pharmacist can read it.
+            assertThat(warnings).hasSize(2);
+            assertThat(warnings.get(0))
+                    .contains("Contraindicated during pregnancy")
+                    .contains("임부에게 투여하지 말 것")
+                    .contains("MFDS DUR, notified 2014-01-09");
+            assertThat(warnings.get(1)).contains("Caution advised for older adults");
+        }
+
+        @Test
+        @DisplayName("a product 식약처 published nothing for gets an empty list, not a reassuring one")
+        void noPublishedRecordIsAnEmptyList() throws Exception {
+            assertThat(groundedWarnings()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("the card's caution text is checked against all four narrative fields, not just 주의사항")
+        void officialCautionsCoverEveryNarrativeField() {
+            Drug drug = new Drug(
+                    "drug:mfds:1", "1", "네필드정", null, "제조사", List.of("Ibuprofen"), null,
+                    PrescriptionStatus.OTC,
+                    new Drug.Narrative("두통", "1일 3회", "만 3세 미만 금기", "음주 금지", "와파린과 병용 주의", "드물게 발진",
+                            "실온 보관"),
+                    List.of(), AllergyCheck.noMatch(), TYLENOL_SOURCE);
+
+            // A faithful sentence about an interaction or a side effect must not look invented
+            // merely because the caution field alone was used as its source text.
+            String official = grounded(drug).officialCautionKo();
+            assertThat(official).contains("만 3세 미만 금기").contains("음주 금지")
+                    .contains("와파린과 병용 주의").contains("드물게 발진");
+            assertThat(official).doesNotContain("실온 보관").doesNotContain("1일 3회");
+        }
+
+        @Test
+        @DisplayName("no narrative at all means no caution text to check a card against")
+        void withoutNarrativeThereIsNoCautionText() {
+            Drug drug = new Drug(
+                    "drug:mfds:1", "1", "무설명정", null, "제조사", List.of("Ibuprofen"), null,
+                    PrescriptionStatus.PRESCRIPTION, Drug.Narrative.EMPTY,
+                    List.of(), AllergyCheck.noMatch(), TYLENOL_SOURCE);
+
+            assertThat(grounded(drug).officialCautionKo()).isNull();
+            assertThat(grounded(drug).prescriptionStatus())
+                    .isEqualTo(MermAidAnswer.DrugCard.PrescriptionStatus.PRESCRIPTION);
+        }
+    }
+
+    private List<String> groundedWarnings(DurWarning... published) {
+        Drug drug = new Drug(
+                "drug:mfds:198701721", "198701721", "나르펜정400밀리그램(이부프로펜)", null, "제조사",
+                List.of("Ibuprofen"), "이부프로펜", PrescriptionStatus.OTC,
+                new Drug.Narrative("두통", "1일 3회", null, null, null, null, null),
+                List.of(published), AllergyCheck.noMatch(), TYLENOL_SOURCE);
+        return grounded(drug).warnings();
+    }
+
+    /** The server's record for one drug, built by the code that really builds it. */
+    private DrugContextRetriever.GroundedDrug grounded(Drug drug) {
+        DrugContext context = retriever(
+                        new RetrievalQuery(List.of("Ibuprofen"), List.of()),
+                        new RetrievedContext(List.of(drug), Set.of(drug.nameKo()), List.of(TYLENOL_SOURCE)))
+                .retrieve("I have a headache", "I have a headache", exclusions());
+        return context.groundedDrugs().get(drug.nameKo());
     }
 
     /**
@@ -494,6 +613,199 @@ class DrugContextRetrieverTest {
         }
 
         @Test
+        @DisplayName("FR-016: unverified text never reaches an upstream query or avoided keys")
+        void unverifiedTextNeverReachesUpstreamQuery() {
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+
+            gated(new RetrievalQuery(List.of("Yellow dye"), List.of("부루펜")), drugService)
+                    .retrieve("can I take 부루펜?", "can I take 부루펜?", unverified("Yellow dye"));
+
+            assertThat(drugService.seen.ingredientsEn()).isEmpty();
+            assertThat(drugService.seen.productNamesKo()).containsExactly("부루펜");
+            assertThat(drugService.avoidedKeys).isEmpty();
+            assertThat(drugService.seen.toString()).doesNotContain("Yellow dye");
+        }
+
+        @Test
+        @DisplayName("FR-016: malformed or bounded-away unverified input clarifies before retrieval")
+        void incompleteUnverifiedFieldClarifies() {
+            var wrongShape = mapper.createObjectNode();
+            wrongShape.putObject("mermaid").put("unverified_allergens", "Yellow dye");
+            var overBound = mapper.createObjectNode();
+            var entries = overBound.putObject("mermaid").putArray("unverified_allergens");
+            for (int i = 0; i < 11; i++) {
+                entries.add("allergen-" + i);
+            }
+
+            for (JsonNode request : List.of(wrongShape, overBound)) {
+                CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+                DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
+                        .retrieve(
+                                "can I take 부루펜?",
+                                "can I take 부루펜?",
+                                MermaidRequestExtension.excludedIngredients(request));
+
+                assertThat(context.directAnswer()).isPresent();
+                assertThat(drugService.seen).isNull();
+            }
+        }
+
+        @Test
+        @DisplayName("FR-017: an unverified name match warns and never blocks")
+        void unverifiedNameMatchWarnsWithoutBlocking() throws Exception {
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(TYLENOL), Set.of(TYLENOL.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("acetaminophen"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("warning");
+            assertThat(allergy.path("matchedIngredients").get(0).asText())
+                    .isEqualTo("Acetaminophen Granules");
+            assertThat(allergy.path("message").asText())
+                    .contains("Name match only", "acetaminophen", "pharmacist")
+                    .doesNotContain("safe");
+        }
+
+        @Test
+        @DisplayName("FR-017: a verified block outranks an unverified name match")
+        void verifiedBlockOutranksUnverifiedNameMatch() throws Exception {
+            Drug blocked = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), TYLENOL.ingredientsEn(), TYLENOL.mainIngredientKo(),
+                    TYLENOL.prescriptionStatus(), TYLENOL.narrative(), TYLENOL.durWarnings(),
+                    new AllergyCheck(
+                            AllergyCheck.Status.BLOCKED,
+                            List.of("Acetaminophen Granules"),
+                            "Contains Acetaminophen Granules, which you asked to avoid."),
+                    TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(blocked), Set.of(blocked.nameKo()), List.of(TYLENOL_SOURCE)));
+            var both = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("acetaminophen"), Set.of("acetaminophen"), Set.of(), false);
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", both);
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("blocked");
+            assertThat(allergy.path("message").asText()).doesNotContain("Name match only");
+        }
+
+        @Test
+        @DisplayName("FR-017: a product we cannot read is unknown under a named allergen, not no-match")
+        void ingredientlessProductIsUnknownNotNoMatch() throws Exception {
+            // An unverified-only declaration leaves the avoided set empty, so AllergyChecker returns
+            // NO_MATCH_FOUND before it ever looks at ingredients — and this product has none to look
+            // at. The name check could not run, and "No match found" would tell someone who just
+            // named an allergen that we looked. We did not (§2-2).
+            Drug ingredientless = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), List.of(), TYLENOL.mainIngredientKo(),
+                    TYLENOL.prescriptionStatus(), TYLENOL.narrative(), TYLENOL.durWarnings(),
+                    AllergyCheck.noMatch(), TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(new RetrievedContext(
+                    List.of(ingredientless), Set.of(ingredientless.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("Yellow dye"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("unknown");
+            assertThat(allergy.path("message").asText())
+                    .contains("could not")
+                    .contains("pharmacist")
+                    .doesNotContain("No match")
+                    .doesNotContain("safe");
+        }
+
+        @Test
+        @DisplayName("FR-017: a name match is added to a verified warning, never substituted for it")
+        void unverifiedNameMatchKeepsTheVerifiedWarning() throws Exception {
+            // The verified check has already warned about Ibuprofen — a partial match against a
+            // resolved exclude_ingredients entry. The unverified string then name-matches the OTHER
+            // ingredient. Replacing the check would drop the reviewed finding and leave the user
+            // hearing only "a pharmacist must confirm this name", which is the weaker of the two.
+            Drug warned = new Drug(
+                    TYLENOL.id(), TYLENOL.itemSeq(), TYLENOL.nameKo(), TYLENOL.nameEn(),
+                    TYLENOL.manufacturerKo(), List.of("Acetaminophen Granules", "Ibuprofen"),
+                    TYLENOL.mainIngredientKo(), TYLENOL.prescriptionStatus(), TYLENOL.narrative(),
+                    TYLENOL.durWarnings(),
+                    new AllergyCheck(
+                            AllergyCheck.Status.WARNING,
+                            List.of("Ibuprofen"),
+                            "This product contains Ibuprofen, which may be related to an ingredient "
+                                    + "you avoid. Confirm with a pharmacist."),
+                    TYLENOL.source());
+            CapturingDrugService drugService = new CapturingDrugService(
+                    new RetrievedContext(List.of(warned), Set.of(warned.nameKo()), List.of(TYLENOL_SOURCE)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "can I take 타이레놀?", unverified("acetaminophen"));
+
+            JsonNode allergy = contextJson(context).get(0).path("allergyCheck");
+            assertThat(allergy.path("status").asText()).isEqualTo("warning");
+            assertThat(allergy.path("matchedIngredients"))
+                    .as("both findings survive: the verified ingredient and the name-matched one")
+                    .extracting(JsonNode::asText)
+                    .containsExactly("Ibuprofen", "Acetaminophen Granules");
+            assertThat(allergy.path("message").asText())
+                    .as("the reviewed warning is still spoken, with the name match appended")
+                    .contains("may be related to an ingredient you avoid")
+                    .contains("Name match only")
+                    .doesNotContain("safe");
+        }
+
+        @Test
+        @DisplayName("FR-013: a declaration in a question that never got an answer clarifies (P0)")
+        void anUnansweredDeclarationClarifiesEvenWithACompleteList() throws Exception {
+            // The list is complete, resolved and signed — and it was built for an EARLIER declaration.
+            // The person then said "I am also allergic to aspirin" and that request failed, so the
+            // clarification that turns a declaration into a list never came back and aspirin never
+            // reached the picker. The sentence sits in the history; the gate, seeing a resolved list,
+            // used to let retrieval through and could hand them an aspirin product as no_match_found.
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            var listWithoutAspirin = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("ibuprofen"),
+                    Set.of(),
+                    Set.of("I am also allergic to aspirin"),
+                    false);
+
+            DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
+                    .retrieve(
+                            "what can I take for a headache?",
+                            "I am also allergic to aspirin\nwhat can I take for a headache?",
+                            listWithoutAspirin);
+
+            assertThat(context.directAnswer()).isPresent();
+            assertThat(drugService.seen)
+                    .as("a declaration nobody answered is a list we cannot trust — we ask, we do not retrieve")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("FR-013: an unanswered question that declares nothing does not block retrieval")
+        void anUnansweredOrdinaryQuestionDoesNotClarify() {
+            // Fail-closed must not mean fail-always: a network error on "I have a headache" is not an
+            // allergy declaration, and it must not put the picker in front of someone forever.
+            CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
+            var ordinary = new MermaidRequestExtension.StructuredExclusions(
+                    Set.of("Ibuprofen"), Set.of(), Set.of("I have a headache"), false);
+
+            // A product the person named survives the SA-08 suppression that discards the model's own
+            // ingredient picks — without it there is no query left to make, and "no retrieval" would
+            // pass this test for the wrong reason.
+            gated(new RetrievalQuery(List.of(), List.of("타이레놀")), drugService)
+                    .retrieve("can I take 타이레놀?", "I have a headache\ncan I take 타이레놀?", ordinary);
+
+            assertThat(drugService.seen)
+                    .as("an unanswered question that names no allergy is just a lost turn — it must not gate")
+                    .isNotNull();
+            assertThat(drugService.avoidedKeys).containsExactly("ibuprofen");
+        }
+
+        @Test
         @DisplayName("SC-001: an unresolved structured entry returns the server clarification")
         void unresolvedStructuredEntryFailsClosed() throws Exception {
             // paracetamol's synonyms.tsv row is unsigned: it may aid lookup but must never gain
@@ -531,7 +843,7 @@ class DrugContextRetrieverTest {
             // A list we do not hold in full must clarify, like every other incomplete channel.
             CapturingDrugService drugService = new CapturingDrugService(RetrievedContext.EMPTY);
             var truncated = new MermaidRequestExtension.StructuredExclusions(
-                    Set.of("ibuprofen"), true);
+                    Set.of("ibuprofen"), Set.of(), Set.of(), true);
 
             DrugContext context = gated(RetrievalQuery.EMPTY, drugService)
                     .retrieve("I have a headache", "I have a headache", truncated);

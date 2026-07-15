@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '@astryxdesign/core/Button'
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
+import { X } from 'lucide-react'
 
 interface AllergenOption {
   key: string
@@ -9,7 +10,8 @@ interface AllergenOption {
 
 interface AllergenPickerProps {
   initialSelectedKeys: string[]
-  onConfirm: (keys: string[]) => void
+  initialUnverifiedAllergens: string[]
+  onConfirm: (keys: string[], unverified: string[]) => void
   onDismiss: () => void
 }
 
@@ -21,11 +23,14 @@ function isAllergenOption(value: unknown): value is AllergenOption {
 
 export function AllergenPicker({
   initialSelectedKeys,
+  initialUnverifiedAllergens,
   onConfirm,
   onDismiss,
 }: AllergenPickerProps) {
   const [options, setOptions] = useState<AllergenOption[] | null>(null)
   const [selectedKeys, setSelectedKeys] = useState(() => new Set(initialSelectedKeys))
+  const [unverifiedAllergens, setUnverifiedAllergens] = useState(initialUnverifiedAllergens)
+  const [typedAllergen, setTypedAllergen] = useState('')
 
   useEffect(() => {
     let active = true
@@ -58,6 +63,7 @@ export function AllergenPicker({
   }, [])
 
   if (!options?.length) return null
+  const availableOptions = options
 
   function setSelected(key: string, checked: boolean) {
     setSelectedKeys((current) => {
@@ -66,6 +72,48 @@ export function AllergenPicker({
       else next.delete(key)
       return next
     })
+  }
+
+  /**
+   * The two lists as they stand, with whatever is still sitting in the text box folded in.
+   *
+   * <p>Confirming has to read the box, not just the chips. A person who types "yellow dye" and
+   * presses the confirm button — never having noticed the separate Add — has told us their allergy;
+   * every part of the screen says so. Sending only the chips would drop it, mark the clarification
+   * answered, and let the next request proceed on a list the server then treats as complete: it
+   * would show them a product containing that allergen as `no_match_found` (§2-2). An allergy the
+   * user has typed is declared, whichever button they reach for.
+   */
+  function listsIncludingTypedText(): { keys: string[]; unverified: string[] } {
+    const typed = typedAllergen.trim()
+    const keys = new Set(selectedKeys)
+    const unverified = [...unverifiedAllergens]
+
+    if (typed) {
+      const folded = typed.toLocaleLowerCase()
+      const resolved = availableOptions.find(
+        (option) =>
+          option.key.toLocaleLowerCase() === folded || option.label.toLocaleLowerCase() === folded,
+      )
+      if (resolved) {
+        keys.add(resolved.key)
+      } else if (!unverified.some((item) => item.toLocaleLowerCase() === folded)) {
+        unverified.push(typed)
+      }
+    }
+
+    return {
+      keys: availableOptions.flatMap((option) => (keys.has(option.key) ? [option.key] : [])),
+      unverified,
+    }
+  }
+
+  function addTypedAllergen() {
+    if (!typedAllergen.trim()) return
+    const { keys, unverified } = listsIncludingTypedText()
+    setSelectedKeys(new Set(keys))
+    setUnverifiedAllergens(unverified)
+    setTypedAllergen('')
   }
 
   return (
@@ -85,7 +133,7 @@ export function AllergenPicker({
         </div>
 
         <div className="flex flex-col gap-2">
-          {options.map((option) => (
+          {availableOptions.map((option) => (
             <CheckboxInput
               key={option.key}
               label={option.label}
@@ -96,18 +144,84 @@ export function AllergenPicker({
           ))}
         </div>
 
+        <div className="flex flex-col gap-2">
+          <label htmlFor="unlisted-allergen" className="text-sm font-medium text-primary">
+            Allergy name
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              id="unlisted-allergen"
+              list="allergen-options"
+              className="min-h-11 flex-1 rounded border border-primary bg-surface px-3 text-primary"
+              value={typedAllergen}
+              onChange={(event) => setTypedAllergen(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  addTypedAllergen()
+                }
+              }}
+            />
+            <datalist id="allergen-options">
+              {availableOptions.map((option) => (
+                <option key={option.key} value={option.label} />
+              ))}
+            </datalist>
+            <Button
+              label="Add allergy"
+              variant="secondary"
+              isDisabled={!typedAllergen.trim()}
+              onClick={addTypedAllergen}
+            />
+          </div>
+          <p className="text-xs text-secondary">
+            Names outside this list can produce name-match warnings only; a pharmacist can fully
+            check them.
+          </p>
+        </div>
+
+        {unverifiedAllergens.length > 0 && (
+          <div className="flex flex-wrap gap-2" aria-label="Unverified allergies">
+            {unverifiedAllergens.map((allergen) => (
+              <span
+                key={allergen.toLocaleLowerCase()}
+                className="inline-flex items-center gap-2 rounded border border-primary bg-surface px-3 py-2 text-sm text-primary"
+              >
+                <span>
+                  {allergen} — name-match warnings only — a pharmacist can fully check this one
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${allergen}`}
+                  className="grid min-h-8 min-w-8 place-items-center rounded border border-primary"
+                  onClick={() =>
+                    setUnverifiedAllergens((current) =>
+                      current.filter((item) => item !== allergen),
+                    )
+                  }
+                >
+                  <X aria-hidden="true" size={16} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <Button
             label="Use selected allergies"
             variant="primary"
-            isDisabled={selectedKeys.size === 0}
-            onClick={() =>
-              onConfirm(
-                options.flatMap((option) => (selectedKeys.has(option.key) ? [option.key] : [])),
-              )
+            isDisabled={
+              selectedKeys.size === 0 &&
+              unverifiedAllergens.length === 0 &&
+              typedAllergen.trim() === ''
             }
+            onClick={() => {
+              const { keys, unverified } = listsIncludingTypedText()
+              onConfirm(keys, unverified)
+            }}
           />
-          <Button label="My allergy isn't listed" variant="secondary" onClick={onDismiss} />
+          <Button label="Cancel" variant="secondary" onClick={onDismiss} />
         </div>
       </div>
     </section>
