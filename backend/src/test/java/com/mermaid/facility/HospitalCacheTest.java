@@ -30,7 +30,7 @@ class HospitalCacheTest {
 
     @BeforeEach
     void clearCaches() {
-        cacheManager.getCache("hospitalsNear.v1").clear();
+        cacheManager.getCache("hospitalsNear.v2").clear();
         cacheManager.getCache("hospitalDetails").clear();
         clock.set(Instant.parse("2026-07-14T00:00:00Z"));
     }
@@ -52,11 +52,23 @@ class HospitalCacheTest {
     }
 
     @Test
-    void distinctCoordinatesDoNotShareA100MetreGridCacheEntry() {
-        var south = hospitals.findNear(37.565501, 126.9779, 100);
-        var north = hospitals.findNear(37.566499, 126.9779, 100);
+    void twoCoordinatesInTheSameCellShareOneUpstreamFetch() {
+        // Both round to lat grid 37566 (radius 100), so the second call reuses the first's cached
+        // batch instead of walking HIRA's pages again. Inverted from the old exact-coordinate key:
+        // the fetch is now grid-centred and distance is recomputed per caller, so sharing is safe.
+        var first = hospitals.findNear(37.565501, 126.9779, 100);
+        var second = hospitals.findNear(37.566499, 126.9779, 100);
 
-        assertThat(north).isNotSameAs(south);
+        assertThat(second).isSameAs(first);
+    }
+
+    @Test
+    void coordinatesInDifferentCellsDoNotShare() {
+        // 37.5655 rounds to lat grid 37566, 37.5675 to 37568 — different cells, separate fetches.
+        var here = hospitals.findNear(37.5655, 126.9779, 100);
+        var overThere = hospitals.findNear(37.5675, 126.9779, 100);
+
+        assertThat(overThere).isNotSameAs(here);
     }
 
     @TestConfiguration

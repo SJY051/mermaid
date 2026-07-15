@@ -45,7 +45,14 @@ lookup supplies a `ykiho`, and a per-hospital detail lookup supplies operating h
   advisory emergency-availability flags (`Y` → true, `N` → false, otherwise null).
 - **FR-004 (DEV-203c):** Hospital detail values MUST be cached by `ykiho` with a
   Redis-serializable representation. Cache values must round-trip through the configured
-  JSON serializer.
+  JSON serializer. The hospital **list** MUST be cached on a ~100 m coordinate grid plus radius,
+  not exact coordinates, so neighbours and refreshes of the same view share one fetch (cold ~19 s,
+  warm 0.16 s, measured live 2026-07-14). To keep sharing safe the fetch MUST be centred on the grid
+  cell and its radius widened by one cell (`GRID_MARGIN_METERS`), so an edge-of-cell caller still
+  receives every hospital inside their own circle (§2-3 — a silently dropped in-radius hospital is
+  the same failure as rendering one closed). Per-card distance MUST be recomputed by Haversine from
+  the caller's own coordinate, never HIRA's origin-relative `distance` (which belongs to the cell
+  centre; it matched our Haversine within a mean 4 m on 100 live rows, so nothing is lost by it).
 - **FR-005 (DEV-203c):** The N+1 detail calls MUST use the existing `Parallel.map` pattern,
   preserving list order, with a bounded concurrency of **16**. The earlier value of 4 was inherited
   from `DrugService`, whose MFDS DUR endpoint throttles at four; HIRA's detail endpoint does not —

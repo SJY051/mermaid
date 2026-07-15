@@ -63,6 +63,17 @@ public class HospitalApiClient {
      */
     private static final int LIST_PAGE_CONCURRENCY = 4;
 
+    /** ~100 m grid the cache key rounds to (3 decimal places of latitude). */
+    private static final int GRID_DECIMALS = 1000;
+    /**
+     * How far the fetched radius is widened so a caller anywhere in the grid cell still gets every
+     * hospital inside their own circle. The cell is ~111 m × ~88 m at Seoul's latitude, so its centre
+     * is at most ~73 m from any corner; 100 m clears that with margin. Without this, a caller at the
+     * cell edge would be served the cell centre's smaller circle and silently miss open hospitals
+     * (§2-3). Package-visible so a test can assert the fetched radius includes it.
+     */
+    static final int GRID_MARGIN_METERS = 100;
+
     private static final String FIXTURE = "hospital_list.json";
 
     private final WebClient publicApiWebClient;
@@ -97,15 +108,23 @@ public class HospitalApiClient {
     /**
      * Hospitals near a point. HIRA requires radius in metres; xPos is longitude and yPos is latitude.
      *
-     * <p>This shares a list lookup only for the exact same origin and radius. HIRA's {@code distance}
-     * values are relative to the requested origin, so rounding coordinates into a grid would give a
-     * nearby caller another origin's distance. The batch keeps per-fetch provenance, so a cached
-     * hybrid fallback remains visibly fixture data.
+     * <p>Cached on a ~100 m coordinate grid plus radius, so two people on the same block share one
+     * upstream fetch instead of each waiting out the page walk. HIRA's own {@code distance} is
+     * relative to the requested origin — meaningless once the fetch is grid-centred — but it is a
+     * measured figure, not an authoritative one: on 100 live rows it matched our own Haversine within
+     * a mean of 4 m and flipped zero radius verdicts (2026-07-14). So the fetch is centred on the grid
+     * cell, {@link FacilityService} recomputes each distance from the caller's true coordinate, and
+     * the fetched radius is widened by one cell ({@link #GRID_MARGIN_METERS}) so an edge-of-cell caller
+     * still receives every hospital within their own circle.
+     *
+     * <p>The batch keeps per-fetch provenance, so a cached hybrid fallback remains visibly fixture data.
      */
     @Cacheable(
-            value = "hospitalsNear.v1",
+            // v2: the key changed from exact coordinates to a grid cell. A v1 entry would answer a
+            // grid-cell key it was never stored under, so a new name retires every stale entry at once.
+            value = "hospitalsNear.v2",
             key =
-                    "#lat + ':' + #lng + ':' + #radiusMeters")
+                    "T(java.lang.Math).round(#lat * 1000) + ':' + T(java.lang.Math).round(#lng * 1000) + ':' + #radiusMeters")
     public HospitalBatch findNear(double lat, double lng, int radiusMeters) {
         if (dataMode.isFixtureOnly()) {
             return fixtureBatch();
@@ -115,8 +134,14 @@ public class HospitalApiClient {
             return fixtureBatch();
         }
 
+        // Fetch from the cell centre, not this caller's exact point, so every caller the key rounds
+        // together sees the identical batch; widen the radius by one cell so none of them loses a
+        // hospital that sits inside their circle but outside the centre's.
+        double centreLat = Math.round(lat * GRID_DECIMALS) / (double) GRID_DECIMALS;
+        double centreLng = Math.round(lng * GRID_DECIMALS) / (double) GRID_DECIMALS;
+        int fetchRadius = radiusMeters + GRID_MARGIN_METERS;
         try {
-            return liveBatch(lat, lng, radiusMeters);
+            return liveBatch(centreLat, centreLng, fetchRadius);
         } catch (Exception e) {
             if (dataMode.allowsFallback()) {
                 log.warn("hospital lookup failed, falling back to fixture: {}", e.getMessage());

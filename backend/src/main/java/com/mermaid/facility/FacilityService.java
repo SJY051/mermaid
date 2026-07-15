@@ -55,25 +55,11 @@ public class FacilityService {
      * because latency is the binding constraint, not because HIRA is scarce: with 10x the headroom it
      * has no reason to be the more conservative of the two.
      *
-     * <p>Measured live at Seoul City Hall, radius 2,000 m, cold cache (2026-07-14), with HIRA's list
-     * pages fetched concurrently:
-     *
-     * <pre>
-     *   hospital open_now=true  (100 details)  39.3 / 22.6 / 14.5 / 28.4 s   &lt;-- dominates
-     *   hospital list alone     (limit=1)       9.9 / 10.0 / 10.2 s
-     *   hospital open_now=false ( 10 details)  10.7 s
-     *   pharmacy open_now=true  (100 timetables) 1.1 s
-     *   any of the above, warm cache            0.07 s
-     * </pre>
-     *
-     * <p>The hospital cold path is dominated by the 100 HIRA <i>detail</i> calls, and their latency
-     * swings by 3x between identical runs — <b>one timing here is worth nothing; take several, and take
-     * them in the same window as whatever you are comparing against.</b>
-     *
-     * <p>Lowering this cap is the obvious lever and the wrong one to reach for blind: it trades away
-     * the farther open hospital this constant exists to find. The cheap win is elsewhere — the list
-     * caches on an exact {@code lat:lng:radius}, so real users standing a few metres apart almost never
-     * reach that 0.07 s warm path.
+     * <p>Lowering this cap is the obvious lever for that latency and the wrong one to reach for blind:
+     * it trades away the farther open hospital this constant exists to find. The levers that do not are
+     * {@link #HOSPITAL_DETAIL_CONCURRENCY the detail concurrency} and the grid-shared list cache in
+     * {@link HospitalApiClient#findNear} — reach for those first, and take timings there several at a
+     * time in one window, because HIRA's detail latency swings by 3x between identical runs.
      */
     private static final int MAX_OPEN_NOW_CANDIDATES = 100;
     /**
@@ -258,9 +244,9 @@ public class FacilityService {
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         HospitalApiClient.HospitalBatch batch = hospitalApiClient.findNear(lat, lng, radiusMeters);
 
-        // HIRA's radius is authoritative, but its distance is a decimal string. Resolve each metre
-        // value once — here, so a malformed/out-of-contract row is dropped before the detail fan-out
-        // and the same figure is reused on the card instead of recomputed (Haversine twice).
+        // Resolve each row's distance once — here — so it is filtered before the detail fan-out and
+        // the same metre value lands on the card. It is our Haversine from the caller's coordinate,
+        // not HIRA's origin-relative figure, because the list was fetched grid-centred and shared.
         //
         // HIRA classifies 요양병원 (long-term-care hospitals) under 종별코드 28. The default search is
         // for acute care, so omit only that exact code before any detail call, matching the stable code
@@ -337,12 +323,14 @@ public class FacilityService {
                 detail.emergencyNight());
     }
 
-    /** HIRA reports metres (unlike the pharmacy API's kilometres); only malformed omissions use Haversine. */
+    /** Distance in metres, always our own Haversine from the caller — see the body for why HIRA's is unused. */
     private double hospitalDistanceMetres(
             HospitalApiClient.RawHospital raw, double originLat, double originLng) {
-        return raw.distanceMeters() != null
-                ? raw.distanceMeters()
-                : GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
+        // Always our own Haversine, never HIRA's distance. The list is cached grid-centred and shared
+        // (HospitalApiClient#findNear), so HIRA's origin-relative figure belongs to the cell centre,
+        // not this caller. It matched ours within a mean 4 m on 100 live rows anyway (2026-07-14).
+        // raw.distanceMeters() is still parsed — the list fixture test asserts it — just not trusted here.
+        return GeoUtils.haversineMeters(originLat, originLng, raw.latitude(), raw.longitude());
     }
 
     private FacilityOperation hospitalOperation(

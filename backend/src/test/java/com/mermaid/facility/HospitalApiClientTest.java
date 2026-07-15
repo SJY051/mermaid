@@ -1,6 +1,7 @@
 package com.mermaid.facility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -176,6 +177,21 @@ class HospitalApiClientTest {
         assertThat(batch.hospitals()).hasSize(HospitalApiClient.MAX_PAGES);
     }
 
+    @Test
+    @DisplayName("fetches from the grid-cell centre with the radius widened by one cell")
+    void fetchesGridCentredWithWidenedRadius() throws Exception {
+        var client = new PaginatedHospitalClient(List.of(page(1, "h", 126.9)));
+
+        // Caller at 37.565499, 126.977501 rounds to cell centre 37.565, 126.978.
+        client.findNear(37.565499, 126.977501, 2000);
+
+        assertThat(client.fetchedLat).isCloseTo(37.565, within(1e-9));
+        assertThat(client.fetchedLng).isCloseTo(126.978, within(1e-9));
+        // Removing the one-cell widening drops this to 2000 and an edge-of-cell caller silently loses
+        // hospitals inside their own radius (§2-3).
+        assertThat(client.fetchedRadius).isEqualTo(2000 + HospitalApiClient.GRID_MARGIN_METERS);
+    }
+
     private static JsonNode page(int totalCount, String ykiho, double longitude) throws Exception {
         return MAPPER.readTree(
                 """
@@ -191,6 +207,11 @@ class HospitalApiClientTest {
         // Pages after the first are fetched from several threads at once, so this cannot be a bare
         // ArrayList any more — concurrent add() would race and lose requests.
         private final List<Integer> requestedPages = Collections.synchronizedList(new ArrayList<>());
+        // Page 1 runs alone first and every page carries the same origin/radius, so a plain field is
+        // enough to capture what actually reached HIRA.
+        private volatile double fetchedLat;
+        private volatile double fetchedLng;
+        private volatile int fetchedRadius;
 
         private PaginatedHospitalClient(List<JsonNode> pages) {
             super(
@@ -210,6 +231,9 @@ class HospitalApiClientTest {
 
         @Override
         protected JsonNode fetchPage(double lat, double lng, int radiusMeters, int pageNo) {
+            fetchedLat = lat;
+            fetchedLng = lng;
+            fetchedRadius = radiusMeters;
             requestedPages.add(pageNo);
             return pages.get(pageNo - 1);
         }
