@@ -142,10 +142,11 @@ public class ChatProxyService {
         }
 
         body.set(RESPONSE_FORMAT, responseFormat(schemaName, schema));
-        return completeStructuredPassOne(body, budget).timeout(budget);
+        return completeStructuredPassOne(body, userText, budget).timeout(budget);
     }
 
-    private Mono<String> completeStructuredPassOne(ObjectNode schemaRequest, Duration budget) {
+    private Mono<String> completeStructuredPassOne(
+            ObjectNode schemaRequest, String userText, Duration budget) {
         return postWithoutTimeout(schemaRequest)
                 .map(response -> PassOneFirstAttempt.response(content(response)))
                 .switchIfEmpty(Mono.just(PassOneFirstAttempt.response(null)))
@@ -156,7 +157,8 @@ public class ChatProxyService {
                 .flatMap(elapsed -> {
                     PassOneFirstAttempt first = elapsed.getT2();
                     if (first.error() == null
-                            && SearchTermExtractor.canConsume(first.content(), objectMapper)) {
+                            && SearchTermExtractor.canConsume(
+                                    first.content(), userText, objectMapper)) {
                         return Mono.just(first.content());
                     }
 
@@ -176,7 +178,7 @@ public class ChatProxyService {
                             .switchIfEmpty(Mono.just(new PassOneResponse(null)))
                             .flatMap(second -> {
                                 PassOneRetryOutcome outcome = SearchTermExtractor.canConsume(
-                                                second.content(), objectMapper)
+                                                second.content(), userText, objectMapper)
                                         ? PassOneRetryOutcome.RECOVERED
                                         : PassOneRetryOutcome.UNUSABLE;
                                 logPassOneRetry(reason, outcome);
