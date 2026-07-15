@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.matchesPattern;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -265,6 +266,62 @@ class ErrorContractTest {
     }
 
     @Test
+    @DisplayName("a rejected request-body value never reaches validation logs")
+    void requestBodyValidationLogIsValueFree() throws Exception {
+        String sentinel = "PRIVATE_HEALTH_SENTINEL";
+        String requestId = "33333333-3333-4333-8333-333333333333";
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                event.prepareForDeferredProcessing();
+                super.append(event);
+            }
+        };
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MvcResult result =
+                    mvc.perform(
+                                    patch("/api/v1/profiles/11111111-1111-4111-8111-111111111111")
+                                            .header(RequestIdFilter.HEADER, requestId)
+                                            .contentType(MediaType.APPLICATION_JSON)
+                                            .content("{\"countryCode\":\"" + sentinel + "\"}"))
+                            .andExpect(status().isBadRequest())
+                            .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                            .andExpect(
+                                    jsonPath("$.error.message")
+                                            .value(
+                                                    "Parameter 'countryCode' is out of range or malformed."))
+                            .andExpect(jsonPath("$.error.retryable").value(false))
+                            .andExpect(header().string(RequestIdFilter.HEADER, requestId))
+                            .andExpect(jsonPath("$.error.request_id").value(requestId))
+                            .andReturn();
+
+            assertThat(result.getResponse().getContentAsString()).doesNotContain(sentinel);
+            assertThat(appender.list)
+                    .filteredOn(event -> event.getLoggerName().equals(GlobalExceptionHandler.class.getName()))
+                    .singleElement()
+                    .satisfies(event -> {
+                        assertThat(event.getMessage()).isEqualTo("invalid_request reason=body_validation");
+                        assertThat(event.getFormattedMessage())
+                                .isEqualTo("invalid_request reason=body_validation");
+                        assertThat(event.getArgumentArray()).isNullOrEmpty();
+                        assertThat(event.getThrowableProxy()).isNull();
+                        assertThat(event.getMDCPropertyMap())
+                                .containsEntry(RequestIdFilter.MDC_KEY, requestId);
+                        assertThat(event.getMessage()).doesNotContain(sentinel);
+                        assertThat(event.getFormattedMessage()).doesNotContain(sentinel);
+                        assertThat(String.valueOf(event.getArgumentArray())).doesNotContain(sentinel);
+                        assertThat(event.getMDCPropertyMap().toString()).doesNotContain(sentinel);
+                    });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
     @DisplayName("a well-formed emergency JSON body still reaches the controller")
     void wellFormedBodyStillWorks() throws Exception {
         mvc.perform(
@@ -315,6 +372,12 @@ class ErrorContractTest {
             MvcResult result =
                     mvc.perform(request).andExpect(status().isBadRequest()).andReturn();
             assertThat(appender.list).hasSize(1);
+            ILoggingEvent event = appender.list.getFirst();
+            assertThat(event.getMessage()).isEqualTo("invalid_request reason=constraint_violation");
+            assertThat(event.getFormattedMessage())
+                    .isEqualTo("invalid_request reason=constraint_violation");
+            assertThat(event.getArgumentArray()).isNullOrEmpty();
+            assertThat(event.getThrowableProxy()).isNull();
 
             String responseRequestId = result.getResponse().getHeader(RequestIdFilter.HEADER);
             String bodyRequestId =
@@ -323,7 +386,7 @@ class ErrorContractTest {
                             .path("error")
                             .path("request_id")
                             .asText();
-            Map<String, String> eventMdc = appender.list.getFirst().getMDCPropertyMap();
+            Map<String, String> eventMdc = event.getMDCPropertyMap();
 
             assertThat(responseRequestId).isNotNull().isEqualTo(bodyRequestId);
             assertThat(eventMdc).containsEntry("requestId", responseRequestId);
