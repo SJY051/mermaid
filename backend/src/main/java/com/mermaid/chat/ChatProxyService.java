@@ -24,8 +24,8 @@ import reactor.core.publisher.Mono;
  *
  * <ol>
  *   <li>The API key lives here and only here. The browser sends a dummy one (NFR-03).
- *   <li>Only client {@code user} and {@code assistant} messages are retained. Privileged, tool, and
- *       malformed roles are dropped before our own system rules are added (NFR-03, SA-01).
+ *   <li>Only client {@code user} messages are retained. Assistant, privileged, tool, and malformed
+ *       roles are dropped before our own system rules are added (NFR-03, SA-01).
  * </ol>
  */
 @Slf4j
@@ -210,15 +210,15 @@ public class ChatProxyService {
         int dropped = 0;
         for (JsonNode message : clientRequest.path("messages")) {
             String role = message.path("role").asText();
-            if (!"user".equals(role) && !"assistant".equals(role)) {
-                // Only conversation roles cross this boundary. Developer, tool, malformed, and
-                // disguised system roles are all client-controlled instruction channels.
+            if (!"user".equals(role)) {
+                // The browser cannot prove that an assistant turn came from this server. Until the
+                // server owns transcript restoration, every non-user role is an instruction channel.
                 dropped++;
                 continue;
             }
             sanitized.add(objectMapper
                     .createObjectNode()
-                    .put("role", role)
+                    .put("role", "user")
                     .put("content", messageText(message.path("content"))));
         }
         if (dropped > 0) {
