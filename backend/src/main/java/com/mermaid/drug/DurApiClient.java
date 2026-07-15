@@ -3,6 +3,7 @@ package com.mermaid.drug;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mermaid.common.ApiException;
 import com.mermaid.common.ErrorCode;
+import com.mermaid.common.FixtureIntegrityException;
 import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
@@ -184,6 +185,8 @@ public class DurApiClient {
         List<DurWarning> rows;
         try {
             rows = parse(fixtures.load(FIXTURES.get(kind)), kind);
+        } catch (FixtureIntegrityException fixtureFailure) {
+            throw fixtureFailure;
         } catch (RuntimeException fixtureFailure) {
             throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
         }

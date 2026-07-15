@@ -3,6 +3,7 @@ package com.mermaid.drug;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.mermaid.common.ApiException;
 import com.mermaid.common.ErrorCode;
+import com.mermaid.common.FixtureIntegrityException;
 import com.mermaid.common.FixtureLoader;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.PublicApiResponse;
@@ -172,6 +173,8 @@ public class EasyDrugApiClient {
     private List<Narrated> loadFixture(String operationCode) {
         try {
             return parse(fixtures.load(FIXTURE));
+        } catch (FixtureIntegrityException fixtureFailure) {
+            throw fixtureFailure;
         } catch (RuntimeException fixtureFailure) {
             throw unavailable(operationCode, "FIXTURE_UNAVAILABLE");
         }

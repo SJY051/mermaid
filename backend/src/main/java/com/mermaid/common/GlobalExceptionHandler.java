@@ -66,6 +66,14 @@ public class GlobalExceptionHandler {
         return body(ErrorCode.SOURCE_UNAVAILABLE, userMessageFor(ErrorCode.SOURCE_UNAVAILABLE), Map.of());
     }
 
+    @ExceptionHandler(FixtureIntegrityException.class)
+    public ResponseEntity<Map<String, Object>> fixtureIntegrity(FixtureIntegrityException e) {
+        // The reason is a bounded enum. Do not log the exception or fixture name: parser messages
+        // can contain captured payload values.
+        log.error("fixture_integrity_failure reason={}", e.reason());
+        return body(ErrorCode.INTERNAL_ERROR, userMessageFor(ErrorCode.INTERNAL_ERROR), Map.of());
+    }
+
     /**
      * Every shape a bad request can take.
      *
