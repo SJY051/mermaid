@@ -25,9 +25,11 @@ fail() {
 
 # 1. Files that must never be committed.
 for f in $staged; do
-    [ "$f" = ".env.example" ] && continue
     case "$f" in
-        .env|.env.*|*/application-local.yml|*/application-local.yaml|*.pem|*.key|*.jks|*.p12)
+        .env.example|*/.env.example)
+            continue
+            ;;
+        .env|.env.*|*/.env|*/.env.*|*/application-local.yml|*/application-local.yaml|*.pem|*.key|*.jks|*.p12)
             fail "'$f' holds secrets. It should be gitignored — check .gitignore."
             ;;
     esac
@@ -37,17 +39,50 @@ done
 added=$(git diff --cached -U0 | grep '^+' | grep -v '^+++' || true)
 [ -z "$added" ] && exit 0
 
-# Placeholders that appear in templates and docs are not credentials.
-placeholder='change-me|not-needed|YOUR_|example|xxxx|<.*>|\$\{'
+# Placeholders that make up the credential candidate itself are not credentials.
+# A placeholder word elsewhere on the same line must not excuse a real candidate.
+is_placeholder() {
+    value=$1
+    case "$value" in
+        change-me*|not-needed|YOUR_*|example|example-*|'${'*'}'|\<*\>)
+            return 0
+            ;;
+    esac
+    printf '%s\n' "$value" | grep -Eq '^x{4,}$'
+}
+
+credential_value() {
+    match=$1
+    case "$match" in
+        serviceKey=*) printf '%s\n' "${match#serviceKey=}" ;;
+        sk-*) printf '%s\n' "${match#sk-}" ;;
+        gh[pousr]_*) printf '%s\n' "${match#????}" ;;
+        AIza*) printf '%s\n' "${match#AIza}" ;;
+        *)
+            printf '%s\n' "$match" | sed -E \
+                "s/^(API_KEY|SERVICE_KEY|SECRET|TOKEN|PASSWORD)[[:space:]]*[:=][[:space:]]*['\"]?//"
+            ;;
+    esac
+}
 
 # NOTE: this loop must NOT be fed by a pipe. `... | while` runs in a subshell, so `fail`'s
 # `exit 1` would kill only the subshell and the hook would exit 0 — reporting the secret
 # and committing it anyway. A here-document keeps the loop in the current shell.
 while IFS= read -r pattern; do
     [ -z "$pattern" ] && continue
-    hits=$(echo "$added" | grep -E "$pattern" || true)
-    [ -z "$hits" ] && continue
-    real=$(echo "$hits" | grep -Ev "$placeholder" || true)
+    matches=$(printf '%s\n' "$added" | grep -Eo "$pattern" || true)
+    [ -z "$matches" ] && continue
+
+    real=
+    while IFS= read -r match; do
+        value=$(credential_value "$match")
+        if ! is_placeholder "$value"; then
+            real=1
+            break
+        fi
+    done <<MATCHES
+$matches
+MATCHES
     [ -n "$real" ] && fail "A staged line looks like a real credential. Pattern: $pattern"
 done <<'PATTERNS'
 serviceKey=[A-Za-z0-9%+/=]{20,}
