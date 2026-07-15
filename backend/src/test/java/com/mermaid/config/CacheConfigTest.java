@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.SourceRef;
+import com.mermaid.facility.EmergencyRoomApiClient;
 import com.mermaid.facility.HospitalApiClient;
 import com.mermaid.facility.HospitalDetailApiClient;
 import com.mermaid.facility.HolidayApiClient;
@@ -133,6 +134,24 @@ class CacheConfigTest {
         Object restored = pair().read(pair().write(value));
 
         assertThat(restored).isEqualTo(value);
+    }
+
+    @Test
+    @DisplayName("the emergency-room batch cache value round-trips, provenance included")
+    void emergencyRoomBatchRoundTrips() {
+        var raw =
+                new EmergencyRoomApiClient.RawEmergencyRoom(
+                        "A1100006", "강북삼성병원", "서울 종로구", "02-000-0000", 37.5, 126.9);
+        var batch =
+                new EmergencyRoomApiClient.EmergencyRoomBatch(
+                        List.of(raw), SourceRef.DataMode.FIXTURE);
+
+        RedisSerializationContext.SerializationPair<Object> pair = pair();
+        Object back = pair.read(pair.write(batch));
+
+        assertThat(back).isEqualTo(batch);
+        assertThat(((EmergencyRoomApiClient.EmergencyRoomBatch) back).origin())
+                .isEqualTo(SourceRef.DataMode.FIXTURE);
     }
 
     @Test

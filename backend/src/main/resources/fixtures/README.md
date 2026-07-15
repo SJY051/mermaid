@@ -7,6 +7,7 @@
 | 파일 | 출처 | 무엇을 보여주나 |
 |---|---|---|
 | `pharmacy.json` | `ErmctInsttInfoInqireService/getParmacyLcinfoInqire` | 좌표 조회. **주간 시간표가 없습니다.** `startTime`/`endTime`, `distance`(km), `latitude`/`longitude` |
+| `emergency_room.json` | `ErmctInfoInqireService/getEgytLcinfoInqire` | 응급의료기관 좌표 조회. `distance`는 **km**이며, 이것만으로 응급실 운영 여부나 가용 병상을 알 수 없습니다. |
 | `holiday_2026.xml` | `SpcdeInfoService/getRestDeInfo` | 2026-07-15 실제 캡처. **XML**, `isHoliday=Y`·`locdate` 사용. 공급자가 `Y`로 답한 노동절·제헌절도 자체 정책으로 제외하지 않는다. |
 | `pharmacy_basis.json` | `…/getParmacyBassInfoInqire` | HPID 단건. **여기에 `dutyTime1s`~`dutyTime6c`가 있습니다.** `wgs84Lat`/`wgs84Lon` |
 | `easydrug.json` | `DrbEasyDrugInfoService/getDrbEasyDrugList` | 안내문(`*Qesitm`). **성분 필드가 없습니다.** |

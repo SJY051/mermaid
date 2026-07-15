@@ -41,6 +41,7 @@ class FacilityServiceTest {
                         client,
                         new HospitalApiClient(null, null, null, null),
                         new HospitalDetailApiClient(null, null, null, null),
+                        new EmergencyRoomApiClient(null, null, null, null),
                         new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
@@ -129,6 +130,7 @@ class FacilityServiceTest {
                         client,
                         new HospitalApiClient(null, null, null, null),
                         new HospitalDetailApiClient(null, null, null, null),
+                        new EmergencyRoomApiClient(null, null, null, null),
                         officialFixtureCalendar(),
                         CHILDRENS_DAY_AFTERNOON);
 
@@ -147,6 +149,7 @@ class FacilityServiceTest {
                 client,
                 new HospitalApiClient(null, null, null, null),
                 new HospitalDetailApiClient(null, null, null, null),
+                new EmergencyRoomApiClient(null, null, null, null),
                 new HolidayCalendar(date -> false),
                 FRIDAY_AFTERNOON);
     }
@@ -203,6 +206,62 @@ class FacilityServiceTest {
 
     private static Facility facility(List<Facility> found, String idSuffix) {
         return found.stream().filter(f -> f.id().endsWith(idSuffix)).findFirst().orElseThrow();
+    }
+
+    @Test
+    void emergencyDistanceIsRecomputedForEachCallerFromSharedListCoordinates() {
+        var emergencyClient =
+                new CountingEmergencyRoomClient(
+                        List.of(
+                                new EmergencyRoomApiClient.RawEmergencyRoom(
+                                        "A1100006",
+                                        "Emergency hospital",
+                                        "Seoul",
+                                        "02-000-0000",
+                                        37.5763,
+                                        126.9779)));
+        var service =
+                new FacilityService(
+                        null,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        emergencyClient,
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        Facility first =
+                service.findNearby(37.5663, 126.9779, 2_000, false, FacilityType.EMERGENCY_ROOM).get(0);
+        Facility second =
+                service.findNearby(37.5673, 126.9779, 2_000, false, FacilityType.EMERGENCY_ROOM).get(0);
+
+        // Both callers must receive their own Haversine distance, which changes as their coordinates
+        // change even though they reuse the same list row.
+        assertThat(first.distanceMeters()).isGreaterThan(1_000.0);
+        assertThat(second.distanceMeters()).isGreaterThan(900.0).isLessThan(first.distanceMeters());
+    }
+
+    @Test
+    void emergencyRoomSearchHonoursThePublicResultLimit() {
+        var emergencyClient =
+                new CountingEmergencyRoomClient(
+                        List.of(
+                                new EmergencyRoomApiClient.RawEmergencyRoom(
+                                        "near", "Near ER", "Seoul", null, 37.5664, 126.9779),
+                                new EmergencyRoomApiClient.RawEmergencyRoom(
+                                        "far", "Far ER", "Seoul", null, 37.5763, 126.9779)));
+        var service =
+                new FacilityService(
+                        null,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        emergencyClient,
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        var found =
+                service.findNearby(37.5663, 126.9779, 2_000, false, FacilityType.EMERGENCY_ROOM, 1);
+
+        assertThat(found).singleElement().extracting(Facility::id).isEqualTo("facility:nmc-emergency:near");
     }
 
     private static PharmacyApiClient.RawPharmacy pharmacy(String hpid, double distanceKm) {
@@ -298,6 +357,21 @@ class FacilityServiceTest {
                 activeRequests.decrementAndGet();
             }
             return super.weeklyHours(hpid);
+        }
+    }
+
+    private static final class CountingEmergencyRoomClient extends EmergencyRoomApiClient {
+
+        private final List<RawEmergencyRoom> emergencyRooms;
+
+        private CountingEmergencyRoomClient(List<RawEmergencyRoom> emergencyRooms) {
+            super(null, null, null, null);
+            this.emergencyRooms = emergencyRooms;
+        }
+
+        @Override
+        public EmergencyRoomBatch findNear(double lat, double lng) {
+            return new EmergencyRoomBatch(emergencyRooms, SourceRef.DataMode.LIVE);
         }
     }
 }

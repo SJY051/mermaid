@@ -388,7 +388,7 @@ class DrugRetrievalTest {
 
     private DrugService service(World world) {
         var props = new PublicApiProperties(
-                "", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                "", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var mode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
 

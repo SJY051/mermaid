@@ -37,7 +37,7 @@ class DrugServiceFixtureTest {
 
     private DrugService service() {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var mode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         return new DrugService(
@@ -99,7 +99,7 @@ class DrugServiceFixtureTest {
             var mode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
             var loader = new FixtureLoader(new ObjectMapper());
             var props =
-                    new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                    new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
             var emptyPermission =
                     new DrugPermissionApiClient(null, props, mode, loader) {
                         @Override
@@ -249,7 +249,7 @@ class DrugServiceFixtureTest {
         void emptyIsFine() {
             // dur_empty.json is the pregnancy fixture: totalCount 0, no items.
             var props =
-                    new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                    new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
             var client =
                     new DurApiClient(
                             null,

@@ -17,6 +17,7 @@ class HolidayApiClientTest {
             new PublicApiProperties(
                     "",
                     "https://x",
+                    "https://x",
                     "https://holiday.example",
                     "https://x",
                     "https://x",
@@ -144,6 +145,7 @@ class HolidayApiClientTest {
     private static PublicApiProperties configuredProperties() {
         return new PublicApiProperties(
                 "decoding-key",
+                "https://x",
                 "https://x",
                 "https://holiday.example",
                 "https://x",

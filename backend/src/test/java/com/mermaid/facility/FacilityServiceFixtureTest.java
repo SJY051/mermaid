@@ -55,13 +55,14 @@ class FacilityServiceFixtureTest {
 
     private FacilityService serviceAt(Clock clock) {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         return new FacilityService(
                 new PharmacyApiClient(null, props, dataMode, loader),
                 new HospitalApiClient(null, props, dataMode, loader),
                 new HospitalDetailApiClient(null, props, dataMode, loader),
+                new EmergencyRoomApiClient(null, props, dataMode, loader),
                 new HolidayCalendar(date -> false),
                 clock);
     }
@@ -81,7 +82,7 @@ class FacilityServiceFixtureTest {
             SourceRef.DataMode detailOrigin,
             HolidayCalendar holidayCalendar) {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         var listClient =
@@ -114,6 +115,7 @@ class FacilityServiceFixtureTest {
                 new PharmacyApiClient(null, props, dataMode, loader),
                 listClient,
                 detailClient,
+                new EmergencyRoomApiClient(null, props, dataMode, loader),
                 holidayCalendar,
                 clock);
     }
@@ -139,6 +141,7 @@ class FacilityServiceFixtureTest {
                 new PublicApiProperties(
                         "decoding-key", // non-blank → isConfigured(), so we attempt the live call
                         "http://127.0.0.1:1", // connection refused → fallback path
+                        "https://x",
                         "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.HYBRID);
         var loader = new FixtureLoader(new ObjectMapper());
@@ -147,6 +150,7 @@ class FacilityServiceFixtureTest {
                 new PharmacyApiClient(client, props, dataMode, loader),
                 new HospitalApiClient(client, props, dataMode, loader),
                 new HospitalDetailApiClient(client, props, dataMode, loader),
+                new EmergencyRoomApiClient(client, props, dataMode, loader),
                 new HolidayCalendar(date -> false),
                 clock);
     }
@@ -305,6 +309,7 @@ class FacilityServiceFixtureTest {
                         pharmacy,
                         new HospitalApiClient(null, props, dataMode, loader),
                         new HospitalDetailApiClient(null, props, dataMode, loader),
+                        new EmergencyRoomApiClient(null, props, dataMode, loader),
                         new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
@@ -492,7 +497,7 @@ class FacilityServiceFixtureTest {
     @DisplayName("hospital detail fan-out is bounded at sixteen in flight")
     void hospitalDetailFetchesAreBoundedAtSixteen() {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         // 20 rows, all within radius, so the fan-out could run 20 at once if it were unbounded — the
@@ -549,6 +554,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         listClient,
                         detailClient,
+                        new EmergencyRoomApiClient(null, props, dataMode, loader),
                         new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
@@ -562,7 +568,7 @@ class FacilityServiceFixtureTest {
     @DisplayName("fetches details for only the nearest hospitals, never one call per row in a dense radius")
     void hospitalDetailFetchIsCappedAtNearest() {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         // One closest nursing hospital plus 69 acute-care candidates: the nursing row must not spend
@@ -609,6 +615,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         listClient,
                         detailClient,
+                        new EmergencyRoomApiClient(null, props, dataMode, loader),
                         new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
@@ -627,7 +634,7 @@ class FacilityServiceFixtureTest {
     @DisplayName("open-now hospitals inspect 100 candidates so a farther open hospital is not hidden")
     void hospitalOpenNowLooksPastReturnedLimitWithinCandidateCap() {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         List<HospitalApiClient.RawHospital> many =
@@ -680,6 +687,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         listClient,
                         detailClient,
+                        new EmergencyRoomApiClient(null, props, dataMode, loader),
                         new HolidayCalendar(date -> false),
                         FRIDAY_AFTERNOON);
 
@@ -694,7 +702,7 @@ class FacilityServiceFixtureTest {
     @DisplayName("HIRA's holiday-closed flag closes a hospital only when the calendar identifies a holiday")
     void hospitalHonoursHolidayClosure() {
         var props =
-                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
         var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
         var loader = new FixtureLoader(new ObjectMapper());
         var service =
@@ -702,6 +710,7 @@ class FacilityServiceFixtureTest {
                         new PharmacyApiClient(null, props, dataMode, loader),
                         new HospitalApiClient(null, props, dataMode, loader),
                         new HospitalDetailApiClient(null, props, dataMode, loader),
+                        new EmergencyRoomApiClient(null, props, dataMode, loader),
                         officialFixtureCalendar(),
                         CHILDRENS_DAY_AFTERNOON);
 
@@ -712,5 +721,36 @@ class FacilityServiceFixtureTest {
         assertThat(hospital.operation().isOpenNow()).isFalse();
         assertThat(hospital.operation().status())
                 .isEqualTo(FacilityOperation.OperationStatus.CLOSED);
+    }
+
+    @Test
+    @DisplayName("emergency rooms calculate caller-specific metres and leave hours unknown")
+    void returnsEmergencyRoomsWithoutInventingHours() {
+        List<Facility> found =
+                serviceAt(FRIDAY_AFTERNOON)
+                        .findNearby(LAT, LNG, 1000, false, FacilityType.EMERGENCY_ROOM);
+
+        // The list is grid-centred and shared, so cards must use Haversine from this caller instead
+        // of NMC's origin-relative distance. The operation assertion guards null != closed.
+        assertThat(found).hasSize(2);
+        assertThat(found).allSatisfy(f -> assertThat(f.type()).isEqualTo(FacilityType.EMERGENCY_ROOM));
+        assertThat(found.get(0).id()).isEqualTo("facility:nmc-emergency:A1100006");
+        assertThat(found.get(0).distanceMeters()).isBetween(900.0, 920.0);
+        assertThat(found).allSatisfy(f -> {
+            assertThat(f.operation().isOpenNow()).isNull();
+            assertThat(f.operation().status())
+                    .isEqualTo(FacilityOperation.OperationStatus.UNKNOWN);
+            assertThat(f.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
+        });
+    }
+
+    @Test
+    @DisplayName("open_now never presents an emergency room as closed when its hours are unknown")
+    void openNowExcludesUnknownEmergencyRooms() {
+        List<Facility> found =
+                serviceAt(FRIDAY_AFTERNOON)
+                        .findNearby(LAT, LNG, 1000, true, FacilityType.EMERGENCY_ROOM);
+
+        assertThat(found).isEmpty();
     }
 }

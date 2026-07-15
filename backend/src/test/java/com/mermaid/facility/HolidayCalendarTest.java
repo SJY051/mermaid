@@ -20,6 +20,7 @@ class HolidayCalendarTest {
             new PublicApiProperties(
                     "decoding-key",
                     "https://x",
+                    "https://x",
                     "https://holiday.example",
                     "https://x",
                     "https://x",

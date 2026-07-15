@@ -30,6 +30,7 @@ class HospitalDetailApiClientTest {
                         "",
                         "https://x",
                         "https://x",
+                        "https://x",
                         "https://hira.example/MadmDtlInfoService2.8",
                         "https://x",
                         "https://x",

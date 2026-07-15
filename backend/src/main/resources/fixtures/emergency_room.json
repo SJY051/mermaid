@@ -1,0 +1,61 @@
+{
+  "response": {
+    "header": { "resultCode": "00", "resultMsg": "NORMAL SERVICE." },
+    "body": {
+      "items": {
+        "item": [
+          {
+            "cnt": 76,
+            "distance": 0.91,
+            "dutyAddr": "서울특별시 종로구 새문안로 29 (평동)",
+            "dutyDiv": "A",
+            "dutyDivName": "종합병원",
+            "dutyFax": 20012117,
+            "dutyName": "강북삼성병원",
+            "dutyTel1": "02-2001-2001",
+            "endTime": 1700,
+            "hpid": "A1100006",
+            "latitude": 37.568497631233825,
+            "longitude": 126.96793805451702,
+            "rnum": 4,
+            "startTime": "0830"
+          },
+          {
+            "cnt": 76,
+            "distance": 0.97,
+            "dutyAddr": "서울특별시 종로구 새문안로 9, 적십자병원 (평동)",
+            "dutyDiv": "A",
+            "dutyDivName": "종합병원",
+            "dutyFax": "02----",
+            "dutyName": "서울적십자병원",
+            "dutyTel1": "02-2002-8000",
+            "endTime": 1730,
+            "hpid": "A1100029",
+            "latitude": 37.56715536263689,
+            "longitude": 126.96699861289684,
+            "rnum": 24,
+            "startTime": "0830"
+          },
+          {
+            "cnt": 76,
+            "distance": 2.04,
+            "dutyAddr": "서울특별시 종로구 통일로 256 (무악동)",
+            "dutyDiv": "A",
+            "dutyDivName": "종합병원",
+            "dutyName": "세란병원",
+            "dutyTel1": "02-737-0181",
+            "endTime": 1800,
+            "hpid": "A1100032",
+            "latitude": 37.57534016994642,
+            "longitude": 126.9577071892358,
+            "rnum": 25,
+            "startTime": "0900"
+          }
+        ]
+      },
+      "numOfRows": 3,
+      "pageNo": 1,
+      "totalCount": 76
+    }
+  }
+}
