@@ -21,8 +21,8 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * <p>Two rules, both about what the browser is told:
  *
  * <ol>
- *   <li><b>Never leak internals.</b> The exception's own message goes to the log; the client gets a
- *       code, a sentence written for a person, and the request id.
+ *   <li><b>Never leak internals.</b> Failures that can retain request-body content use only a stable
+ *       log event and the MDC request id. The client gets a code and a sentence written for a person.
  *   <li><b>Say whether retrying helps.</b> A government API that timed out is worth another try. A
  *       malformed query is not. {@code retryable} decides whether the UI offers a button.
  * </ol>
