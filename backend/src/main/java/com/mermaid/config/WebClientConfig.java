@@ -1,6 +1,8 @@
 package com.mermaid.config;
 
+import io.netty.channel.ChannelOption;
 import io.netty.resolver.DefaultAddressResolverGroup;
+import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.reactive.ReactorClientHttpConnector;
@@ -16,6 +18,8 @@ public class WebClientConfig {
 
     /** Chat completions can carry long JSON payloads; the 256KB default is too small. */
     private static final int MAX_IN_MEMORY_BYTES = 4 * 1024 * 1024;
+    private static final Duration PUBLIC_API_RESPONSE_TIMEOUT = Duration.ofSeconds(10);
+    private static final int PUBLIC_API_CONNECT_TIMEOUT_MILLIS = 3_000;
 
     /**
      * Some OpenAI-compatible endpoints sit behind Cloudflare, which rejects unfamiliar clients with
@@ -43,6 +47,18 @@ public class WebClientConfig {
         return HttpClient.create().resolver(DefaultAddressResolverGroup.INSTANCE);
     }
 
+    /**
+     * Public APIs are called from MVC request threads via {@code block()}. Bound both connection and
+     * response waits so an upstream that accepts a connection but never answers cannot exhaust those
+     * threads and make nearby-care search look frozen for everyone else.
+     */
+    static HttpClient publicApiHttpClient(Duration responseTimeout) {
+        return HttpClient.create()
+                .resolver(DefaultAddressResolverGroup.INSTANCE)
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, PUBLIC_API_CONNECT_TIMEOUT_MILLIS)
+                .responseTimeout(responseTimeout);
+    }
+
     @Bean
     WebClient llmWebClient(WebClient.Builder builder, LlmProperties props) {
         return builder.baseUrl(props.baseUrl())
@@ -54,9 +70,14 @@ public class WebClientConfig {
 
     @Bean
     WebClient publicApiWebClient(WebClient.Builder builder) {
+        return publicApiWebClient(builder, PUBLIC_API_RESPONSE_TIMEOUT);
+    }
+
+    /** Package-visible for the delayed-upstream regression test. */
+    WebClient publicApiWebClient(WebClient.Builder builder, Duration responseTimeout) {
         // No baseUrl: each public API lives on a different host and we pass absolute URIs
         // built by PublicApiUriBuilder (which must not be re-encoded).
-        return builder.clientConnector(new ReactorClientHttpConnector(httpClient()))
+        return builder.clientConnector(new ReactorClientHttpConnector(publicApiHttpClient(responseTimeout)))
                 .codecs(c -> c.defaultCodecs().maxInMemorySize(MAX_IN_MEMORY_BYTES))
                 .build();
     }

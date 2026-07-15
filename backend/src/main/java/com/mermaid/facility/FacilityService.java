@@ -1,6 +1,7 @@
 package com.mermaid.facility;
 
 import com.mermaid.common.GeoUtils;
+import com.mermaid.common.NotFoundException;
 import com.mermaid.common.Parallel;
 import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
@@ -10,14 +11,17 @@ import com.mermaid.facility.domain.FacilityOperation;
 import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.facility.domain.OpenInterval;
 import com.mermaid.facility.domain.WeeklyHours;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -38,6 +42,10 @@ public class FacilityService {
 
     private static final String PHARMACY_PROVIDER = "nmc"; // 국립중앙의료원
     private static final String HOSPITAL_PROVIDER = "hira"; // 건강보험심사평가원
+    /** NMC 기관ID (HPID): one letter + seven digits, e.g. {@code C1110693}. Widen only if a real id is rejected. */
+    private static final Pattern HPID_PATTERN = Pattern.compile("[A-Za-z][0-9]{7}");
+    /** HIRA ykiho decoded from the captured standard-base64 value, e.g. {@code $481881#51#$1#…}. */
+    private static final Pattern HIRA_YKIHO_PATTERN = Pattern.compile("\\$\\d+(?:[#\\$]+\\d+)+");
     private static final int METRES_PER_KM = 1000;
     private static final int PHARMACY_WEEKLY_HOURS_CONCURRENCY = 4;
     /**
@@ -101,6 +109,106 @@ public class FacilityService {
             case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow, limit);
             case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow, limit);
         };
+    }
+
+    /**
+     * A single facility by its namespaced id (UI-03, DEV-205), e.g. {@code facility:nmc:C1110693}.
+     *
+     * <p>A pharmacy is fully reconstructable from its {@code hpid} alone: one basis call carries name,
+     * address, phone, coordinates and the official timetable. A detail-by-id request has no origin
+     * point, so {@code distanceMeters} is genuinely unknown here — {@code null}, never a fabricated 0.
+     *
+     * <p>A hospital is not: HIRA exposes treatment hours by {@code ykiho} but not identity, so name,
+     * address and coordinates can only be read from the geo list ({@code getHospBasisList}), which
+     * needs a coordinate and a radius. Until that gap is bridged, {@code facility:hira:…} answers 501 —
+     * the honest "we cannot look it up this way", not a blank or invented card.
+     *
+     * @throws NotFoundException the id is malformed, names an unknown provider, or no such pharmacy
+     *     exists upstream (→ 404)
+     * @throws UnsupportedOperationException a hospital id, whose detail-by-id path is not built (→ 501)
+     */
+    public Facility detail(String id) {
+        String[] parts = id.split(":", 3);
+        if (parts.length != 3 || !"facility".equals(parts[0]) || parts[2].isEmpty()) {
+            throw new NotFoundException("malformed facility id: " + id);
+        }
+        String provider = parts[1];
+        String recordId = parts[2];
+
+        if (PHARMACY_PROVIDER.equals(provider)) {
+            if (!HPID_PATTERN.matcher(recordId).matches()) {
+                // Reject a malformed HPID here, before any upstream call: otherwise every distinct
+                // bogus id would spend one of the 1,000/day pharmacy calls and cache a negative
+                // lookup. A malformed id is a 404, as documented — never an upstream request.
+                throw new NotFoundException("malformed pharmacy id: " + recordId);
+            }
+            return pharmacyDetail(recordId);
+        }
+        if (HOSPITAL_PROVIDER.equals(provider)) {
+            if (!isWellFormedHospitalId(recordId)) {
+                throw new NotFoundException("malformed hospital id: " + recordId);
+            }
+            // TODO(team): hospital detail-by-id (DEV-205) needs a HIRA by-ykiho identity source. The
+            // detail service (getDtlInfo2.8) returns hours but no name/address/coordinates; those come
+            // only from the coordinate-and-radius list. Until that gap is bridged this is an honest 501.
+            throw new UnsupportedOperationException(
+                    "Hospital detail-by-id is not built — HIRA exposes hours by ykiho but not identity"
+                            + " (name/address/coordinates); see FacilityService#detail");
+        }
+        throw new NotFoundException("unknown facility provider: " + provider);
+    }
+
+    /**
+     * HIRA returns its opaque ykiho as standard base64; our URL id wraps that value in base64url.
+     * Requiring both canonical encodings and the captured decoded grammar keeps arbitrary path text
+     * from reaching an unimplemented detail route as a misleading 501.
+     */
+    private static boolean isWellFormedHospitalId(String recordId) {
+        try {
+            String ykiho = Facility.decodeSegment(recordId);
+            if (!Facility.urlSafeSegment(ykiho).equals(recordId)) {
+                return false;
+            }
+            String decodedYkiho =
+                    new String(Base64.getDecoder().decode(ykiho), StandardCharsets.UTF_8);
+            return HIRA_YKIHO_PATTERN.matcher(decodedYkiho).matches();
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    private Facility pharmacyDetail(String hpid) {
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
+        boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
+        Instant retrievedAt = now.toInstant();
+
+        PharmacyApiClient.PharmacyDetailBatch batch = pharmacyApiClient.basisDetail(hpid);
+        PharmacyApiClient.PharmacyDetail detail = batch.detail();
+        if (detail == null) {
+            throw new NotFoundException("no pharmacy found for hpid " + hpid);
+        }
+
+        return new Facility(
+                Facility.idOf(PHARMACY_PROVIDER, hpid),
+                FacilityType.PHARMACY,
+                detail.name(),
+                null, // the pharmacy API publishes no English name
+                detail.address(),
+                null,
+                detail.phone(),
+                detail.latitude(),
+                detail.longitude(),
+                null, // a detail-by-id request has no origin coordinate, so distance is unknown
+                weeklyOperation(detail.weeklyHours(), now, holiday, retrievedAt),
+                new SourceRef(
+                        "src:" + PHARMACY_PROVIDER + ":" + hpid,
+                        "국립중앙의료원 전국 약국 정보",
+                        hpid,
+                        retrievedAt,
+                        batch.origin(),
+                        "National Medical Center — pharmacy directory"),
+                null, // the pharmacy API has no emergency-room flags
+                null);
     }
 
     private List<Facility> pharmacies(
@@ -209,13 +317,7 @@ public class FacilityService {
             Instant retrievedAt) {
 
         if (!weekly.byDay().isEmpty()) {
-            WeeklyHours hours = WeeklyHours.fromDutyTimes(weekly.byDay());
-            if (!hours.hasAnySchedule()) {
-                return FacilityOperation.unknown(retrievedAt);
-            }
-            return hours.isOpenAt(now, holiday)
-                    ? FacilityOperation.open(retrievedAt)
-                    : FacilityOperation.closed(retrievedAt);
+            return weeklyOperation(weekly, now, holiday, retrievedAt);
         }
 
         OpenInterval today = OpenInterval.of(raw.startTime(), raw.endTime());
@@ -225,6 +327,25 @@ public class FacilityService {
         LocalTime at = now.toLocalTime();
         boolean open = today.containsStartingToday(at) || today.carriesInto(at);
         return FacilityOperation.inferred(open, retrievedAt);
+    }
+
+    /**
+     * Open-now from a published weekly table alone — {@code OFFICIAL_SCHEDULE}, or {@code UNKNOWN}
+     * when the table holds no usable interval. Unlike {@link #operationOf} there is no single
+     * start/end pair to infer from, so a missing schedule stays honestly unknown, never guessed.
+     */
+    private FacilityOperation weeklyOperation(
+            DutyTable weekly, ZonedDateTime now, boolean holiday, Instant retrievedAt) {
+        if (weekly.byDay().isEmpty()) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        WeeklyHours hours = WeeklyHours.fromDutyTimes(weekly.byDay());
+        if (!hours.hasAnySchedule()) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        return hours.isOpenAt(now, holiday)
+                ? FacilityOperation.open(retrievedAt)
+                : FacilityOperation.closed(retrievedAt);
     }
 
     private SourceRef sourceOf(

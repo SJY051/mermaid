@@ -1,9 +1,11 @@
 package com.mermaid.facility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.NotFoundException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
@@ -252,6 +254,89 @@ class FacilityServiceFixtureTest {
         assertThat(predawn.get(0).operation().isOpenNow()).isFalse();
         assertThat(predawn.get(0).operation().status())
                 .isEqualTo(FacilityOperation.OperationStatus.CLOSED);
+    }
+
+    @Test
+    @DisplayName("pharmacy detail-by-id reconstructs the full facility from its hpid alone (DEV-205)")
+    void pharmacyDetailByIdReconstructsFromBasis() {
+        Facility f = serviceAt(FRIDAY_AFTERNOON).detail("facility:nmc:C1110693");
+
+        assertThat(f.id()).isEqualTo("facility:nmc:C1110693");
+        assertThat(f.type()).isEqualTo(FacilityType.PHARMACY);
+        assertThat(f.nameKo()).isEqualTo("청실약국");
+        assertThat(f.addressKo()).contains("무교로");
+        assertThat(f.phone()).isEqualTo("02-3789-6953");
+        // The basis endpoint's coordinate fields are wgs84Lat/wgs84Lon, not the location endpoint's.
+        assertThat(f.latitude()).isEqualTo(37.5672818668855);
+        assertThat(f.longitude()).isEqualTo(126.978921749794);
+        // A detail-by-id request carries no origin point, so distance is genuinely unknown here.
+        assertThat(f.distanceMeters()).isNull();
+        assertThat(f.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+        assertThat(f.source().dataMode()).isEqualTo(SourceRef.DataMode.FIXTURE);
+        assertThat(f.source().recordId()).isEqualTo("C1110693");
+    }
+
+    @Test
+    @DisplayName("a well-formed hpid upstream does not know is a NotFoundException, not a blank card")
+    void pharmacyDetailUnknownHpidThrowsNotFound() {
+        // Well-formed (letter + seven digits) but absent from the fixture: this reaches basisDetail and
+        // gets a null row back, distinct from the malformed-id short-circuit below.
+        assertThatThrownBy(() -> serviceAt(FRIDAY_AFTERNOON).detail("facility:nmc:C9999999"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("a malformed provider id is a 404 rejected before any upstream call (quota)")
+    void malformedProviderIdMakesNoUpstreamCall() {
+        var props =
+                new PublicApiProperties("", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
+        var loader = new FixtureLoader(new ObjectMapper());
+        var pharmacy =
+                new PharmacyApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public PharmacyDetailBatch basisDetail(String hpid) {
+                        throw new AssertionError("basisDetail must not run for a malformed id: " + hpid);
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacy,
+                        new HospitalApiClient(null, props, dataMode, loader),
+                        new HospitalDetailApiClient(null, props, dataMode, loader),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        // nmc not one-letter-seven-digits, and a hira segment that is not base64url: both are 404
+        // without spending a pharmacy call (the overridden basisDetail would fail the test if reached).
+        assertThatThrownBy(() -> service.detail("facility:nmc:not-an-hpid"))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.detail("facility:hira:not*base64"))
+                .isInstanceOf(NotFoundException.class);
+    }
+
+    @Test
+    @DisplayName("hospital detail-by-id stays 501: HIRA has no by-ykiho identity lookup")
+    void hospitalDetailByIdIsNotImplemented() {
+        String capturedYkiho =
+                "JDQ4MTg4MSM1MSMkMSMkMCMkODkkMzgxMzUxIzExIyQxIyQzIyQ3OSQ0NjEwMDIjNjEjJDEjJDQjJDgz";
+        String id = Facility.idOf("hira", Facility.urlSafeSegment(capturedYkiho));
+
+        assertThatThrownBy(() -> serviceAt(FRIDAY_AFTERNOON).detail(id))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    @DisplayName("a malformed id or unknown provider is a NotFoundException, never a 500")
+    void malformedOrUnknownProviderIdThrowsNotFound() {
+        var service = serviceAt(FRIDAY_AFTERNOON);
+        assertThatThrownBy(() -> service.detail("not-a-facility-id"))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.detail("facility:nmc:"))
+                .isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.detail("facility:unknownprovider:X"))
+                .isInstanceOf(NotFoundException.class);
     }
 
     @Test

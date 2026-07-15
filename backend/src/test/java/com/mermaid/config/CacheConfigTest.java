@@ -63,6 +63,42 @@ class CacheConfigTest {
     }
 
     @Test
+    @DisplayName("the pharmacy-detail cache value round-trips, timetable and coordinates included")
+    void pharmacyDetailValueRoundTrips() {
+        var value =
+                new PharmacyApiClient.PharmacyDetailBatch(
+                        new PharmacyApiClient.PharmacyDetail(
+                                "C1110693",
+                                "청실약국",
+                                "서울 중구",
+                                "02-000-0000",
+                                37.5672818668855,
+                                126.978921749794,
+                                new DutyTable(
+                                        Map.of(1, List.of("0900", "1900")), SourceRef.DataMode.FIXTURE)),
+                        SourceRef.DataMode.FIXTURE);
+
+        Object back = pair().read(pair().write(value));
+
+        assertThat(back).isEqualTo(value);
+    }
+
+    @Test
+    @DisplayName("a not-found pharmacy-detail (null detail field) still round-trips, not just non-null")
+    void pharmacyDetailNullDetailRoundTrips() {
+        // disableCachingNullValues() only blocks a null *value*; the batch is non-null with a null
+        // detail field. A record with a null component is exactly the shape that surprises the JSON
+        // typing (§11), so prove this survives the serializer rather than only cache.type=simple.
+        var value =
+                new PharmacyApiClient.PharmacyDetailBatch(null, SourceRef.DataMode.FIXTURE);
+
+        Object back = pair().read(pair().write(value));
+
+        assertThat(back).isEqualTo(value);
+        assertThat(((PharmacyApiClient.PharmacyDetailBatch) back).detail()).isNull();
+    }
+
+    @Test
     @DisplayName("the hospital-list cache value round-trips, provenance included")
     void hospitalBatchRoundTrips() {
         var raw =
