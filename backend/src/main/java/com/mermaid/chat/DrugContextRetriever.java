@@ -28,17 +28,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * Pass 1 of the two-pass RAG flow, end to end (spec §2-2).
+ * Retrieves the official records that define one turn's medicine boundary (spec §2-2).
  *
  * <pre>
- *   user's words → SearchTermExtractor → DrugService.retrieve → DRUG_CONTEXT system message
- *                                                             → allowedProductNames  (invariant 6)
- *                                                             → sourceRefs           (invariant 1, 3, 5)
+ *   user's words → SearchTermExtractor → DrugService.retrieve → groundedDrugs
+ *                                                             → sourceRefs
+ *                                                             → server-authored cards
  * </pre>
  *
- * <p>The context is injected as a <b>system</b> message, not a user one, so that a user turn cannot
- * impersonate retrieved data. It carries the ministry's own Korean text verbatim and untruncated: a
- * 주의사항 cut in half is a contraindication the model never sees.
+ * <p>{@code systemMessage} is retained for the incremental empty-context/legacy cleanup, but a
+ * non-empty context is not sent to whole-answer Pass 2. {@link ServerAuthoredAnswerBuilder} maps its
+ * typed grounded records and provenance directly into the response.
  */
 @Slf4j
 @Component
@@ -287,10 +287,9 @@ public class DrugContextRetriever {
                 continue;
             }
             // A product with NO English ingredient list is still grounded, with an empty key set:
-            // MFDS guidance with AllergyCheck.UNKNOWN is a real retrieved product, and render() still
-            // shows it to the model. Dropping it would make INV6 reject a card we actually fetched
-            // (INV6_PRODUCT_NOT_RETRIEVED — the #60 P1). INV6 still rejects any card that invents
-            // ingredients for it: an empty grounded set never equals a non-empty answer set.
+            // MFDS guidance with AllergyCheck.UNKNOWN is a real retrieved product. Dropping it would
+            // hide a record we actually fetched. The server builder can represent the product with an
+            // empty ingredient list, while its existing validator still rejects any invented row.
             grounded.put(
                     drug.nameKo(),
                     new GroundedDrug(
@@ -354,9 +353,9 @@ public class DrugContextRetriever {
     /**
      * Everything the ministry says about using this medicine carefully, joined, in Korean.
      *
-     * <p>All four fields, not just 주의사항: a card's {@code labelCautions} summarises the lot, so this
-     * is the text its numbers are checked against, and leaving 상호작용 out would make a faithful
-     * sentence about an interaction look invented.
+     * <p>All four fields, not just 주의사항. The current canonical card leaves English caution
+     * enrichment absent; this joined text remains typed record data for a separately approved future
+     * record-scoped enrichment path and for later legacy cleanup.
      */
     private static String officialCautionKo(Drug drug) {
         Drug.Narrative n = drug.narrative();
@@ -394,8 +393,9 @@ public class DrugContextRetriever {
         ArrayNode ingredients = node.putArray("ingredientsEn");
         drug.ingredientsEn().forEach(ingredients::add);
 
-        // The ministry's own words, in Korean, untouched. The model translates and summarises them;
-        // it does not get to add to them.
+        // Legacy serialized representation, retained during incremental cleanup. The current
+        // non-empty response reads GroundedDrug instead and never sends this prose to whole-answer
+        // Pass 2.
         ObjectNode official = node.putObject("officialTextKo");
         Drug.Narrative n = drug.narrative();
         putIfPresent(official, "efficacy", n.efficacy());
@@ -405,10 +405,8 @@ public class DrugContextRetriever {
         putIfPresent(official, "interaction", n.interaction());
         putIfPresent(official, "sideEffect", n.sideEffect());
 
-        // The model no longer copies these onto the card — the server renders them itself, from the
-        // same record (see cardWarnings). They stay in the context because the model still has to
-        // write a responsible `summary` about a medicine it is being told is contraindicated in
-        // pregnancy, and it cannot do that without knowing.
+        // The server renders these directly from the same record (see cardWarnings). They remain in
+        // the dormant serialized context only so physical removal can be reviewed separately.
         //
         // 병용금기 remains a count and not a list, here and on the card, for the reason it always was:
         // it is a property of a *pair*, 나르펜정400밀리그램 has twenty, and whether any applies depends on
@@ -442,11 +440,11 @@ public class DrugContextRetriever {
     }
 
     /**
-     * @param systemMessage injected verbatim after the system prompt
-     * @param groundedDrugs server-owned source and ingredient identities for every product. Empty
-     *     means the answer must name no medicine at all.
-     * @param sources server-authored provenance. The model is told to leave {@code source_refs} empty;
-     *     {@link ChatProxyController} fills it from here.
+     * @param systemMessage legacy serialized context; non-empty contexts are not sent to whole-answer
+     *     Pass 2
+     * @param groundedDrugs server-owned facts for every product. Empty means no canonical card can be
+     *     built.
+     * @param sources server-authored provenance, bound one-to-one to canonical cards
      */
     public record DrugContext(
             String systemMessage,
@@ -490,6 +488,8 @@ public class DrugContextRetriever {
          * @param allergyDeclared the person told us about an allergy this turn, so the model may not
          *     propose a medicine — not even one it believes to be unrelated. We match allergens by
          *     ingredient name and hold no drug-class knowledge, so "unrelated" is not ours to say.
+         *     This wording is retained for the still-reachable empty-context legacy response; the
+         *     non-empty path does not send this prompt to whole-answer Pass 2.
          */
         static String preamble(int count, boolean allergyDeclared) {
             if (count == 0) {
@@ -513,10 +513,7 @@ public class DrugContextRetriever {
             return grounded(count) + (allergyDeclared ? NO_ALTERNATIVES : "");
         }
 
-        /**
-         * Appended when the person is allergic and named a product themselves. The allowlist already
-         * stops the model naming a different medicine; this stops it gesturing at one in prose.
-         */
+        /** Legacy whole-answer instruction retained for incremental cleanup. */
         private static final String NO_ALTERNATIVES =
                 """
 
@@ -525,6 +522,7 @@ public class DrugContextRetriever {
                 react to. Tell them a pharmacist can advise on alternatives.
                 """;
 
+        /** Dormant non-empty whole-answer prompt; canonical cards do not send or consume it. */
         private static String grounded(int count) {
             return """
                 DRUG_CONTEXT: %d product(s), retrieved just now from 식품의약품안전처 open data.
@@ -551,59 +549,43 @@ public class DrugContextRetriever {
         }
     }
 
-    /** The narrow server facts needed by invariants 1 and 6; model-authored prose stays separate. */
     /**
-     * What the server knows about one retrieved product, and therefore what the model is not allowed
-     * to contradict: which source it came from, which ingredients it holds — and what our own allergy
-     * check said about it.
-     *
-     * <p>{@code allergyCheck} is here for the same reason {@code sourceRefId} is (spec 2-9): the model
-     * is handed the verdict and asked to carry it, and a model that carries it wrongly must not be
-     * able to change what the user sees. It writes {@code no_match_found} over a {@code blocked} and
-     * every other check still passes — same product, same ingredients, same source. So the server
-     * stamps its own verdict back onto the card in post-processing rather than trusting the copy.
+     * The server-owned record used to build one canonical card: source and ingredient identity,
+     * ministry display values, dosage, warnings, prescription status, and the server's allergy
+     * verdict. None of these values is copied from whole-answer model output.
      */
     public record GroundedDrug(
             String sourceRefId,
             Set<String> ingredientKeys,
             AllergyCheck allergyCheck,
             /**
-             * 식약처's own 용법용량 for this product, in Korean, exactly as retrieved — and the only
-             * dosing text that exists. The model translates it; post-processing checks that every
-             * number it wrote is one of these numbers. Null when the ministry gave us no dosing
-             * text: then there is nothing to check the model against, and nothing it may say.
+             * 식약처's own 용법용량 for this product, in Korean, exactly as retrieved. The canonical
+             * card copies it verbatim; null means the card carries no dosing text.
              */
             /**
              * The ministry's own display names — {@code Drug.nameEn} and {@code Drug.ingredientsEn},
-             * exactly as retrieved. The model copies them; post-processing stamps them back, AFTER
-             * validation, so a card can never SHOW a name the ministry did not return while invariant
-             * 6 still gets to judge the name the model actually claimed.
+             * exactly as retrieved and copied directly to the canonical card.
              */
             String productNameEn,
             List<String> ingredientNamesEn,
             String officialDosageKo,
             /**
-             * 식약처's 효능효과 for this product, in Korean. What the model's {@code indicationSummary}
-             * is checked against — because a field the model owns is a field the model can put a DOSE
-             * in, and "For: take 8 tablets every 2 hours" renders above the official dose on the card.
+             * 식약처's 효능효과 for this product, in Korean. The current card leaves English indication
+             * enrichment absent; this record value is retained for separately approved future use.
              */
             String officialEfficacyKo,
             /**
-             * The MFDS licence record's 전문/일반 classification. A server fact with a wire value
-             * already, so there is nothing for the model to add and nothing to check — the server
-             * writes it onto the card (invariant 8).
+             * The MFDS licence record's 전문/일반 classification, written directly to the card.
              */
             MermAidAnswer.DrugCard.PrescriptionStatus prescriptionStatus,
             /**
              * The card's {@code warnings}, rendered by the server from {@link Drug#durWarnings()} —
-             * the finished English strings, not the model's copy of them. Empty means 식약처 has
-             * published no DUR contraindication for this product, which the card says in words.
+             * the finished English strings, never a model copy. Empty means no rendered DUR warning.
              */
             List<String> warnings,
             /**
-             * 식약처's 주의사항·경고·상호작용·부작용 for this product, joined, in Korean. What a card's
-             * {@code labelCautions} is checked against, by the same digit rule as the dosing. Null
-             * when the ministry gave us none — then a caution on the card has no source at all.
+             * 식약처's 주의사항·경고·상호작용·부작용 for this product, joined, in Korean. The current
+             * card leaves English caution enrichment absent; this remains typed record data.
              */
             String officialCautionKo) {
         public GroundedDrug {
