@@ -41,7 +41,6 @@ public class FixtureLoader {
             if (in == null) {
                 throw FixtureIntegrityException.missing();
             }
-            log.debug("loaded fixture {}", path);
             JsonNode fixture = objectMapper.readTree(in);
             if (fixture == null || fixture.isNull() || fixture.isMissingNode()) {
                 throw FixtureIntegrityException.corrupt(null);
@@ -53,6 +52,7 @@ public class FixtureLoader {
             if (!response.hasBody()) {
                 throw FixtureIntegrityException.corrupt(null);
             }
+            log.debug("loaded fixture {}", path);
             return fixture;
         } catch (FixtureIntegrityException e) {
             throw e;

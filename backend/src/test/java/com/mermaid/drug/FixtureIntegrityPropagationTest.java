@@ -61,6 +61,25 @@ class FixtureIntegrityPropagationTest {
     }
 
     @Test
+    @DisplayName("the hybrid permission-list fallback preserves a local fixture integrity failure")
+    void permissionListHybridFallbackPreservesFixtureIntegrity() {
+        WebClient failingLiveClient =
+                WebClient.builder()
+                        .exchangeFunction(
+                                request -> Mono.error(new RuntimeException("upstream unavailable")))
+                        .build();
+        DrugPermissionApiClient client =
+                new DrugPermissionApiClient(
+                        failingLiveClient,
+                        properties("configured-test-key"),
+                        new DataModeProperties(DataModeProperties.DataMode.HYBRID),
+                        missingFixture("permission_ibuprofen.json"));
+
+        assertThatThrownBy(() -> client.findByIngredient("Ibuprofen"))
+                .isInstanceOf(FixtureIntegrityException.class);
+    }
+
+    @Test
     @DisplayName("the hybrid DUR fallback preserves a local fixture integrity failure")
     void durHybridFallbackPreservesFixtureIntegrity() {
         WebClient failingLiveClient =

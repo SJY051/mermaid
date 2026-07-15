@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -19,6 +20,8 @@ import com.mermaid.drug.DrugPermissionApiClient;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Clock;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -67,6 +70,53 @@ class FixtureIntegrityContractTest {
                                     .isEqualTo(FixtureIntegrityException.Reason.CORRUPT);
                             assertThat(fixtureError.getMessage()).doesNotContain(PARSE_DETAIL);
                         });
+    }
+
+    @Test
+    @DisplayName("a corrupt fixture logs only the bounded integrity reason")
+    void corruptFixtureLogIsValueFree() throws Exception {
+        ObjectMapper mapper = mock(ObjectMapper.class);
+        when(mapper.readTree(any(InputStream.class))).thenThrow(new IOException(PARSE_DETAIL));
+        FixtureLoader loader = new FixtureLoader(mapper);
+        Logger loaderLogger = (Logger) LoggerFactory.getLogger(FixtureLoader.class);
+        Logger handlerLogger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        Level originalLoaderLevel = loaderLogger.getLevel();
+        loaderLogger.setLevel(Level.DEBUG);
+        ListAppender<ILoggingEvent> loaderLogs = appender(loaderLogger);
+        ListAppender<ILoggingEvent> handlerLogs = appender(handlerLogger);
+        try {
+            MockMvc mvc =
+                    MockMvcBuilders.standaloneSetup(new CorruptFixtureController(loader))
+                            .setControllerAdvice(new GlobalExceptionHandler())
+                            .addFilters(new RequestIdFilter())
+                            .build();
+
+            mvc.perform(get("/corrupt-fixture"))
+                    .andExpect(status().isInternalServerError())
+                    .andExpect(jsonPath("$.error.code").value("INTERNAL_ERROR"))
+                    .andExpect(jsonPath("$.error.retryable").value(false));
+
+            List<ILoggingEvent> allLogs = new ArrayList<>(loaderLogs.list);
+            allLogs.addAll(handlerLogs.list);
+            assertThat(allLogs)
+                    .anySatisfy(
+                            event ->
+                                    assertThat(event.getFormattedMessage())
+                                            .isEqualTo(
+                                                    "fixture_integrity_failure reason=CORRUPT"));
+            assertThat(allLogs)
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(
+                                                "pharmacy.json", "/fixtures/", PARSE_DETAIL);
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
+        } finally {
+            detach(loaderLogger, loaderLogs);
+            detach(handlerLogger, handlerLogs);
+            loaderLogger.setLevel(originalLoaderLevel);
+        }
     }
 
     @Test
@@ -246,6 +296,21 @@ class FixtureIntegrityContractTest {
         @GetMapping("/public-api-failure")
         void publicApiFailure() {
             throw new PublicApiException("upstream failed");
+        }
+    }
+
+    @RestController
+    private static final class CorruptFixtureController {
+
+        private final FixtureLoader fixtures;
+
+        private CorruptFixtureController(FixtureLoader fixtures) {
+            this.fixtures = fixtures;
+        }
+
+        @GetMapping("/corrupt-fixture")
+        void corruptFixture() {
+            fixtures.load("pharmacy.json");
         }
     }
 }
