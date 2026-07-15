@@ -56,7 +56,7 @@ function MobileShellContent() {
           aria-label="Chat screen"
           hidden={activeTab !== 'chat'}
         >
-          <ChatScreen />
+          <ChatScreen showDisclaimer={activeTab === 'chat'} />
         </section>
         <section
           className={screenClassName}
@@ -90,6 +90,7 @@ function MobileShellContent() {
       {emergencyActive && activeTab !== 'chat' && latestAnswer && (
         <div className="border-t border-primary p-3">
           <Banner
+            data-safety-surface
             status="error"
             data-testid="shell-emergency-alert"
             icon={<CircleAlert aria-hidden="true" size={20} />}
@@ -112,7 +113,7 @@ function MobileShellContent() {
           />
         </div>
       )}
-        <DisclaimerStrip />
+        {activeTab !== 'chat' && <DisclaimerStrip />}
         <TabBar active={activeTab} onSelect={setActiveTab} chatBusy={streaming} />
       </div>
     </div>

@@ -124,7 +124,10 @@ describe('MobileShell', () => {
     expectActive('Chat')
 
     await user.click(screen.getByRole('button', { name: 'Map' }))
-    expect(screen.getByText('Nearby pharmacies and hospitals will appear here.')).toBeVisible()
+    expect(screen.getByRole('heading', { name: 'Map' })).toBeVisible()
+    expect(
+      screen.queryByText('Nearby pharmacies and hospitals will appear here.'),
+    ).not.toBeInTheDocument()
     expectActive('Map')
 
     await user.click(screen.getByRole('button', { name: 'Saved' }))
@@ -203,15 +206,34 @@ describe('MobileShell', () => {
     }
   })
 
-  it('keeps the disclaimer visible on every tab', async () => {
+  it('keeps exactly one disclaimer visible on every tab', async () => {
     const user = userEvent.setup()
     render(<MobileShell />)
     const copy = 'General information, not medical advice · Emergency? Call 119'
 
     for (const tab of ['Chat', 'Map', 'Saved', 'Settings']) {
       await user.click(screen.getByRole('button', { name: tab }))
-      expect(screen.getByText(copy)).toBeVisible()
+      const disclaimers = screen.getAllByText(copy)
+      expect(disclaimers).toHaveLength(1)
+      expect(disclaimers[0]).toBeVisible()
     }
+  })
+
+  it('puts the Chat disclaimer before the composer and keeps both before the tab bar', () => {
+    render(<MobileShell />)
+
+    const disclaimer = screen.getByText(
+      'General information, not medical advice · Emergency? Call 119',
+    )
+    const textbox = screen.getByRole('textbox', { name: 'Describe your symptoms' })
+    const tabBar = screen.getByRole('navigation', { name: 'Main' })
+
+    expect(disclaimer.compareDocumentPosition(textbox)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
+    expect(textbox.compareDocumentPosition(tabBar)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    )
   })
 
   it('keeps each screen scroll position independent', async () => {

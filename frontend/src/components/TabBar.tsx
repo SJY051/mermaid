@@ -42,7 +42,7 @@ export function TabBar({
               type="button"
               aria-label={showBusy ? 'Chat — answer in progress' : tab.label}
               aria-current={activeTab ? 'page' : undefined}
-              className={`flex min-h-[53px] flex-1 flex-col items-center justify-center gap-[3px] px-3 text-sm ${
+              className={`appearance-tab-transition flex min-h-[53px] flex-1 flex-col items-center justify-center gap-[3px] px-3 text-sm ${
                 activeTab ? 'font-bold text-primary' : 'text-secondary'
               }`}
               onClick={() => onSelect(tab.id)}

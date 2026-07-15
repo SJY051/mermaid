@@ -151,6 +151,55 @@ afterEach(() => {
 })
 
 describe('MapScreen', () => {
+  it('renders the wireframe facility segments in order, with ER visible but unavailable', async () => {
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockResolvedValue([])
+
+    render(<MapScreen active={true} />)
+
+    const filters = await screen.findByRole('group', { name: 'Facility type' })
+    const segments = within(filters).getAllByRole('button')
+    expect(segments.map((segment) => segment.textContent?.trim())).toEqual([
+      'All',
+      'Pharmacies',
+      'Hospitals',
+      'ER',
+    ])
+    expect(within(filters).getByRole('button', { name: 'ER' })).toBeDisabled()
+  })
+
+  it('never queries unsupported ER results or claims an ER search returned no matches', async () => {
+    const user = userEvent.setup()
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockResolvedValue([])
+
+    render(<MapScreen active={true} />)
+
+    const erButton = await screen.findByRole('button', { name: 'ER' })
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2))
+    await user.click(erButton)
+
+    expect(erButton).toBeDisabled()
+    expect(fetchFacilitiesMock.mock.calls.map(([query]) => query.type)).toEqual([
+      'pharmacy',
+      'hospital',
+    ])
+    expect(screen.queryByText(/No emergency rooms found/i)).not.toBeInTheDocument()
+  })
+
+  it('omits the map intro copy that has no wireframe counterpart', async () => {
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockResolvedValue([])
+
+    render(<MapScreen active={true} />)
+
+    await screen.findByTestId('map-stub')
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2))
+    expect(
+      screen.queryByText('Nearby pharmacies and hospitals will appear here.'),
+    ).not.toBeInTheDocument()
+  })
+
   it('renders null opening hours as Hours unknown, never Closed', async () => {
     const user = userEvent.setup()
     const unknown = facility('unknown', '미상약국', null, '02-111-2222')
@@ -327,6 +376,7 @@ describe('MapScreen', () => {
     const manualNotice = await screen.findByTestId('map-notice')
     expect(manualNotice).toHaveTextContent('spot you chose')
     expect(manualNotice).not.toHaveTextContent('your location')
+    expect(screen.queryByText('Centred on you')).not.toBeInTheDocument()
     manual.unmount()
 
     resolveLocationMock.mockResolvedValueOnce({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
@@ -334,11 +384,13 @@ describe('MapScreen', () => {
     expect(await screen.findByTestId('map-notice')).toHaveTextContent(
       'Centred on Seoul City Hall — we could not read your location, so these are not near you.',
     )
+    expect(screen.queryByText('Centred on you')).not.toBeInTheDocument()
     fallback.unmount()
 
     resolveLocationMock.mockResolvedValueOnce({ lat: 37.5, lng: 127, source: 'device' })
     render(<MapScreen active={true} />)
     await screen.findByTestId('map-stub')
+    expect(screen.getByText('Centred on you')).toBeInTheDocument()
     expect(screen.queryByTestId('map-notice')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Set your location' })).not.toBeInTheDocument()
   })
