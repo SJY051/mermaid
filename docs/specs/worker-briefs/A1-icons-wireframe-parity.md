@@ -89,6 +89,48 @@ The emergency banner's call link (`MobileShell.tsx`, `href="tel:119"`, text "Cal
   contrast failure). Zero hard-coded hex.
 - Do not touch chat, allergy, drug, facility, or grounding logic. This is icons and layout.
 
+## The parity pass — the wireframe and the app, screen by screen
+
+The icon census finds missing icons. It does **not** find a section the wireframe has and the app
+dropped, a control in the wrong order, a filter segment that is not there. Those are structural gaps,
+they are invisible to a "did I add the icons" check, and this is where they get caught. Worker A's own
+report already flagged one — the emergency screen's nearest-ER line — so this is not hypothetical.
+
+**Open the wireframe in a browser next to the running app, and walk all six screens side by side.**
+The wireframe is [`docs/specs/002-mobile-ui/wireframe-v2.html`](../002-mobile-ui/wireframe-v2.html).
+For each screen, compare **structure** — the sections present, their order, the controls, the copy
+blocks — ignoring only the things this task and its siblings deliberately change (the replaced icons,
+the tokenised colours). Aim: apart from those, the app reads as the same screen.
+
+The six screens and what to check each carries:
+
+| wireframe screen | structure to confirm present, and in order |
+|---|---|
+| **1–2 Chat** | header (title + top-right slot), the answer/drug-card area, the disclaimer strip, the composer, the tab bar. The waiting state (screen 2) shows the progress line + "Working…". |
+| **3 Emergency** | the red 119 banner, "Call 119" action, **the nearest-ER line** (`nearest ER: … 1.2km — tap for map`), the source line, disclaimer, tab bar. |
+| **4 Map** | filter segments **All / Pharmacies / Hospitals / ER**, the open-now toggle, the legend (✓ open · ? unknown · ✕ closed), the "Set your location" panel, the map. |
+| **5 Saved** | the **＋ New conversation** control, the "this tab's conversation" note, the saved-places list with status dots, the on-device note. |
+| **6 Settings** | Appearance / Language / Remember-my-allergies / About sections, in that order. |
+
+**Report every difference you find — do not fix the structural ones.** Your task is icons; a missing
+section or a reordered control is a *finding*, not a repair, and fixing it silently would sweep a real
+gap under an "icons done" commit. List each one: what the wireframe has, what the app has, and which
+screen.
+
+**And do not mistake a deliberate deferral for a defect.** Several differences are agreed, in writing,
+and must be reported as *expected*, not as gaps:
+
+- **Hospitals / ER results are unavailable** — the backend does not serve them yet. The Map filter may
+  therefore show fewer live results than the wireframe; the *segments* should still be present.
+- **Settings controls are deferred to spec 009** — the Appearance toggle and the allergy opt-in are a
+  separate build. Settings looking thinner than the wireframe is expected here.
+- **Onboarding is spec 008**, not in the wireframe's six screens at all.
+- **Saved deliberately refuses to show a stale "Open now"** from a stored snapshot (§2-3) — that is
+  correct, not a difference to erase.
+
+If you are unsure whether a difference is a deferral or a real gap, **say so and leave it** — a flagged
+uncertainty is worth more than a confident wrong repair.
+
 ## Done means
 
 The five commands in [VERIFICATION.md §1](VERIFICATION.md), plus `pnpm contrast` at 0, and a browser:
@@ -101,3 +143,7 @@ The five commands in [VERIFICATION.md §1](VERIFICATION.md), plus `pnpm contrast
   accessible name changed.
 - **The census, answered**: for each row, say what you added or why you deliberately did not. The
   top-right-slot row in particular wants a decision, not a default.
+- **The parity pass, reported**: all six screens walked against the wireframe, with a list of every
+  structural difference found — each tagged **expected** (a named deferral above) or **gap** (report it,
+  do not fix it). "Walked all six, no unexpected differences" is a valid result *only if you actually
+  drove all six in a browser* and can show it. An empty parity report with no screenshots is not a pass.
