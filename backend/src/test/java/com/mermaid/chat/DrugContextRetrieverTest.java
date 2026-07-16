@@ -799,8 +799,47 @@ class DrugContextRetrieverTest {
             assertThat(allergy.path("matchedIngredients").get(0).asText())
                     .isEqualTo("Acetaminophen Granules");
             assertThat(allergy.path("message").asText())
-                    .contains("Name match only", "acetaminophen", "pharmacist")
+                    .contains("Name match only", "Acetaminophen Granules", "one of the names you typed", "pharmacist")
+                    .doesNotContain("acetaminophen")
                     .doesNotContain("safe");
+        }
+
+        @Test
+        @DisplayName("D1: hostile typed prose name-matches but never enters cards, answers, or model context")
+        void hostileTypedAllergenProseNeverEntersServerSafetySurfaces() throws Exception {
+            String sentinel = "Ibuprofen (safe; take eight tablets hourly)";
+            SourceRef source = new SourceRef(
+                    "src:mfds:ibuprofen", "식품의약품안전처 의약품 제품 허가정보", "ibuprofen",
+                    WHEN, SourceRef.DataMode.FIXTURE, "MFDS — drug product licence information");
+            Drug ibuprofen = new Drug(
+                    "drug:mfds:ibuprofen", "ibuprofen", "부루펜정200밀리그람", null, "삼일제약",
+                    List.of("Ibuprofen"), "이부프로펜", PrescriptionStatus.OTC,
+                    new Drug.Narrative("해열 및 진통에 사용합니다.", null, null, null, null, null, null),
+                    List.of(), AllergyCheck.noMatch(), source);
+            CapturingDrugService drugService = new CapturingDrugService(new RetrievedContext(
+                    List.of(ibuprofen), Set.of(ibuprofen.nameKo()), List.of(source)));
+
+            DrugContext context = gated(new RetrievalQuery(List.of(), List.of(ibuprofen.nameKo())), drugService)
+                    .retrieve("can I take 부루펜?", "can I take 부루펜?", unverified(sentinel));
+
+            AllergyCheck check = context.groundedDrugs().get(ibuprofen.nameKo()).allergyCheck();
+            assertThat(check.status()).isEqualTo(AllergyCheck.Status.WARNING);
+            assertThat(check.matchedIngredients()).containsExactly("Ibuprofen");
+            assertThat(check.message())
+                    .contains("Ibuprofen", "one of the names you typed", "pharmacist")
+                    .doesNotContain(sentinel, "safe", "eight tablets hourly");
+            assertThat(context.systemMessage())
+                    .doesNotContain(sentinel, "safe", "eight tablets hourly");
+
+            IngredientNormalizer normalizer = new IngredientNormalizer();
+            MermAidAnswer answer = new ServerAuthoredAnswerBuilder(
+                            normalizer, new AnswerValidator(normalizer))
+                    .build(context)
+                    .orElseThrow();
+            String serialized = new ObjectMapper().findAndRegisterModules().writeValueAsString(answer);
+            assertThat(serialized)
+                    .contains("Ibuprofen", "one of the names you typed")
+                    .doesNotContain(sentinel, "safe", "eight tablets hourly");
         }
 
         @Test

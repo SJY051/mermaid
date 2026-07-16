@@ -417,50 +417,54 @@ class ChatProxyControllerTest {
 
 
     @Test
-    @DisplayName("FR-017: the server appends the unverified-allergen caveat to every final answer")
-    void unverifiedAllergensAlwaysAppendServerCaveat() throws Exception {
-        String replyWithModelWarning = modelAnswer("[]", "[]")
-                .replace("\"warnings\":[]", "\"warnings\":[\"Model warning\"]");
-        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
+    @DisplayName("D1: the server caveat never repeats raw typed allergen prose")
+    void unverifiedAllergenCaveatDoesNotRepeatRawText() {
+        String sentinel = "Ibuprofen (safe; take eight tablets hourly)";
 
-        ControllerHarness emptyHarness = harness(replyWithModelWarning, emptyContext());
-        MermAidAnswer answer = answerOf(emptyHarness.controller()
-                .completions(requestWithUnverifiedAllergen("can I take this?", "Yellow dye")));
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of(sentinel));
 
-        assertThat(emptyHarness.upstream().calls).hasValue(0);
-        assertThat(answer.warnings()).containsExactly(caveat);
-        assertThat(String.join(" ", answer.warnings())).doesNotContain("safe");
-
-        MermAidAnswer emergency = answerOf(controller(replyWithModelWarning, emptyContext())
-                .completions(requestWithUnverifiedAllergen(
-                        "I have crushing chest pain and cannot breathe", "Yellow dye")));
-        assertThat(emergency.warnings()).contains(caveat);
-
-        ControllerHarness canonicalHarness = harness(replyWithModelWarning, contextWith(TYLENOL));
-        MermAidAnswer canonical = answerOf(canonicalHarness
-                .controller()
-                .completions(requestWithUnverifiedAllergen("can I take this?", "Yellow dye")));
-        assertThat(canonical.warnings()).containsExactly(caveat);
-        assertThat(canonicalHarness.upstream().calls)
-                .as("the server appends the caveat without whole-answer Pass 2")
-                .hasValue(0);
+        assertThat(caveat)
+                .containsIgnoringCase("not independently verified")
+                .containsIgnoringCase("no medicine compatibility conclusion")
+                .containsIgnoringCase("pharmacist")
+                .doesNotContain(sentinel, "Ibuprofen", "eight tablets hourly");
+        assertThat(caveat.toLowerCase()).doesNotContain("safe", "were checked", "matched");
     }
 
     @Test
-    @DisplayName("FR-017: the caveat names the typed allergens, so it cannot soften a verified block")
-    void theCaveatNamesOnlyWhatTheUserTyped() throws Exception {
-        // A session can carry both: ingredients picked from the reviewed list, and names typed free-
-        // hand. A blanket "the named allergens were checked by name only" then sits beside a card the
-        // server stamped BLOCKED for a reviewed ingredient, and reads as though that block, too, were
-        // just a name we matched and should be confirmed before believing. It says which names it
-        // means, and says the rest of the page still stands.
-        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of("Yellow dye"));
+    @DisplayName("D2: no-card answers say no comparison occurred without repeating raw prose")
+    void noCardPathsUseConditionalUnverifiedCopy() throws Exception {
+        String sentinel = "Ibuprofen (safe; take eight tablets hourly)";
+        String modelReply = modelAnswer("[]", "[]");
 
-        assertThat(caveat)
-                .contains("Yellow dye")
-                .contains("you typed")
-                .doesNotContain("safe");
-        assertThat(caveat.toLowerCase()).contains("does not change any other warning");
+        ControllerHarness emptyHarness = harness(modelReply, emptyContext());
+        ControllerHarness suppressionHarness = harness(modelReply, DrugContext.allergySuppressed());
+        ControllerHarness unavailableHarness = harness(modelReply, searchUnavailableContext());
+        List<MermAidAnswer> noCardAnswers = List.of(
+                answerOf(emptyHarness.controller()
+                        .completions(requestWithUnverifiedAllergen("can I take this?", sentinel))),
+                answerOf(controller(modelReply, emptyContext())
+                        .completions(requestWithUnverifiedAllergen(
+                                "I have crushing chest pain and cannot breathe", sentinel))),
+                answerOf(suppressionHarness
+                        .controller()
+                        .completions(requestWithUnverifiedAllergen("can I take this?", sentinel))),
+                answerOf(unavailableHarness
+                        .controller()
+                        .completions(requestWithUnverifiedAllergen("can I take this?", sentinel))));
+
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of(sentinel));
+        for (MermAidAnswer answer : noCardAnswers) {
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.warnings()).contains(caveat);
+            assertThat(mapper.writeValueAsString(answer))
+                    .doesNotContain(sentinel, "Ibuprofen", "eight tablets hourly");
+            assertThat(mapper.writeValueAsString(answer).toLowerCase()).doesNotContain("safe");
+        }
+        assertThat(caveat.toLowerCase()).doesNotContain("were checked", "matched");
+        assertThat(emptyHarness.upstream().calls).hasValue(0);
+        assertThat(suppressionHarness.upstream().calls).hasValue(0);
+        assertThat(unavailableHarness.upstream().calls).hasValue(0);
     }
 
     private static String drugCard(String productNameKo, String sourceRefId) {
