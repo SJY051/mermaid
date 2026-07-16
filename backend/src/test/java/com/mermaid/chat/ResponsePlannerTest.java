@@ -283,6 +283,118 @@ class ResponsePlannerTest {
     }
 
     @Test
+    void otcAcquisitionWithoutAPrescriptionIsNotDeclaredIllegal() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Where can I buy ibuprofen without a prescription?",
+                        "Where can I buy ibuprofen without a prescription?",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+        assertThat(actual.reasonCodes())
+                .containsExactly(ResponsePlan.ReasonCode.LOW_CONFIDENCE);
+    }
+
+    @Test
+    void identifyingAFakePrescriptionIsNotOperationalForgeryAssistance() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "How can I identify a fake prescription?",
+                        "How can I identify a fake prescription?",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+    }
+
+    @Test
+    void negatedAcquisitionIntentIsNotT5() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "I do not want to buy fentanyl without a prescription.",
+                        "I do not want to buy fentanyl without a prescription.",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+    }
+
+    @Test
+    void explicitEvasionCannotBeHiddenInsideANeutralLegalQuestion() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Is fentanyl prescribed legally in Korea, and how can I buy fentanyl without a prescription?",
+                        "Is fentanyl prescribed legally in Korea, and how can I buy fentanyl without a prescription?",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL);
+    }
+
+    @Test
+    void findOutWhetherIShouldGoToAHospitalRemainsACareDecision() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Find out whether I should go to a hospital.",
+                        "Find out whether I should go to a hospital.",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.facilityIntent()).isNull();
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+    }
+
+    @Test
+    void fillingAPrescriptionAtAPharmacyRemainsFacilityOnly() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Where is the nearest pharmacy to fill my prescription?",
+                        "Where is the nearest pharmacy to fill my prescription?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.FACILITY_LOOKUP);
+    }
+
+    @Test
+    void hospitalEmergencyRoomIsOneErDestination() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Where is the nearest hospital emergency room?",
+                        "Where is the nearest hospital emergency room?",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.facilityIntent().types())
+                .containsExactly(FacilityType.EMERGENCY_ROOM);
+    }
+
+    @Test
+    void openedRightNowUsesOpenOrUnknown() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Where is the closest pharmacy opened right now?",
+                        "Where is the closest pharmacy opened right now?",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.facilityIntent().operationPreference())
+                .isEqualTo(FacilityOperationPreference.OPEN_OR_UNKNOWN);
+        assertThat(actual.reasonCodes())
+                .contains(ResponsePlan.ReasonCode.OPEN_NOW_REQUEST);
+    }
+
+    @Test
     void protectedModesRejectCapabilitySmuggling() {
         assertThatThrownBy(() -> new ResponsePlan(
                         ResponsePlan.ResponseMode.T4_EMERGENCY,

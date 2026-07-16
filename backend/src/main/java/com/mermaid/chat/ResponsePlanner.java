@@ -25,28 +25,44 @@ final class ResponsePlanner {
             "\\b(?:closest|directions?|find|locate|map|nearest|nearby|where)\\b"
                     + "|\\blook\\s+for\\b|\\b(?:near|around)\\s+(?:me|my current location)\\b");
     private static final Pattern OPEN_SIGNAL = Pattern.compile(
-            "\\bopen\\b(?:\\s+\\w+){0,2}\\s+\\b(?:now|currently|today|tonight)\\b"
+            "\\bopen(?:ed)?\\b(?:\\s+\\w+){0,2}\\s+\\b(?:now|currently|today|tonight)\\b"
                     + "|\\b(?:currently|still)\\s+open\\b|\\b24[ -]?hours?\\b");
     private static final Pattern NON_FACILITY_INTENT = Pattern.compile(
             "\\b(?:allerg(?:y|ic|ies)|cold|cough|dose|fever|headache|interaction|medicine|"
-                    + "medication|pain|prescription|sick|sore throat|symptoms?|tablet|treatment)\\b");
+                    + "medication|pain|sick|sore throat|symptoms?|tablet|treatment)\\b");
+    private static final Pattern CARE_DECISION = Pattern.compile(
+            "\\b(?:should i|do i need to)\\s+(?:go|visit)\\b"
+                    + "|\\b(?:whether|if) i should\\s+(?:go|visit)\\b"
+                    + "|\\bsigns? (?:that )?i need\\b.*\\b(?:hospital|ers?|emergency rooms?)\\b");
 
     private static final Pattern NEUTRAL_LEGAL_INFORMATION = Pattern.compile(
             "\\b(?:prescribed legally|legal(?:ly)? prescribed|medical narcotic)\\b"
                     + ".*\\b(?:korea|korean law|law)\\b"
                     + "|\\b(?:korea|korean law|law)\\b.*\\b(?:prescribed legally|medical narcotic)\\b");
+    private static final String OPERATIONAL_REQUEST =
+            "(?:how (?:can|do) i|where can i|tell me how to|help me(?: to)?)";
+    private static final String LAUNCH_CONTROLLED_SUBJECT =
+            "(?:fentanyl|controlled drug|medical narcotic|narcotic|illicit drug)";
     private static final Pattern BLACK_MARKET = Pattern.compile(
-            "\\b(?:buy|sell|obtain|get)\\b.*\\bblack market\\b"
-                    + "|\\bblack market\\b.*\\b(?:buy|sell|obtain|get)\\b");
+            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*\\b"
+                    + LAUNCH_CONTROLLED_SUBJECT + "\\b.*\\bblack market\\b"
+                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*"
+                    + "\\bblack market\\b.*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b");
     private static final Pattern WITHOUT_PRESCRIPTION = Pattern.compile(
-            "\\b(?:buy|sell|obtain|get)\\b.*\\bwithout (?:a )?prescription\\b");
+            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*\\b"
+                    + LAUNCH_CONTROLLED_SUBJECT + "\\b.*\\bwithout (?:a )?prescription\\b"
+                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*"
+                    + "\\bwithout (?:a )?prescription\\b.*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b");
     private static final Pattern FORGED_OR_STOLEN_PRESCRIPTION = Pattern.compile(
-            "\\b(?:forge|fake|steal)\\b.*\\bprescription\\b");
+            "\\b" + OPERATIONAL_REQUEST
+                    + "\\s+(?:successfully )?(?:forge|steal|create a fake)\\b.*\\bprescription\\b");
     private static final Pattern UNLICENSED_MANUFACTURE = Pattern.compile(
-            "\\b(?:make|manufacture|grow|cultivate)\\b.*\\b(?:controlled drug|narcotic|illicit drug)\\b"
+            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:make|manufacture|grow|cultivate)\\b"
+                    + ".*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b"
                     + ".*\\b(?:at home|without (?:being )?caught|evad(?:e|ing)|conceal(?:ing)?)\\b");
     private static final Pattern MONITORING_EVASION = Pattern.compile(
-            "\\bmultiple doctors?\\b.*\\bprescrib(?:e|ing)\\b.*\\bmonitoring\\b"
+            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\bmultiple doctors?\\b"
+                    + ".*\\bprescrib(?:e|ing)\\b.*\\bmonitoring\\b"
                     + ".*\\b(?:notic(?:e|ing)|evad(?:e|ing)|bypass)\\b");
     private static final Pattern LICENSED_CARE = Pattern.compile(
             "\\b(?:discuss|ask|talk)\\b.*\\b(?:licensed )?(?:doctor|clinician|pharmacist)\\b");
@@ -63,20 +79,20 @@ final class ResponsePlanner {
         }
 
         String normalized = input.latestUserTurn().toLowerCase(Locale.ROOT);
-        if (NEUTRAL_LEGAL_INFORMATION.matcher(normalized).find()) {
-            return new ResponsePlan(
-                    ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
-                    Set.of(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION),
-                    ResponsePlan.ConfidenceBucket.HIGH,
-                    Set.of(ResponsePlan.ReasonCode.NEUTRAL_LEGAL_INFORMATION),
-                    null);
-        }
         if (isExplicitControlEvasion(normalized)) {
             return new ResponsePlan(
                     ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE,
                     Set.of(ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL),
                     ResponsePlan.ConfidenceBucket.HIGH,
                     Set.of(ResponsePlan.ReasonCode.EXPLICIT_CONTROL_EVASION),
+                    null);
+        }
+        if (NEUTRAL_LEGAL_INFORMATION.matcher(normalized).find()) {
+            return new ResponsePlan(
+                    ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
+                    Set.of(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION),
+                    ResponsePlan.ConfidenceBucket.HIGH,
+                    Set.of(ResponsePlan.ReasonCode.NEUTRAL_LEGAL_INFORMATION),
                     null);
         }
 
@@ -232,15 +248,18 @@ final class ResponsePlanner {
 
     private static ResponsePlan.FacilityIntent facilityIntent(
             String normalized, FacilityRuntime runtime) {
+        if (CARE_DECISION.matcher(normalized).find()) {
+            return null;
+        }
         EnumSet<FacilityType> types = EnumSet.noneOf(FacilityType.class);
         if (PHARMACY.matcher(normalized).find()) {
             types.add(FacilityType.PHARMACY);
         }
-        if (HOSPITAL.matcher(normalized).find()) {
-            types.add(FacilityType.HOSPITAL);
-        }
-        if (EMERGENCY_ROOM.matcher(normalized).find()) {
+        boolean emergencyRoom = EMERGENCY_ROOM.matcher(normalized).find();
+        if (emergencyRoom) {
             types.add(FacilityType.EMERGENCY_ROOM);
+        } else if (HOSPITAL.matcher(normalized).find()) {
+            types.add(FacilityType.HOSPITAL);
         }
         boolean openNow = OPEN_SIGNAL.matcher(normalized).find();
         if (types.size() != 1 || (!LOCATION_SIGNAL.matcher(normalized).find() && !openNow)) {
