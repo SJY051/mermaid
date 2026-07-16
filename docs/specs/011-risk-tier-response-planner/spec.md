@@ -121,6 +121,22 @@ decision.
   current boolean `openNow` action payload cannot express this contract: `true` drops unknown rows and
   `false` includes confirmed-closed rows. Implementation MUST introduce an explicit FE–BE preference
   before enabling this planner path; it MUST NOT silently map `OPEN_OR_UNKNOWN` to either boolean.
+- **FR-110:** The model MUST NOT author renderable T1/T2 prose. It may propose only typed semantic
+  claims for a symptom possibility, an ordinary-term definition, or a general comparison, using an
+  allowlisted predicate and short concept fragments. A mention attributed to the user MUST bind to
+  an exact normalized phrase in the latest user turn.
+- **FR-111:** Deterministic shape admission MUST reject sentence punctuation, control or format
+  characters, bidi controls, zero-width characters, numbers, dose or duration terms, medicine or
+  treatment terms, and more than the bounded claim/fragment count. This is a sentence-smuggling
+  boundary, not a claim that the remaining medical meaning is true.
+- **FR-112:** A separate semantic review receives only the normalized claim AST and returns a strict
+  allow/reject decision with violation codes; it cannot return replacement prose. Only
+  `ALLOW + HIGH confidence + no violations` may reach the renderer. Timeout, malformed output,
+  low confidence, or an unknown decision removes only the general-explanation capability.
+- **FR-113:** The server owns every complete sentence and the non-diagnostic limitation. Raw model
+  prose, a pre-rendered model string, and a normalized-but-unreviewed AST are not valid capability
+  results. The general-explanation flag remains off until the reviewed provider evaluation and
+  PM/clinical activation gate pass.
 
 ### T2 — useful answer with professional consultation
 
@@ -339,8 +355,9 @@ decision.
   An unavailable adapter produces an explicit unavailable state, not false-empty results.
 - **SC-004:** A mixed mild-fever/medicine/pharmacy turn retains its facility action when Pass 1,
   public-data retrieval, or enrichment is forced to fail independently.
-- **SC-005:** T1 possibility language passes, while a definite or personalized diagnosis is blocked.
-  Mutation: allow the model's T1 prose to assert “You have influenza”; the output-policy test turns red.
+- **SC-005:** T1 possibility claims render through server-owned templates, while a definite or
+  personalized diagnosis is blocked. Mutations that add a raw-prose path, bypass semantic review, or
+  admit “influenza. You have pneumonia” as one concept fragment turn the output-policy tests red.
 - **SC-006:** Model attempts to author drug facts, doses, facility payloads, emergency copy, T3 copy,
   or T5 copy are discarded; server-owned fields remain unchanged.
 - **SC-007:** A deterministic emergency hit stays T4 even when the model fixture requests T1, and the
