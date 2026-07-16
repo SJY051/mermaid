@@ -58,6 +58,21 @@ describe('fetchFacilities builds the request the backend actually documents', ()
     expect(url.searchParams.get('open_now')).toBe('false')
   })
 
+  it('sends a tri-state operation preference without collapsing it to open_now', async () => {
+    const spy = mockFetch({})
+    await fetchFacilities({
+      lat: 37.5,
+      lng: 127.02,
+      radiusM: 1000,
+      operationPreference: 'open_or_unknown',
+      type: 'emergency_room',
+    })
+
+    const url = requestedUrl(spy)
+    expect(url.searchParams.get('operation_preference')).toBe('open_or_unknown')
+    expect(url.searchParams.has('open_now')).toBe(false)
+  })
+
   it('passes the abort signal through', async () => {
     const spy = mockFetch({})
     const controller = new AbortController()

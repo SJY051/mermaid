@@ -34,6 +34,7 @@ vi.mock('./FacilityMap', () => ({
   }) => (
     <div data-testid="map-stub">
       <span data-testid="stub-count">{props.facilities?.length ?? 0}</span>
+      <span data-testid="stub-ids">{props.facilities?.map((facility) => facility.id).join(',')}</span>
       {props.notice && <span data-testid="stub-notice">{props.notice}</span>}
       {props.caption && <span data-testid="stub-caption">{props.caption}</span>}
       {props.manualLocation && (
@@ -182,5 +183,44 @@ describe('NearbyFacilities', () => {
         'Opening hours are not available for these official emergency-room records. Call before you go.',
       ),
     ).toBeInTheDocument()
+  })
+
+  it('passes open-or-unknown through without collapsing it to a legacy boolean', async () => {
+    const closed = {
+      ...pharmacy,
+      id: 'closed',
+      operation: { ...pharmacy.operation, isOpenNow: false, status: 'closed' },
+    } as Facility
+    const unknown = {
+      ...pharmacy,
+      id: 'unknown',
+      operation: { ...pharmacy.operation, isOpenNow: null, status: 'unknown' },
+    } as Facility
+    fetchFacilitiesMock.mockResolvedValue([pharmacy, unknown])
+
+    render(
+      <NearbyFacilities
+        types={['pharmacy']}
+        radiusM={1000}
+        operationPreference="open_or_unknown"
+      />,
+    )
+
+    await waitFor(() => {
+      expect(fetchFacilitiesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'pharmacy',
+          operationPreference: 'open_or_unknown',
+        }),
+        expect.any(AbortSignal),
+      )
+    })
+    expect(fetchFacilitiesMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ openNow: expect.any(Boolean) }),
+      expect.anything(),
+    )
+    expect(screen.getByTestId('stub-ids')).toHaveTextContent('facility:nmc:1,unknown')
+    expect(screen.getByTestId('stub-ids')).not.toHaveTextContent(closed.id)
+    expect(screen.getByTestId('stub-caption')).toHaveTextContent('open now or hours unknown')
   })
 })

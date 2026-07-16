@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -30,6 +31,51 @@ class UiActionSerdeTest {
 
         assertThat(json).contains("\"type\":\"OPEN_FACILITY_MAP\"");
         assertThat(json).contains("\"radiusM\":500");
+    }
+
+    @Test
+    @DisplayName("server-owned facility actions carry tri-state operation preference, not a boolean")
+    void writesOperationPreferenceWithoutLegacyBoolean() throws Exception {
+        UiAction action = new UiAction.OpenFacilityMap(new UiAction.MapPayload(
+                List.of("pharmacy"), FacilityOperationPreference.OPEN_OR_UNKNOWN, 1000));
+
+        String json = mapper.writeValueAsString(action);
+        UiAction back = mapper.readValue(json, UiAction.class);
+
+        assertThat(json).contains("\"operationPreference\":\"open_or_unknown\"");
+        assertThat(json).doesNotContain("\"openNow\"");
+        assertThat(((UiAction.OpenFacilityMap) back).payload().resolvedOperationPreference())
+                .isEqualTo(FacilityOperationPreference.OPEN_OR_UNKNOWN);
+    }
+
+    @Test
+    @DisplayName("legacy model actions with openNow still deserialize during planner migration")
+    void readsLegacyBooleanAction() throws Exception {
+        String json =
+                "{\"type\":\"OPEN_FACILITY_MAP\",\"payload\":{" +
+                        "\"types\":[\"pharmacy\"],\"openNow\":true,\"radiusM\":500}}";
+
+        UiAction back = mapper.readValue(json, UiAction.class);
+
+        assertThat(((UiAction.OpenFacilityMap) back).payload().resolvedOperationPreference())
+                .isEqualTo(FacilityOperationPreference.CONFIRMED_OPEN_ONLY);
+    }
+
+    @Test
+    @DisplayName("map payload accepts exactly one preference representation")
+    void rejectsMissingOrConflictingPreference() {
+        String missing =
+                "{\"type\":\"OPEN_FACILITY_MAP\",\"payload\":{" +
+                        "\"types\":[\"pharmacy\"],\"radiusM\":500}}";
+        String conflicting =
+                "{\"type\":\"OPEN_FACILITY_MAP\",\"payload\":{" +
+                        "\"types\":[\"pharmacy\"],\"operationPreference\":\"open_or_unknown\"," +
+                        "\"openNow\":true,\"radiusM\":500}}";
+
+        assertThatThrownBy(() -> mapper.readValue(missing, UiAction.class))
+                .isInstanceOf(JsonProcessingException.class);
+        assertThatThrownBy(() -> mapper.readValue(conflicting, UiAction.class))
+                .isInstanceOf(JsonProcessingException.class);
     }
 
     @Test
