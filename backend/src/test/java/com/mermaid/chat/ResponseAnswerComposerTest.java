@@ -13,6 +13,7 @@ import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
 import com.mermaid.common.SourceRef;
 import com.mermaid.facility.domain.FacilityType;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +46,7 @@ class ResponseAnswerComposerTest {
                         ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
                         Set.of(ResponsePlan.Capability.FACILITY_LOOKUP),
                         pharmacy(
-                                ResponsePlan.OperationPreference.OPEN_OR_UNKNOWN,
+                                FacilityOperationPreference.OPEN_OR_UNKNOWN,
                                 ResponsePlan.FacilityAvailability.READY)),
                 new CapabilityResults(null, null, Set.of()));
 
@@ -74,7 +75,7 @@ class ResponseAnswerComposerTest {
                                 ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
                                 ResponsePlan.Capability.PROFESSIONAL_CONSULTATION),
                         pharmacy(
-                                ResponsePlan.OperationPreference.ANY,
+                                FacilityOperationPreference.ANY,
                                 ResponsePlan.FacilityAvailability.READY)),
                 new CapabilityResults(validated, null, Set.of(failure)));
 
@@ -98,7 +99,7 @@ class ResponseAnswerComposerTest {
                                 ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
                                 ResponsePlan.Capability.PROFESSIONAL_CONSULTATION),
                         pharmacy(
-                                ResponsePlan.OperationPreference.ANY,
+                                FacilityOperationPreference.ANY,
                                 ResponsePlan.FacilityAvailability.READY)),
                 new CapabilityResults(
                         null, context, Set.of(CapabilityFailure.ENRICHMENT_UNAVAILABLE)));
@@ -117,7 +118,7 @@ class ResponseAnswerComposerTest {
                         ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
                         Set.of(ResponsePlan.Capability.FACILITY_LOOKUP),
                         pharmacy(
-                                ResponsePlan.OperationPreference.ANY,
+                                FacilityOperationPreference.ANY,
                                 ResponsePlan.FacilityAvailability.LOCATION_REQUIRED)),
                 new CapabilityResults(
                         null, null, Set.of(CapabilityFailure.LOCATION_UNAVAILABLE)));
@@ -133,7 +134,7 @@ class ResponseAnswerComposerTest {
                         ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
                         Set.of(ResponsePlan.Capability.FACILITY_LOOKUP),
                         pharmacy(
-                                ResponsePlan.OperationPreference.ANY,
+                                FacilityOperationPreference.ANY,
                                 ResponsePlan.FacilityAvailability.ADAPTER_UNAVAILABLE)),
                 new CapabilityResults(
                         null, null, Set.of(CapabilityFailure.FACILITY_ADAPTER_UNAVAILABLE)));
@@ -179,7 +180,7 @@ class ResponseAnswerComposerTest {
     }
 
     private static ResponsePlan.FacilityIntent pharmacy(
-            ResponsePlan.OperationPreference operationPreference,
+            FacilityOperationPreference operationPreference,
             ResponsePlan.FacilityAvailability availability) {
         return new ResponsePlan.FacilityIntent(
                 Set.of(FacilityType.PHARMACY), operationPreference, availability);

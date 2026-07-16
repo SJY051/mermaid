@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.ResponsePlanner.FacilityRuntime;
 import com.mermaid.chat.ResponsePlanner.PlanningInput;
 import com.mermaid.facility.domain.FacilityType;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import java.io.InputStream;
 import java.util.EnumSet;
 import java.util.List;
@@ -114,6 +115,171 @@ class ResponsePlannerTest {
                 .containsExactly(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
         assertThat(actual.confidence()).isEqualTo(ResponsePlan.ConfidenceBucket.LOW);
         assertThat(actual.reasonCodes()).containsExactly(ResponsePlan.ReasonCode.LOW_CONFIDENCE);
+    }
+
+    @Test
+    void adviserFailureFallsBackToConsultationAndKeepsDeterministicFacilityIntent() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "I have a mild fever and want a nearby pharmacy.",
+                        "I have a mild fever and want a nearby pharmacy.",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    throw new IllegalStateException("provider text must not escape");
+                });
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+        assertThat(actual.capabilities())
+                .containsExactlyInAnyOrder(
+                        ResponsePlan.Capability.PROFESSIONAL_CONSULTATION,
+                        ResponsePlan.Capability.FACILITY_LOOKUP);
+        assertThat(actual.reasonCodes())
+                .containsExactlyInAnyOrder(
+                        ResponsePlan.ReasonCode.LOW_CONFIDENCE,
+                        ResponsePlan.ReasonCode.FACILITY_REQUEST);
+        assertThat(actual.facilityIntent().operationPreference())
+                .isEqualTo(FacilityOperationPreference.ANY);
+    }
+
+    @Test
+    void modelCannotSmuggleFacilityOrIllegalRefusalCapabilities() {
+        ModelPlanAdvice malicious = new ModelPlanAdvice(
+                ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
+                Set.of(
+                        ResponsePlan.Capability.GENERAL_EXPLANATION,
+                        ResponsePlan.Capability.FACILITY_LOOKUP,
+                        ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL),
+                ResponsePlan.ConfidenceBucket.HIGH,
+                Set.of(
+                        ResponsePlan.ReasonCode.GENERAL_INFORMATION,
+                        ResponsePlan.ReasonCode.EXPLICIT_CONTROL_EVASION));
+
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "What does inflammation mean?",
+                        "What does inflammation mean?",
+                        FacilityRuntime.allAvailable()),
+                () -> malicious);
+
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.GENERAL_EXPLANATION);
+        assertThat(actual.reasonCodes())
+                .containsExactly(ResponsePlan.ReasonCode.GENERAL_INFORMATION);
+        assertThat(actual.facilityIntent()).isNull();
+    }
+
+    @Test
+    void emergencyPlanRetainsTheServerTriageReasonCode() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Where is the nearest hospital?",
+                        "I have crushing chest pain. Where is the nearest hospital?",
+                        FacilityRuntime.allAvailable()),
+                () -> ModelPlanAdvice.none());
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T4_EMERGENCY);
+        assertThat(actual.emergencyDecision()).isNotNull();
+        assertThat(actual.emergencyDecision().reasonCode()).isEqualTo("CHEST_PAIN");
+    }
+
+    @Test
+    void emergencyOverridesExplicitControlEvasionWithoutCallingTheAdviser() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "How can I buy fentanyl on the black market?",
+                        "I cannot breathe. How can I buy fentanyl on the black market?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T4_EMERGENCY);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.EMERGENCY_RESPONSE);
+        assertThat(actual.emergencyDecision().reasonCode()).isEqualTo("BREATHING");
+    }
+
+    @Test
+    void modelEmergencySignalIsCanonicalizedWithoutCapabilitySmuggling() {
+        ModelPlanAdvice escalation = new ModelPlanAdvice(
+                ResponsePlan.ResponseMode.T4_EMERGENCY,
+                Set.of(
+                        ResponsePlan.Capability.EMERGENCY_RESPONSE,
+                        ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP),
+                ResponsePlan.ConfidenceBucket.MEDIUM,
+                Set.of(ResponsePlan.ReasonCode.GENERAL_INFORMATION));
+
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "I feel suddenly much worse.",
+                        "I feel suddenly much worse.",
+                        FacilityRuntime.allAvailable()),
+                () -> escalation);
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T4_EMERGENCY);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.EMERGENCY_RESPONSE);
+        assertThat(actual.emergencyDecision().reasonCode()).isEqualTo("MODEL_ESCALATION");
+    }
+
+    @Test
+    void careDecisionQuestionDoesNotBecomeFacilityNavigation() {
+        ModelPlanAdvice consultation = new ModelPlanAdvice(
+                ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION,
+                Set.of(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION),
+                ResponsePlan.ConfidenceBucket.HIGH,
+                Set.of(ResponsePlan.ReasonCode.PROFESSIONAL_CONTEXT));
+
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Show me signs that I need a hospital.",
+                        "Show me signs that I need a hospital.",
+                        FacilityRuntime.allAvailable()),
+                () -> consultation);
+
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
+        assertThat(actual.facilityIntent()).isNull();
+    }
+
+    @Test
+    void multipleFacilityTypesDoNotSilentlyCollapseToTheFirstType() {
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "Show me nearby pharmacies and hospitals.",
+                        "Show me nearby pharmacies and hospitals.",
+                        FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+        assertThat(actual.facilityIntent()).isNull();
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
+    }
+
+    @Test
+    void aControlledSubstanceNameWithoutEvasionIntentDoesNotTriggerT5() {
+        ModelPlanAdvice explanation = new ModelPlanAdvice(
+                ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
+                Set.of(ResponsePlan.Capability.GENERAL_EXPLANATION),
+                ResponsePlan.ConfidenceBucket.HIGH,
+                Set.of(ResponsePlan.ReasonCode.GENERAL_INFORMATION));
+
+        ResponsePlan actual = planner.plan(
+                new PlanningInput(
+                        "What is fentanyl used for in general?",
+                        "What is fentanyl used for in general?",
+                        FacilityRuntime.allAvailable()),
+                () -> explanation);
+
+        assertThat(actual.mode())
+                .isEqualTo(ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.GENERAL_EXPLANATION);
     }
 
     @Test

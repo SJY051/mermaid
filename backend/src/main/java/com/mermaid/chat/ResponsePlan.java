@@ -1,6 +1,7 @@
 package com.mermaid.chat;
 
 import com.mermaid.facility.domain.FacilityType;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import java.util.Objects;
 import java.util.Set;
 
@@ -10,7 +11,17 @@ record ResponsePlan(
         Set<Capability> capabilities,
         ConfidenceBucket confidence,
         Set<ReasonCode> reasonCodes,
-        FacilityIntent facilityIntent) {
+        FacilityIntent facilityIntent,
+        EmergencyDecision emergencyDecision) {
+
+    ResponsePlan(
+            ResponseMode mode,
+            Set<Capability> capabilities,
+            ConfidenceBucket confidence,
+            Set<ReasonCode> reasonCodes,
+            FacilityIntent facilityIntent) {
+        this(mode, capabilities, confidence, reasonCodes, facilityIntent, null);
+    }
 
     ResponsePlan {
         Objects.requireNonNull(mode, "mode");
@@ -23,6 +34,10 @@ record ResponsePlan(
         if (hasFacilityCapability != (facilityIntent != null)) {
             throw new IllegalArgumentException(
                     "FACILITY_LOOKUP and facilityIntent must be present together");
+        }
+        if ((mode == ResponseMode.T4_EMERGENCY) != (emergencyDecision != null)) {
+            throw new IllegalArgumentException(
+                    "T4_EMERGENCY and emergencyDecision must be present together");
         }
         validateProtectedCapabilities(mode, capabilities);
     }
@@ -108,23 +123,29 @@ record ResponsePlan(
      */
     record FacilityIntent(
             Set<FacilityType> types,
-            OperationPreference operationPreference,
+            FacilityOperationPreference operationPreference,
             FacilityAvailability availability) {
 
         FacilityIntent {
             Objects.requireNonNull(types, "types");
             Objects.requireNonNull(operationPreference, "operationPreference");
             Objects.requireNonNull(availability, "availability");
-            if (types.isEmpty()) {
-                throw new IllegalArgumentException("facility types must not be empty");
+            if (types.size() != 1) {
+                throw new IllegalArgumentException(
+                        "the initial facility action contract requires exactly one type");
             }
             types = Set.copyOf(types);
         }
     }
 
-    enum OperationPreference {
-        ANY,
-        OPEN_OR_UNKNOWN
+    /** Server-owned emergency trace data; untrusted model prose cannot inhabit this type. */
+    record EmergencyDecision(String reasonCode) {
+        EmergencyDecision {
+            Objects.requireNonNull(reasonCode, "reasonCode");
+            if (!reasonCode.matches("[A-Z][A-Z0-9_]{1,63}")) {
+                throw new IllegalArgumentException("invalid emergency reason code");
+            }
+        }
     }
 
     enum FacilityAvailability {
