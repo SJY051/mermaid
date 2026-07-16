@@ -72,10 +72,13 @@ final class ResponsePlanner {
                     + "\\s+(?:appropriate|necessary|suitable)\\s+for\\b"
                     + "|\\bsigns? (?:that )?i need\\b.*\\b(?:hospital|ers?|emergency rooms?)\\b");
 
+    private static final String NEUTRAL_LEGAL_TOPIC =
+            "(?:prescribed legally|legal(?:ly)? prescribed|medical narcotics?)";
     private static final Pattern NEUTRAL_LEGAL_INFORMATION = Pattern.compile(
-            "\\b(?:prescribed legally|legal(?:ly)? prescribed|medical narcotic)\\b"
-                    + ".*\\b(?:korea|korean law|law)\\b"
-                    + "|\\b(?:korea|korean law|law)\\b.*\\b(?:prescribed legally|medical narcotic)\\b");
+            "\\b" + NEUTRAL_LEGAL_TOPIC + "\\b.*\\b(?:korea|korean law|law)\\b"
+                    + "|\\b(?:korea|korean law|law)\\b.*\\b"
+                    + NEUTRAL_LEGAL_TOPIC
+                    + "\\b");
     private static final Pattern QUOTED_SPAN = Pattern.compile(
             "\\\"(?:[^\\\"\\\\]|\\\\.)*\\\""
                     + "|(?<![\\p{L}\\p{N}])'(?:[^'\\\\]|\\\\.)*'(?![\\p{L}\\p{N}])"
