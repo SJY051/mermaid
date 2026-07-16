@@ -72,10 +72,16 @@ final class ResponsePlanner {
                     + "\\s+(?:appropriate|necessary|suitable)\\s+for\\b"
                     + "|\\bsigns? (?:that )?i need\\b.*\\b(?:hospital|ers?|emergency rooms?)\\b");
 
+    private static final String NEUTRAL_LEGAL_TOPIC =
+            "(?:prescribed legally|legal(?:ly)? prescribed|medical narcotics?)";
     private static final Pattern NEUTRAL_LEGAL_INFORMATION = Pattern.compile(
-            "\\b(?:prescribed legally|legal(?:ly)? prescribed|medical narcotic)\\b"
-                    + ".*\\b(?:korea|korean law|law)\\b"
-                    + "|\\b(?:korea|korean law|law)\\b.*\\b(?:prescribed legally|medical narcotic)\\b");
+            "\\b" + NEUTRAL_LEGAL_TOPIC + "\\b.*\\b(?:korea|korean law|law)\\b"
+                    + "|\\b(?:korea|korean law|law)\\b.*\\b"
+                    + NEUTRAL_LEGAL_TOPIC
+                    + "\\b");
+    private static final Pattern NEUTRAL_LEGAL_TERMINOLOGY = Pattern.compile(
+            "\\bwhat\\s+does\\s+(?:a\\s+)?[\\\"'‘’]?medical\\s+narcotics?"
+                    + "[\\\"'‘’]?\\s+mean\\b");
     private static final Pattern QUOTED_SPAN = Pattern.compile(
             "\\\"(?:[^\\\"\\\\]|\\\\.)*\\\""
                     + "|(?<![\\p{L}\\p{N}])'(?:[^'\\\\]|\\\\.)*'(?![\\p{L}\\p{N}])"
@@ -157,7 +163,8 @@ final class ResponsePlanner {
             return consultationPlan(ResponsePlan.ConfidenceBucket.HIGH, null);
         }
         if (features.t5PolicyEnabled()
-                && NEUTRAL_LEGAL_INFORMATION.matcher(normalized).find()) {
+                && (NEUTRAL_LEGAL_INFORMATION.matcher(normalized).find()
+                        || NEUTRAL_LEGAL_TERMINOLOGY.matcher(normalized).find())) {
             return new ResponsePlan(
                     ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
                     Set.of(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION),
