@@ -1,9 +1,9 @@
 ---
 title: W3-C emergency and allergy expression review packet
-status: awaiting SJY051 and human clinical review — no implementation authorized
+status: decisions recorded 2026-07-16 (SJY051 product sign-off; no clinical reviewer available) — implementation authorized per Reviewer sign-off; new English copy remains PM/QA-reviewable draft
 created: 2026-07-16 KST
 owner: SJY051 (윤서진)
-release_baseline: 3d586695c46815998fa073e4e9d63d51de27fbc5 plus the open remediation PR stack
+release_baseline: 4358efec58d7e18c6bdc1615886185f76d606c08 plus the uncommitted recovery RC
 ---
 
 # W3-C clinical expression review packet
@@ -136,10 +136,35 @@ approved RED scaffold separately first so the behavioral change remains auditabl
 
 Record decisions in this section before implementation.
 
-- C1 decision and reviewer/date: **PENDING**
-- C2 decision and reviewer/date: **PENDING**
-- C3 decision and reviewer/date: **PENDING**
-- C4 decision and SJY051/date: **PENDING**
-- Approved English emergency/allergy copy changes, if any: **PENDING**
-- PM/QA reviewer/date for the current server-authored card, empty, Pass-1-unavailable, emergency,
-  and SA-08 safety-state English copy: **PENDING**
+> **Basis of this sign-off.** These are product decisions by SJY051 (2026-07-16), informed by the
+> NHS/MedlinePlus sources cited above. No clinical reviewer is available to this team; this record
+> is a product sign-off, not a clinical review, and says so on purpose. Conservative high-sensitivity
+> defaults were chosen because in this information service overtriage (an unnecessary fixed 119
+> answer) is the bounded failure, while undertriage (routine drug information for an airway
+> emergency) is the unbounded one.
+
+- C1 decision and reviewer/date: **Option 1 — high sensitivity. SJY051, 2026-07-16.**
+  Explicit `anaphylaxis` / `anaphylactic` terms, OR sudden swelling of the lips, mouth, throat, or
+  tongue, each alone, trigger the server-owned 119 answer. Historical statements (e.g. `I had an
+  anaphylactic reaction five years ago`) DO trigger it — an accepted false positive, recorded as a
+  trade-off: the whole-transcript scanner cannot infer tense reliably, and an improvised tense
+  exclusion is exactly what this packet forbids. No tense or negation exclusion is authorized for C1
+  in this round.
+- C2 decision and reviewer/date: **Option 1 — high sensitivity. SJY051, 2026-07-16.**
+  `sudden` or `severe` abdominal/stomach pain triggers the server-owned 119 answer, matching the NHS
+  threshold. Option 3 (a separate server-owned urgent-care tier) is recorded as a future contract
+  expansion and is NOT part of this approval.
+- C3 decision and reviewer/date: **Approved as recommended. SJY051, 2026-07-16.**
+  The causal forms (`<medicine> gives/causes me hives`, `I get hives from/after taking <medicine>`,
+  `I break out in hives when I take <medicine>`) declare an allergy state and suppress all
+  AI-selected medicine (SA-08), without diagnosing a mechanism. Hives without a causal tie to a
+  medicine is not a declaration. Throat/tongue swelling or breathing difficulty remains the C1
+  emergency contract, not merely an allergy gate.
+- C4 decision and SJY051/date: **Approved as recommended. SJY051, 2026-07-16.**
+  Negative phrases: `no allergies`, `no known allergies`, `no known drug allergies`, `NKDA`, with
+  the four precedence rules exactly as written in this packet: a positive statement anywhere wins;
+  `no allergies except <medicine>` is positive; uncertainty is not an explicit negative; negation
+  removes only its own matched phrase and never masks a later positive turn.
+- Approved English emergency/allergy copy changes, if any: **None pre-approved.** Any new
+  user-facing English copy the implementation introduces must be flagged as reviewable draft copy
+  for PM/QA, not shipped as final (existing fixed-copy convention).
