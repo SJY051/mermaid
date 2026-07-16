@@ -12,7 +12,7 @@ import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { CircleAlert, Ellipsis, Send } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
-import type { MermAidAnswer } from '../lib/types'
+import type { FacilityMapPayload, MermAidAnswer } from '../lib/types'
 import { AllergenPicker } from './AllergenPicker'
 import { DisclaimerStrip } from './DisclaimerStrip'
 import { DrugCard } from './DrugCard'
@@ -20,6 +20,12 @@ import { NearbyFacilities } from './NearbyFacilities'
 
 const SESSION_COPY =
   "Your messages are sent to answer them, but this conversation is not saved: it lives only in this tab."
+
+function isLegacyFacilityMapPayload(
+  payload: FacilityMapPayload,
+): payload is Extract<FacilityMapPayload, { openNow: boolean }> {
+  return 'openNow' in payload && typeof payload.openNow === 'boolean'
+}
 
 function PendingAnswer({ elapsedS }: { elapsedS: number }) {
   return (
@@ -182,14 +188,16 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
         />
       ))}
 
-      {/* The assistant asks for the map through `uiActions`; it never calls a tool (spec §2-1). */}
+      {/* The validated response asks for the map through `uiActions`; it never calls a tool. */}
       {answer.uiActions.map((action, index) =>
         action.type === 'OPEN_FACILITY_MAP' ? (
           <NearbyFacilities
             key={index}
             types={action.payload.types}
             radiusM={action.payload.radiusM}
-            openNow={action.payload.openNow}
+            {...(isLegacyFacilityMapPayload(action.payload)
+              ? { openNow: action.payload.openNow }
+              : { operationPreference: action.payload.operationPreference })}
           />
         ) : null,
       )}

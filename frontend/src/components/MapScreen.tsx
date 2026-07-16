@@ -120,7 +120,7 @@ export function MapScreen({ active }: MapScreenProps) {
           lat: location.lat,
           lng: location.lng,
           radiusM: RADIUS_M,
-          openNow: false,
+          operationPreference: 'any',
           type,
         },
         controller.signal,

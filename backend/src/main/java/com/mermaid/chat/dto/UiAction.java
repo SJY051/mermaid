@@ -1,8 +1,10 @@
 package com.mermaid.chat.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import java.util.List;
 import java.util.Objects;
 
@@ -90,9 +92,38 @@ public sealed interface UiAction {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record MapPayload(List<String> types, boolean openNow, int radiusM) {
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    record MapPayload(
+            List<String> types,
+            FacilityOperationPreference operationPreference,
+            Boolean openNow,
+            int radiusM) {
         public MapPayload {
             Objects.requireNonNull(types, "types");
+            if ((operationPreference == null) == (openNow == null)) {
+                throw new IllegalArgumentException(
+                        "exactly one of operationPreference or legacy openNow is required");
+            }
+        }
+
+        /** New server-owned action contract. */
+        public MapPayload(
+                List<String> types,
+                FacilityOperationPreference operationPreference,
+                int radiusM) {
+            this(types, Objects.requireNonNull(operationPreference), null, radiusM);
+        }
+
+        /** Legacy whole-answer model contract retained only during planner migration. */
+        public MapPayload(List<String> types, boolean openNow, int radiusM) {
+            this(types, null, openNow, radiusM);
+        }
+
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public FacilityOperationPreference resolvedOperationPreference() {
+            return operationPreference != null
+                    ? operationPreference
+                    : FacilityOperationPreference.fromLegacyOpenNow(Boolean.TRUE.equals(openNow));
         }
     }
 
