@@ -932,7 +932,8 @@ class ResponsePlannerTest {
                                 ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP),
                         ResponsePlan.ConfidenceBucket.HIGH,
                         Set.of(ResponsePlan.ReasonCode.EMERGENCY_RED_FLAG),
-                        null))
+                        null,
+                        new ResponsePlan.EmergencyDecision("TEST_EMERGENCY")))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new ResponsePlan(
                         ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE,
