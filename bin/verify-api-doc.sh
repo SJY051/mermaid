@@ -73,6 +73,13 @@ check "응급실 위치 데이터는 isOpenNow=null (운영시간 미추정)" $?
 emergency_open=$(curl -s "$BASE/facilities?lat=37.5663&lng=126.9779&radius_m=1000&type=emergency_room&open_now=true")
 echo "$emergency_open" | grep -q '^\[\]$'
 check "응급실 open_now=true 는 unknown 시간을 open/closed로 추측하지 않는다" $?
+emergency_open_or_unknown=$(curl -s "$BASE/facilities?lat=37.5663&lng=126.9779&radius_m=1000&type=emergency_room&operation_preference=open_or_unknown")
+echo "$emergency_open_or_unknown" | grep -q '"type":"emergency_room"'
+check "응급실 open_or_unknown 은 운영시간 미상 위치를 보존한다" $?
+echo "$emergency_open_or_unknown" | grep -q '"isOpenNow":null'
+check "응급실 open_or_unknown 은 운영시간을 추측하지 않는다" $?
+expect GET "/facilities?lat=37.5663&lng=126.9779&type=pharmacy&open_now=true&operation_preference=open_or_unknown" 400
+expect GET "/facilities?lat=37.5663&lng=126.9779&type=pharmacy&operation_preference=unsupported" 400
 expect GET "/facilities/facility:nmc:C1110693"                 200   # 약국 단건 상세
 # Captured HIRA ykiho wrapped once more in base64url for a path-safe facility id.
 HIRA_FIXTURE_ID="facility:hira:SkRRNE1UZzRNU00xTVNNa01TTWtNQ01rT0Rra016Z3hNelV4SXpFeEl5UXhJeVF6SXlRM09TUTBOakV3TURJak5qRWpKREVqSkRRakpEZ3o"

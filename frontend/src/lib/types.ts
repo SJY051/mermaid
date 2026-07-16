@@ -9,6 +9,10 @@ export type UrgencyLevel = 'emergency' | 'urgent' | 'routine' | 'unknown'
 export type DataStatus = 'live' | 'fixture' | 'mixed' | 'unavailable'
 export type DataMode = 'live' | 'fixture'
 export type FacilityType = 'pharmacy' | 'hospital' | 'emergency_room'
+export type FacilityOperationPreference =
+  | 'any'
+  | 'confirmed_open_only'
+  | 'open_or_unknown'
 export type PrescriptionStatus = 'prescription' | 'otc' | 'unknown'
 
 /**
@@ -73,9 +77,24 @@ export interface DrugCard {
  * These are fields in the response, not provider tool calls: a tool-call message has
  * empty `content` and so cannot also carry schema-constrained JSON.
  */
+export type FacilityMapPayload =
+  | {
+      types: FacilityType[]
+      operationPreference: FacilityOperationPreference
+      openNow?: never
+      radiusM: number
+    }
+  | {
+      types: FacilityType[]
+      operationPreference?: never
+      /** Legacy whole-answer model field retained during planner migration. */
+      openNow: boolean
+      radiusM: number
+    }
+
 export type UiAction =
-  | { type: 'OPEN_FACILITY_MAP'; payload: { types: FacilityType[]; openNow: boolean; radiusM: number } }
-  | { type: 'APPLY_FACILITY_FILTERS'; payload: { types: FacilityType[]; openNow: boolean; radiusM: number } }
+  | { type: 'OPEN_FACILITY_MAP'; payload: FacilityMapPayload }
+  | { type: 'APPLY_FACILITY_FILTERS'; payload: FacilityMapPayload }
   | { type: 'OPEN_DRUG_DETAIL'; payload: { drugId: string } }
   | { type: 'SHOW_EMERGENCY_CALL'; payload: { phone: string; label: string } }
   | { type: 'ASK_CLARIFYING_QUESTION'; payload: { question: string } }
