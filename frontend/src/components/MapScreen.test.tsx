@@ -166,6 +166,13 @@ describe('MapScreen', () => {
       'ER',
     ])
     expect(within(filters).getByRole('button', { name: 'Emergency rooms' })).toBeEnabled()
+    await waitFor(() => {
+      expect(fetchFacilitiesMock.mock.calls.map(([query]) => query.type)).toEqual([
+        'pharmacy',
+        'hospital',
+        'emergency_room',
+      ])
+    })
   })
 
   it('loads emergency-room fixture results with open_now off and disables Open now', async () => {
@@ -189,14 +196,14 @@ describe('MapScreen', () => {
     expect(openNow).toHaveAttribute('aria-checked', 'true')
 
     const erButton = screen.getByRole('button', { name: 'Emergency rooms' })
-    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3))
     await user.click(erButton)
 
     expect(erButton).toHaveAttribute('aria-pressed', 'true')
     expect(openNow).toBeDisabled()
     expect(openNow).toHaveAttribute('aria-checked', 'false')
-    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3))
-    expect(fetchFacilitiesMock.mock.calls[2][0]).toEqual(
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(4))
+    expect(fetchFacilitiesMock.mock.calls[3][0]).toEqual(
       expect.objectContaining({ type: 'emergency_room', openNow: false }),
     )
     expect(await screen.findByTestId(`map-facility-${emergencyRoom.id}`)).toHaveTextContent(
@@ -215,13 +222,16 @@ describe('MapScreen', () => {
     const user = userEvent.setup()
     let settleEmergencyRooms!: (facilities: Facility[]) => void
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
-    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'emergency_room'
-        ? new Promise<Facility[]>((resolve) => {
+    let emergencyRoomRequests = 0
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) => {
+      if (type !== 'emergency_room') return Promise.resolve([])
+      emergencyRoomRequests += 1
+      return emergencyRoomRequests === 1
+        ? Promise.resolve([])
+        : new Promise<Facility[]>((resolve) => {
             settleEmergencyRooms = resolve
           })
-        : Promise.resolve([]),
-    )
+    })
 
     render(<MapScreen active={true} />)
     await user.click(await screen.findByRole('button', { name: 'Emergency rooms' }))
@@ -246,11 +256,14 @@ describe('MapScreen', () => {
   it('renders an emergency-room fetch failure as an alert, not an empty result', async () => {
     const user = userEvent.setup()
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
-    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'emergency_room'
-        ? Promise.reject(new Error('Emergency-room lookup failed.'))
-        : Promise.resolve([]),
-    )
+    let emergencyRoomRequests = 0
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) => {
+      if (type !== 'emergency_room') return Promise.resolve([])
+      emergencyRoomRequests += 1
+      return emergencyRoomRequests === 1
+        ? Promise.resolve([])
+        : Promise.reject(new Error('Emergency-room lookup failed.'))
+    })
 
     render(<MapScreen active={true} />)
     await user.click(await screen.findByRole('button', { name: 'Emergency rooms' }))
@@ -266,7 +279,7 @@ describe('MapScreen', () => {
     render(<MapScreen active={true} />)
 
     await screen.findByTestId('map-stub')
-    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3))
     expect(
       screen.queryByText('Nearby pharmacies and hospitals will appear here.'),
     ).not.toBeInTheDocument()
@@ -277,7 +290,9 @@ describe('MapScreen', () => {
     const unknown = facility('unknown', '미상약국', null, '02-111-2222')
     resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([unknown]),
+      type === 'hospital'
+        ? Promise.reject(notImplementedError())
+        : Promise.resolve(type === 'pharmacy' ? [unknown] : []),
     )
 
     render(<MapScreen active={true} />)
@@ -317,14 +332,14 @@ describe('MapScreen', () => {
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital'
         ? Promise.reject(notImplementedError())
-        : Promise.resolve([closed, unknown, open]),
+        : Promise.resolve(type === 'pharmacy' ? [closed, unknown, open] : []),
     )
 
     render(<MapScreen active={true} />)
 
     const map = await screen.findByTestId('map-stub')
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open,unknown,closed'))
-    expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2)
+    expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3)
 
     // Mutation guard: passing the switch value through as `openNow` must turn this assertion red.
     for (const [query] of fetchFacilitiesMock.mock.calls) {

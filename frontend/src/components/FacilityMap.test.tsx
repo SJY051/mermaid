@@ -136,9 +136,10 @@ const emergencyRoomFixture = (): Facility =>
     longitude: 126.96793805451702,
     distanceMeters: 911.2,
     operation: {
-      isOpenNow: null,
-      status: 'unknown',
-      statusConfidence: 'unknown',
+      // Adversarial upstream value: the UI must still force every ER to hours-unknown.
+      isOpenNow: true,
+      status: 'open',
+      statusConfidence: 'official_schedule',
       verifiedAt: '2026-07-16T00:00:00Z',
       notice: 'Opening hours are not published for this place. Call to check.',
     },
