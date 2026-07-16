@@ -175,6 +175,24 @@ describe('MapScreen', () => {
     })
   })
 
+  it('keeps other All results visible when the emergency-room request fails', async () => {
+    const pharmacy = facility('pharmacy', '가나약국', true)
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) => {
+      if (type === 'pharmacy') return Promise.resolve([pharmacy])
+      if (type === 'emergency_room') {
+        return Promise.reject(new Error('Emergency-room lookup failed.'))
+      }
+      return Promise.resolve([])
+    })
+
+    render(<MapScreen active={true} />)
+
+    expect(await screen.findByTestId(`map-facility-${pharmacy.id}`)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Emergency-room lookup failed.')
+    expect(screen.queryByText(/No facilities found/i)).not.toBeInTheDocument()
+  })
+
   it('loads emergency-room fixture results with open_now off and disables Open now', async () => {
     const user = userEvent.setup()
     const emergencyRoom = facility(
@@ -301,7 +319,7 @@ describe('MapScreen', () => {
     expect(unknownPin).toHaveTextContent('Hours unknown')
     expect(unknownPin).not.toHaveTextContent('Closed')
     expect(screen.queryByText('Closed')).not.toBeInTheDocument()
-    expect(screen.getByText('1 pharmacies · 0 Open now · 1 Hours unknown')).toBeInTheDocument()
+    expect(screen.getByText('1 facilities · 0 Open now · 1 Hours unknown')).toBeInTheDocument()
     expect(screen.getByTestId('map-notice')).toHaveTextContent(
       'Centred on Seoul City Hall — we could not read your location, so these are not near you.',
     )
@@ -316,8 +334,11 @@ describe('MapScreen', () => {
       )
       expect(hospitalCalls).toHaveLength(2)
     })
-    expect(await screen.findByText('We cannot look up hospitals yet — pharmacy search works today.'))
-      .toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Hospital search is unavailable right now. Pharmacy and emergency-room search may still work.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -407,7 +428,7 @@ describe('MapScreen', () => {
       const newCentreCalls = fetchFacilitiesMock.mock.calls.filter(
         ([query]) => query.lat === 35.1796 && query.lng === 129.0756,
       )
-      expect(newCentreCalls).toHaveLength(2)
+      expect(newCentreCalls).toHaveLength(3)
     })
     expect(loadPreferences().manualLocation).toEqual({
       lat: 35.1796,
@@ -441,7 +462,7 @@ describe('MapScreen', () => {
       const pickedCentreCalls = fetchFacilitiesMock.mock.calls.filter(
         ([query]) => query.lat === result.latitude && query.lng === result.longitude,
       )
-      expect(pickedCentreCalls).toHaveLength(2)
+      expect(pickedCentreCalls).toHaveLength(3)
     })
     expect(loadPreferences().manualLocation).toEqual({
       lat: result.latitude,
@@ -501,7 +522,7 @@ describe('MapScreen', () => {
       const fallbackCalls = fetchFacilitiesMock.mock.calls.filter(
         ([query]) => query.lat === 37.5663 && query.lng === 126.9779,
       )
-      expect(fallbackCalls).toHaveLength(2)
+      expect(fallbackCalls).toHaveLength(3)
     })
     expect(loadPreferences().manualLocation).toBeNull()
   })

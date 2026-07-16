@@ -17,7 +17,8 @@ import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 import { FacilityMap } from './FacilityMap'
 
 const RADIUS_M = 1000
-const HOSPITAL_UNAVAILABLE = 'We cannot look up hospitals yet — pharmacy search works today.'
+const HOSPITAL_UNAVAILABLE =
+  'Hospital search is unavailable right now. Pharmacy and emergency-room search may still work.'
 type TypeFilter = 'all' | FacilityType
 
 const TYPE_FILTERS: Array<{ id: TypeFilter; label: string; accessibleLabel?: string }> = [
@@ -132,15 +133,17 @@ export function MapScreen({ active }: MapScreenProps) {
 
     async function loadSelectedFacilities() {
       if (typeFilter === 'all') {
-        const [pharmacyResult, hospitalResult] = await Promise.allSettled([
+        const [pharmacyResult, hospitalResult, emergencyRoomResult] = await Promise.allSettled([
           load('pharmacy'),
           load('hospital'),
+          load('emergency_room'),
         ])
         if (cancelled) return
 
         const found = [
           ...(pharmacyResult.status === 'fulfilled' ? pharmacyResult.value : []),
           ...(hospitalResult.status === 'fulfilled' ? hospitalResult.value : []),
+          ...(emergencyRoomResult.status === 'fulfilled' ? emergencyRoomResult.value : []),
         ]
         let nextError: string | null = null
 
@@ -153,6 +156,9 @@ export function MapScreen({ active }: MapScreenProps) {
           } else {
             nextError ??= errorMessage(hospitalResult.reason)
           }
+        }
+        if (emergencyRoomResult.status === 'rejected') {
+          nextError ??= errorMessage(emergencyRoomResult.reason)
         }
 
         setFacilities(found)
@@ -236,9 +242,7 @@ export function MapScreen({ active }: MapScreenProps) {
   const hasFixtureDataOnScreen = facilities.some((facility) => facility.source.dataMode === 'fixture')
   const resultKind =
     typeFilter === 'all'
-      ? hospitalUnavailable
-        ? 'pharmacies'
-        : 'facilities'
+      ? 'facilities'
       : typeFilter === 'pharmacy'
         ? 'pharmacies'
         : typeFilter === 'hospital'
