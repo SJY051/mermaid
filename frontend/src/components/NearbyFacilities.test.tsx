@@ -188,6 +188,28 @@ describe('NearbyFacilities', () => {
     ).toBeInTheDocument()
   })
 
+  it('preserves an explicit confirmed-open-only emergency-room contract', async () => {
+    fetchFacilitiesMock.mockResolvedValue([])
+
+    render(
+      <NearbyFacilities
+        types={['emergency_room']}
+        radiusM={1000}
+        operationPreference="confirmed_open_only"
+      />,
+    )
+
+    await waitFor(() => {
+      expect(fetchFacilitiesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'emergency_room',
+          operationPreference: 'confirmed_open_only',
+        }),
+        expect.any(AbortSignal),
+      )
+    })
+  })
+
   it('passes open-or-unknown through without collapsing it to a legacy boolean', async () => {
     const closed = {
       ...pharmacy,

@@ -55,15 +55,17 @@ export function NearbyFacilities(props: NearbyFacilitiesProps) {
   // `types` is a fresh array on every render; depending on it directly would refetch forever.
   const type = (types[0] ?? 'pharmacy') as FacilityType
   const emergencyRoomMode = type === 'emergency_room'
+  const hasExplicitOperationPreference =
+    'operationPreference' in props && props.operationPreference !== undefined
   const requestedOperationPreference =
-    'operationPreference' in props && props.operationPreference
+    hasExplicitOperationPreference
       ? props.operationPreference
       : props.openNow
         ? 'confirmed_open_only'
         : 'any'
   // NMC ER records have no hours. A legacy open-only action must not erase every result.
   const operationPreference =
-    emergencyRoomMode && requestedOperationPreference === 'confirmed_open_only'
+    emergencyRoomMode && !hasExplicitOperationPreference && props.openNow
       ? 'open_or_unknown'
       : requestedOperationPreference
 
