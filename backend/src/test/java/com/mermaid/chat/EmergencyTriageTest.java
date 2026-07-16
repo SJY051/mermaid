@@ -40,6 +40,53 @@ class EmergencyTriageTest {
     }
 
     @ParameterizedTest
+    @DisplayName("approved anaphylaxis and sudden airway swelling phrases are escalated")
+    @ValueSource(
+            strings = {
+                "I am having an anaphylactic reaction.",
+                "My throat is suddenly swelling.",
+                "My throat suddenly started swelling.",
+                "My tongue suddenly began swelling.",
+                "I had an anaphylactic reaction five years ago.",
+            })
+    void escalatesApprovedAnaphylaxisAndAirwaySwelling(String text) {
+        assertThat(triage.screen(text)).isPresent();
+    }
+
+    @ParameterizedTest
+    @DisplayName("nearby non-emergency throat and lip phrases are not escalated")
+    @ValueSource(
+            strings = {
+                "My throat is sore.",
+                "My lips are dry.",
+            })
+    void doesNotEscalateNonEmergencyThroatAndLipPhrases(String text) {
+        assertThat(triage.screen(text)).isEmpty();
+    }
+
+    @ParameterizedTest
+    @DisplayName("approved sudden or severe abdominal pain phrases are escalated")
+    @ValueSource(
+            strings = {
+                "I have sudden abdominal pain.",
+                "I have severe stomach pain.",
+            })
+    void escalatesApprovedAbdominalPain(String text) {
+        assertThat(triage.screen(text)).isPresent();
+    }
+
+    @ParameterizedTest
+    @DisplayName("mild abdominal complaints are not escalated")
+    @ValueSource(
+            strings = {
+                "I have mild stomach pain.",
+                "I have some abdominal discomfort.",
+            })
+    void doesNotEscalateMildAbdominalComplaints(String text) {
+        assertThat(triage.screen(text)).isEmpty();
+    }
+
+    @ParameterizedTest
     @DisplayName("ordinary complaints are not escalated")
     @ValueSource(
             strings = {

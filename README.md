@@ -1,120 +1,47 @@
 # mermAid
 
-한국에 있는 영어 사용자가 **로그인 없이** 영어로 증상을 말하면, 공공 데이터로 검증된 의약품 정보와 지금 영업 중인 근처 약국·병원을 알려주는 서비스.
+한국에 있는 영어 사용자가 **로그인 없이** 영어로 증상을 말하면, **정부 공공데이터로 검증된** 의약품 정보를 얻고, 지금 열려 있는 근처 약국·병원·응급실을 지도로 찾는 서비스입니다.
+
+*mermAid lets English speakers in Korea describe symptoms in English — no sign-up — and get medicine information verified against Korean government data, plus a live map of pharmacies, hospitals, and emergency rooms that are open right now.*
 
 > MINI PROJECT 1 · 1팀 · 자유주제
 
-**처음 왔다면 [docs/시작하기.md](docs/시작하기.md)부터.** 무엇이 궁금할 때 어디를 보면 되는지, 역할별로 오늘 뭘 하면 되는지가 한 페이지에 있습니다.
+<!-- TODO(PM/QA · DEV-610 #26): 히어로 스크린샷 · 기능 GIF · 아키텍처 그림 — 재료는 docs/발표-노트.md -->
 
-규칙 전문은 [AGENTS.md](AGENTS.md)입니다 — 규칙과 그 이유, 함정, 브랜치·커밋 규약, AI 어시스턴트 사용 지침. 사람에게도 AI에게도 같은 문서라서 관례대로 **영어**로 쓰여 있어요. 번역기를 써도, 물어봐도 좋습니다.
+## 무엇을 하나
 
----
+- **증상 → 검증된 약 정보.** "I have a fever"라고 말하면 식약처 기록에서 찾은 약을 카드로 보여줍니다. 카드의 안전 사실 — 제품·성분·용법용량·경고·출처 — 은 전부 서버가 정부 데이터에서 직접 씁니다.
+- **지금 열려 있는 곳.** 근처 약국·병원·응급실을 지도에 보여줍니다. 영업 여부는 공공 스케줄로 서버가 계산하고, 확인할 수 없으면 "모른다"고 정직하게 표시합니다 — 아픈 사람을 열려 있는 약국 앞에서 돌려세우지 않기 위해서입니다.
+- **안전이 기본값.** 응급 신호는 AI보다 먼저 코드가 잡아 119 안내로 답합니다. 알레르기를 선언하면 AI가 고른 약 제안은 통째로 폐기됩니다. 모든 응답에 "진단이 아닙니다" 면책이 붙고 화면에 항상 보입니다.
 
-## 빠른 시작
+## 왜 믿을 수 있나 — "verified"의 의미
 
-```bash
-./bin/setup.sh          # 훅 등록 + .env 생성 + 의존성 설치
-# .env 를 채운다 (아래 참조)
-docker compose up -d    # MariaDB + Redis
-
-cd backend  && ./gradlew bootRun    # http://localhost:8080
-cd frontend && pnpm dev             # http://localhost:5173
-```
-
-프론트엔드는 Vite 프록시로 `/api`를 백엔드에 넘깁니다. 브라우저에서 보면 **모든 게 한 오리진**이라 CORS 문제가 없습니다.
-
-### `.env` 채우기
-
-| 키 | 어디서 | 주의 |
-|---|---|---|
-| `DATA_GO_KR_SERVICE_KEY` | [data.go.kr](https://www.data.go.kr) | **Decoding 키**를 넣으세요. Encoding 키를 넣으면 `SERVICE_KEY_IS_NOT_REGISTERED_ERROR`가 납니다 |
-| `VITE_NAVER_MAP_CLIENT_ID` | NCP 콘솔 > Maps > Application 의 **Client ID** | **Client Secret이 아닙니다.** `VITE_` 값은 브라우저 번들에 박히니 시크릿을 넣지 마세요. Web 서비스 URL에 `http://localhost:5173` 등록 필수 |
-| `LLM_API_KEY` | OpenAI 호환 엔드포인트 | |
-
-`.env`는 커밋되지 않습니다. **이 저장소는 public이고, 유출된 키는 몇 분 안에 수집됩니다.** pre-commit 훅이 막아주지만, 훅을 믿지 말고 조심하세요.
-
----
-
-## 구조
+이 서비스는 AI가 아는 것을 그대로 전달하지 않습니다. AI의 역할은 **증상에서 어떤 성분을 찾아볼지 정하는 것까지**이고, 사용자가 보는 사실은 전부 공공 API에서 옵니다.
 
 ```
-backend/    Spring Boot 3.5 · Java 21 · JPA · Flyway · MariaDB · Redis
-frontend/   React 19 · Vite · TypeScript · Tailwind · astryx · 네이버맵
-docs/specs/       스펙과 WBS. 코드보다 먼저 읽으세요
-docs/deliverables/ 제출 산출물 (ERD, 테이블 명세서, 요구사항 명세서, 수행계획서)
-backend/src/main/resources/fixtures/   실제 공공 API 응답. 이걸로 개발하세요
+브라우저 ──▶ Spring 프록시 ──▶ LLM ("이 증상엔 어떤 성분을 찾아볼까?")
+                │
+                └──▶ 공공 API 8종 (식약처·심평원·국립중앙의료원)
+                     └──▶ 서버가 이 기록으로 약 카드를 직접 씁니다
 ```
 
-### 네트워크 없이 개발하기
+AI의 제안은 **질의이지 사실이 아닙니다** — 정부 API가 돌려주지 않은 약은 화면에 오르지 못합니다. 상담 내용은 브라우저 탭 안(sessionStorage)에만 있고 서버에 저장되지 않습니다. 이 원칙들의 전문과 이유는 [AGENTS.md §2](AGENTS.md#2-invariants)에 있습니다.
 
-```bash
-DATA_MODE=fixture ./gradlew bootRun
-```
+## 기술
 
-공공 API를 한 번도 부르지 않고 실제 약국 데이터가 나옵니다.
-**약국 API는 하루 1,000회**뿐이니 기본값(`hybrid`)으로도 캐시가 걸립니다.
+Spring Boot 3.5 · Java 21 | React 19 · TypeScript · Vite · Tailwind | MariaDB · Redis · 네이버맵 — 공공 API 8종 연동.
 
-요청은 이렇게 흐릅니다.
+직접 실행해 보려면 → **[docs/개발.md](docs/개발.md)** (빠른 시작 · `.env` · 오프라인 fixture 모드)
 
-```
-브라우저 ──(openai JS SDK, baseURL=/api/v1)──▶ Spring 프록시 ──▶ LLM
-   │                                              │
-   │                                              └──▶ 공공 API 8종
-   ├── sessionStorage: 대화 기록 (탭을 닫으면 사라짐. 서버로 절대 가지 않음)
-   └── localStorage:   deviceId, 즐겨찾기 스냅샷
-```
+## 문서 지도
 
----
-
-## 코드를 짜기 전에 읽을 것
-
-**[docs/specs/001-foundation/spec.md](docs/specs/001-foundation/spec.md)** — 특히 두 곳:
-
-- **§2 원본 문서에서 달라진 점.** 요구사항 명세서 v0.1에는 실제로 구현 불가능한 요구가 몇 개 있었습니다. 무엇이 왜 바뀌었는지 근거와 함께 적혀 있습니다.
-- **§3 검증된 외부 제약.** 이 표를 안 읽으면 각각 반나절씩 날립니다. 요약하면:
-
-  - 약국 API는 **하루 1,000회**입니다. 네 명이 지도를 새로고침하면 점심 전에 소진됩니다. `DATA_MODE=fixture`로 개발하세요.
-  - 실물 응답에서 알게 된 함정 17가지가 [`fixtures/README.md`](backend/src/main/resources/fixtures/README.md)에 있습니다. 파서를 쓰기 전에 읽으세요.
-  - JSON을 요청하는 파라미터가 API마다 다릅니다. 약국·심평원은 `_type=json`, 식약처는 `type=json`. 언더스코어 하나 차이로 조용히 XML이 옵니다.
-  - 네이버맵 키 파라미터는 `ncpKeyId`입니다. 인터넷 예제의 `ncpClientId`는 인증 실패합니다.
-  - **어떤 공공 API에도 "지금 영업 중" 필터가 없습니다.** 우리가 계산합니다.
-
----
-
-## 어디를 채워야 하나
-
-배관은 동작합니다. 살은 아직 없습니다. `TODO(team)` 으로 검색하세요.
-
-| 파일 | 할 일 |
+| 궁금한 것 | 여기 |
 |---|---|
-| `PharmacyApiClient#weeklyHours` | 주간 시간표(`getParmacyBassInfoInqire`). 이게 붙어야 영업 상태가 `inferred`에서 `official_schedule`이 됩니다 |
-| `FacilityService#hospitals` | 병원은 API 두 개를 엮습니다. **공공 API는 승인됐고**(`./bin/check-api-access.py`), 구현이 아직입니다. 지금은 `501`. `fixtures/README.md` 12~17번을 먼저 읽으세요 |
-| `IngredientNormalizer` | 동의어 사전(`resources/ingredients/synonyms.tsv`)의 검토자 칸이 전부 `TODO`입니다. **QA가 채워야 합니다** |
-| `HolidayCalendar` | 지금은 늘 `false`를 반환합니다. 설날에 약국이 열렸다고 말하게 됩니다 |
-| `App.tsx` | UI-01 의약품 카드. **로딩 상태를 꼭 그리세요** — 챗 응답은 콜드 캐시에서 100초를 넘깁니다 |
-| `FacilityMap.tsx` | UI-03 상세 드로어(DEV-207), GPS 거부 시 **수동 위치 입력**(DEV-206) |
-| `frontend/` 테스트 | 62개가 있습니다. 챗 흐름·지도·저장소·클라이언트가 덮여 있습니다 |
-
-누가 무엇을 맡는지는 [`docs/specs/001-foundation/tasks.md`](docs/specs/001-foundation/tasks.md)를 보세요.
-
----
-
-## 협업
-
-규칙과 그 이유는 전부 **[AGENTS.md](AGENTS.md)** 에 있습니다. 요약하면:
-
-- 브랜치: `main`에 직접 푸시하지 않습니다. `feat/DEV-203-hospital-adapter` 꼴로 만들어 PR을 올립니다.
-- 커밋: [Conventional Commits](https://www.conventionalcommits.org), 영어로.
-- CI가 백엔드 테스트, 프론트 테스트·타입체크·빌드, 시크릿 스캔을 돌립니다. 초록불이 아니면 머지하지 않습니다.
-- 이슈와 PR을 잘게 쪼개세요. **작업 추적성 자체가 채점 항목입니다** (NFR-05).
-
-"완료"는 아래가 **지금** 통과하는 것입니다. 리포트 파일이 아니라 종료 코드를 보세요.
-
-```bash
-cd backend  && ./gradlew test    # 275 tests
-cd frontend && pnpm test         # 62 tests
-cd frontend && pnpm build        # tsc -b 포함
-```
+| 처음 온 팀원 | [docs/시작하기.md](docs/시작하기.md) |
+| 개발 환경과 빠른 시작 | [docs/개발.md](docs/개발.md) |
+| 규칙과 그 이유 (영어) | [AGENTS.md](AGENTS.md) |
+| 설계 결정과 검증된 외부 제약 | [docs/specs/001-foundation/spec.md](docs/specs/001-foundation/spec.md) |
+| 보안 검토 기록 | [docs/security/README.md](docs/security/README.md) |
 
 ## 제출 산출물
 
@@ -126,10 +53,17 @@ cd frontend && pnpm build        # tsc -b 포함
 | API 명세서 | [`docs/deliverables/API_명세서.md`](docs/deliverables/API_명세서.md) — **실행 중인 서버에서 검증** (`./bin/verify-api-doc.sh`) |
 | 요구사항 명세서 · 수행계획서 | `docs/deliverables/*.docx` |
 
----
+## 팀
+
+| 이름 | 레인 |
+|---|---|
+| 윤서진 | 리드 · BE-1 (챗·RAG) · FE-1 |
+| 임수혁 | BE-2 (시설 검색) |
+| 박주형 | FE-2 (지도·저장소) |
+| 최정민 | PM · UX · QA |
+
+<!-- TODO(PM/QA · DEV-610 #26): 팀원별 "누가 무엇을 만들었나" — 발표 스토리와 같은 손으로 -->
 
 ## 이 서비스가 하지 않는 것
 
-진단하지 않습니다. 정보를 제공하고 전문가 상담을 권합니다.
-
-시스템 프롬프트에 이 제약이 박혀 있고, 클라이언트가 보낸 `system` 메시지는 프록시에서 버려집니다. 응답에는 항상 면책 문구가 붙고 화면에 표시됩니다. 스펙 §7을 읽어보세요 — 왜 이렇게 했는지 적혀 있습니다.
+**진단하지 않습니다.** 정보를 제공하고 전문가 상담을 권합니다. 이 제약은 시스템 프롬프트에 박혀 있고, 클라이언트가 보낸 `system` 메시지는 프록시가 버리며, 응답에는 항상 면책 문구가 붙습니다. 왜 이렇게 했는지는 [spec §7](docs/specs/001-foundation/spec.md)에 적혀 있습니다.

@@ -50,6 +50,33 @@ class AllergyDeclarationTest {
         void seasonalAllergiesAlsoFire() {
             assertThat(AllergyDeclaration.presentIn("my allergies are acting up, runny nose")).isTrue();
         }
+
+        @ParameterizedTest
+        @DisplayName("a medicine causally linked to hives declares an allergy state")
+        @ValueSource(
+                strings = {
+                    "ibuprofen gives me hives",
+                    "aspirin causes me hives",
+                    "I get hives from penicillin",
+                    "I get hives after taking naproxen",
+                    "I break out in hives when I take ibuprofen",
+                })
+        void medicineCausallyLinkedToHives(String userText) {
+            assertThat(AllergyDeclaration.presentIn(userText)).isTrue();
+        }
+
+        @ParameterizedTest
+        @DisplayName("a positive statement wins over an explicit negative")
+        @ValueSource(
+                strings = {
+                    "No allergies. I am allergic to ibuprofen.",
+                    "No known drug allergies. My son has a penicillin allergy.",
+                    "no allergies except penicillin",
+                    "I am not sure if I have allergies",
+                })
+        void positiveOrUncertainStatementWins(String userText) {
+            assertThat(AllergyDeclaration.presentIn(userText)).isTrue();
+        }
     }
 
     @Nested
@@ -74,16 +101,23 @@ class AllergyDeclarationTest {
             assertThat(AllergyDeclaration.presentIn(null)).isFalse();
         }
 
-        /**
-         * A known miss, written down on purpose. The person is describing an allergy without naming
-         * one, and no reviewed drug-class table would have helped either: we never learn that they
-         * react to ibuprofen, so there is nothing to look up. The gap is in what we are told, not in
-         * what we know.
-         */
+        @ParameterizedTest
+        @DisplayName("approved explicit negative allergy statements do not open the allergy gate")
+        @ValueSource(
+                strings = {
+                    "no allergies",
+                    "no known allergies",
+                    "no known drug allergies",
+                    "NKDA",
+                })
+        void explicitNegativeStatements(String userText) {
+            assertThat(AllergyDeclaration.presentIn(userText)).isFalse();
+        }
+
         @Test
-        @DisplayName("a symptom description is not a declaration — we simply never learn of it")
-        void symptomDescriptionIsMissed() {
-            assertThat(AllergyDeclaration.presentIn("ibuprofen gives me hives")).isFalse();
+        @DisplayName("hives without a causal medicine statement do not declare an allergy")
+        void nonCausalHivesStayQuiet() {
+            assertThat(AllergyDeclaration.presentIn("I have hives today")).isFalse();
         }
 
         /** English only, like {@link EmergencyTriage}. Recorded so nobody assumes otherwise. */

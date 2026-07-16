@@ -224,13 +224,11 @@ public class DrugContextRetriever {
         }
 
         Set<String> matchedIngredients = new LinkedHashSet<>();
-        Set<String> matchedNames = new LinkedHashSet<>();
         for (String ingredient : drug.ingredientsEn()) {
             for (String unverified : unverifiedAllergens) {
                 String unverifiedKey = normalizer.canonicalize(unverified);
                 if (normalizer.compare(ingredient, unverifiedKey) != MatchConfidence.UNKNOWN) {
                     matchedIngredients.add(ingredient);
-                    matchedNames.add(unverified);
                 }
             }
         }
@@ -238,17 +236,21 @@ public class DrugContextRetriever {
             return drug;
         }
 
-        String nameMatchMessage = "Name match only: "
-                + String.join(", ", matchedIngredients)
-                + " matched the unverified allergen name "
-                + String.join(", ", matchedNames)
-                + ". A pharmacist must confirm this match.";
+        String officialNames = String.join(", ", matchedIngredients);
+        // PM/QA-reviewable draft for the approved D2 matched-card semantics (SJY051, 2026-07-16).
+        String nameMatchMessage = matchedIngredients.size() == 1
+                ? "Name match only: the official ingredient "
+                        + officialNames
+                        + " matched one of the names you typed. A pharmacist must confirm this match."
+                : "Name match only: the official ingredients "
+                        + officialNames
+                        + " matched names you typed. A pharmacist must confirm these matches.";
 
         // A drug can already carry a WARNING from the verified check — a partial or compound match
-        // against exclude_ingredients. That warning names a reviewed ingredient the user actually
-        // declared; this one names a string they typed. Overwriting the first with the second would
-        // silently downgrade the verified finding to a name match, and the user would never hear
-        // about the allergen we did resolve. So carry both: verified message first, then the caveat.
+        // against exclude_ingredients. That warning names a reviewed ingredient the user declared;
+        // this one names only the official ingredient and says the user text was a name-only match.
+        // Overwriting the first with the second would silently downgrade the verified finding, so
+        // carry both: verified message first, then the generic name-match caveat.
         AllergyCheck existing = drug.allergyCheck();
         boolean hasVerifiedWarning = existing.status() == AllergyCheck.Status.WARNING;
 
