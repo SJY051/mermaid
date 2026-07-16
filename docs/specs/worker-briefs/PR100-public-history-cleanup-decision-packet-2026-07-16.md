@@ -88,9 +88,10 @@ archive.
 
 ## Post-decision verification — 2026-07-16
 
-- Redaction completeness on `main`: `git grep -E 'shallow chest pain|no allergies' origin/main -- docs/security`
-  returns zero hits. In the unredacted commit `941210a9` the phrases appear only in
-  `track_a_final_audit.md`, `report.md`, and `source/scan-report-original.md` (4 hits each); every
-  other bundle file is byte-identical between the two versions, and the archive itself records that
-  original request bodies were never retained.
+- Redaction completeness on `main`: a `git grep` for both redacted owner phrases (the explicit-none
+  allergy wording and the A-3 emergency-prompt wording — not repeated here, per this packet's own
+  rule) over `origin/main -- docs/security` returns zero hits. In the unredacted commit `941210a9`
+  the phrases appear only in `track_a_final_audit.md`, `report.md`, and
+  `source/scan-report-original.md` (4 hits each); every other bundle file is byte-identical between
+  the two versions, and the archive itself records that original request bodies were never retained.
 
