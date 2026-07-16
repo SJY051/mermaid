@@ -3,7 +3,7 @@ title: W3-C emergency and allergy expression review packet
 status: decisions recorded 2026-07-16 (SJY051 product sign-off; no clinical reviewer available) — implementation authorized per Reviewer sign-off; new English copy remains PM/QA-reviewable draft
 created: 2026-07-16 KST
 owner: SJY051 (윤서진)
-release_baseline: 4358efec58d7e18c6bdc1615886185f76d606c08 plus the uncommitted recovery RC
+release_baseline: 3d586695c46815998fa073e4e9d63d51de27fbc5 plus the open remediation PR stack
 ---
 
 # W3-C clinical expression review packet
@@ -168,3 +168,5 @@ Record decisions in this section before implementation.
 - Approved English emergency/allergy copy changes, if any: **None pre-approved.** Any new
   user-facing English copy the implementation introduces must be flagged as reviewable draft copy
   for PM/QA, not shipped as final (existing fixed-copy convention).
+- PM/QA reviewer/date for the current server-authored card, empty, Pass-1-unavailable, emergency,
+  and SA-08 safety-state English copy: **PENDING**

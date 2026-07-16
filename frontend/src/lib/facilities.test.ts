@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchFacilities, fetchGeocode, resolveLocation, SEOUL_CITY_HALL } from './facilities'
+import {
+  fetchFacilities,
+  fetchGeocode,
+  resolveFacilityOperationPreference,
+  resolveLocation,
+  SEOUL_CITY_HALL,
+} from './facilities'
 import { savePreferences } from './storage'
 
 function mockFetch(response: Partial<Response> & { json?: () => Promise<unknown> }) {
@@ -58,6 +64,21 @@ describe('fetchFacilities builds the request the backend actually documents', ()
     expect(url.searchParams.get('open_now')).toBe('false')
   })
 
+  it('sends a tri-state operation preference without collapsing it to open_now', async () => {
+    const spy = mockFetch({})
+    await fetchFacilities({
+      lat: 37.5,
+      lng: 127.02,
+      radiusM: 1000,
+      operationPreference: 'open_or_unknown',
+      type: 'emergency_room',
+    })
+
+    const url = requestedUrl(spy)
+    expect(url.searchParams.get('operation_preference')).toBe('open_or_unknown')
+    expect(url.searchParams.has('open_now')).toBe(false)
+  })
+
   it('passes the abort signal through', async () => {
     const spy = mockFetch({})
     const controller = new AbortController()
@@ -67,10 +88,31 @@ describe('fetchFacilities builds the request the backend actually documents', ()
   })
 })
 
+describe('facility action migration', () => {
+  it('preserves a server-owned operation preference', () => {
+    expect(
+      resolveFacilityOperationPreference({
+        types: ['pharmacy'],
+        operationPreference: 'open_or_unknown',
+        radiusM: 1000,
+      }),
+    ).toBe('open_or_unknown')
+  })
+
+  it('promotes a legacy model boolean without collapsing the new contract', () => {
+    expect(
+      resolveFacilityOperationPreference({ types: ['hospital'], openNow: true, radiusM: 1000 }),
+    ).toBe('confirmed_open_only')
+    expect(
+      resolveFacilityOperationPreference({ types: ['hospital'], openNow: false, radiusM: 1000 }),
+    ).toBe('any')
+  })
+})
+
 describe('fetchFacilities surfaces the server’s own words when it fails', () => {
   it('reports the 501 for hospitals rather than pretending there are none', async () => {
-    // An empty array here would read as "no hospitals near you". The truth is that DEV-203
-    // is not built. The backend answers 501 NOT_IMPLEMENTED so the UI cannot get that wrong.
+    // A deployment that cannot serve this facility type must stay distinguishable from a verified
+    // empty result; otherwise the UI would claim there are no hospitals nearby.
     mockFetch({
       ok: false,
       status: 501,

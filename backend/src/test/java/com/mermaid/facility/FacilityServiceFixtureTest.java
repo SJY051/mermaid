@@ -11,6 +11,7 @@ import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import com.mermaid.facility.domain.Facility;
 import com.mermaid.facility.domain.FacilityOperation;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import com.mermaid.facility.domain.FacilityType;
 import java.time.Clock;
 import java.time.Instant;
@@ -666,14 +667,17 @@ class FacilityServiceFixtureTest {
                     public HospitalDetailBatch findByYkiho(String ykiho) {
                         detailCalls.incrementAndGet();
                         boolean fartherCandidateIsOpen = "YKIHO-100".equals(ykiho);
+                        boolean fartherCandidateHoursUnknown = "YKIHO-99".equals(ykiho);
                         return new HospitalDetailBatch(
                                 new HospitalDetail(
                                         ykiho,
-                                        Map.of(
-                                                5,
-                                                fartherCandidateIsOpen
-                                                        ? List.of("0830", "1700")
-                                                        : List.of("0830", "1300")),
+                                        fartherCandidateHoursUnknown
+                                                ? Map.of()
+                                                : Map.of(
+                                                        5,
+                                                        fartherCandidateIsOpen
+                                                                ? List.of("0830", "1700")
+                                                                : List.of("0830", "1300")),
                                         Optional.empty(),
                                         false,
                                         false,
@@ -695,6 +699,23 @@ class FacilityServiceFixtureTest {
 
         // Removing the wider candidate set makes this empty; removing its cap calls all 120 acute rows.
         assertThat(found).extracting(Facility::nameKo).containsExactly("Hospital 100");
+        assertThat(detailCalls).hasValue(100);
+
+        detailCalls.set(0);
+        List<Facility> openOrUnknown = service.findNearby(
+                LAT,
+                LNG,
+                2000,
+                FacilityOperationPreference.OPEN_OR_UNKNOWN,
+                FacilityType.HOSPITAL,
+                2);
+
+        assertThat(openOrUnknown)
+                .extracting(Facility::nameKo)
+                .containsExactly("Hospital 100", "Hospital 99");
+        assertThat(openOrUnknown)
+                .extracting(f -> f.operation().isOpenNow())
+                .containsExactly(true, null);
         assertThat(detailCalls).hasValue(100);
     }
 

@@ -1,8 +1,8 @@
 import type { Facility } from './types'
 
 /**
- * Splits unfiltered facility results because backend `open_now=true` drops unknown hours.
- * Keeping null separate protects §2-3/spec §3; the Chat tab's inline map will adopt this later.
+ * Splits facility results without collapsing unknown hours into closed.
+ * Keeping null separate protects §2-3/spec §3 in both the Map tab and Chat's inline map.
  */
 export interface OpenSplit {
   open: Facility[]

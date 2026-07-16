@@ -1,13 +1,24 @@
-import type { Facility, FacilityType, GeocodeResult } from './types'
+import type {
+  Facility,
+  FacilityMapPayload,
+  FacilityOperationPreference,
+  FacilityType,
+  GeocodeResult,
+} from './types'
 import { loadPreferences } from './storage'
 
-export interface FacilityQuery {
+interface FacilityQueryBase {
   lat: number
   lng: number
   radiusM?: number
-  openNow?: boolean
   type?: FacilityType
 }
+
+export type FacilityQuery = FacilityQueryBase &
+  (
+    | { operationPreference: FacilityOperationPreference; openNow?: never }
+    | { operationPreference?: never; openNow?: boolean }
+  )
 
 export const EMERGENCY_ROOM_HOURS_NOTICE =
   'Opening hours are not available for these official emergency-room records. Call before you go.'
@@ -15,30 +26,43 @@ export const EMERGENCY_ROOM_HOURS_NOTICE =
 export const EMPTY_FACILITY_RESULT_NOTICE =
   'No facilities matching these filters were found. Try changing the filters or contacting a local health service.'
 
+export function resolveFacilityOperationPreference(
+  payload: FacilityMapPayload,
+): FacilityOperationPreference {
+  if ('operationPreference' in payload && payload.operationPreference) {
+    return payload.operationPreference
+  }
+  return 'openNow' in payload && payload.openNow ? 'confirmed_open_only' : 'any'
+}
+
 /**
  * `GET /api/v1/facilities`.
  *
  * The request takes `lat`/`lng`; the response answers `latitude`/`longitude`. Not a typo — the
  * asymmetry is real, and `verify-api-doc.sh` asserts it so nobody "fixes" one side.
  *
- * `type=hospital` answers 501 until DEV-203 lands. That is deliberate: an empty array would read
- * as "no hospitals near you" when the truth is that we have not built the lookup.
+ * Every supported facility type uses the same tri-state operation-preference contract. Legacy
+ * boolean callers remain accepted only while existing model-authored actions are migrated.
  */
 export async function fetchFacilities(
-  { lat, lng, radiusM = 1000, openNow = false, type = 'pharmacy' }: FacilityQuery,
+  query: FacilityQuery,
   signal?: AbortSignal,
 ): Promise<Facility[]> {
-  // NMC's emergency-room endpoint is a location directory, not live availability data. Even if a
-  // chat action asks for open-only results, sending `true` would turn every unknown-hours record
-  // into a misleading empty result.
-  const effectiveOpenNow = type === 'emergency_room' ? false : openNow
+  const { lat, lng, radiusM = 1000, type = 'pharmacy' } = query
   const params = new URLSearchParams({
     lat: String(lat),
     lng: String(lng),
     radius_m: String(radiusM),
-    open_now: String(effectiveOpenNow),
     type,
   })
+  if ('operationPreference' in query && query.operationPreference) {
+    params.set('operation_preference', query.operationPreference)
+  } else {
+    // Legacy boolean callers cannot represent hours-unknown. ER directory records are always
+    // unknown, so preserve the old safety override until every action uses the explicit contract.
+    const effectiveOpenNow = type === 'emergency_room' ? false : (query.openNow ?? false)
+    params.set('open_now', String(effectiveOpenNow))
+  }
 
   const response = await fetch(`/api/v1/facilities?${params}`, { signal })
   if (!response.ok) {

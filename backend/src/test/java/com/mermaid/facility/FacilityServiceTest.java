@@ -9,6 +9,7 @@ import com.mermaid.config.PublicApiProperties;
 import com.mermaid.facility.domain.DutyTable;
 import com.mermaid.facility.domain.Facility;
 import com.mermaid.facility.domain.FacilityOperation;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import com.mermaid.facility.domain.FacilityType;
 import java.time.Clock;
 import java.time.Instant;
@@ -60,7 +61,7 @@ class FacilityServiceTest {
     void openNowLooksPastTheReturnedLimitForAFartherOpenPharmacy() {
         List<PharmacyApiClient.RawPharmacy> closed =
                 IntStream.range(0, 50)
-                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0000", "0001"))
+                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0100", "0200"))
                         .toList();
         var fartherOpen = pharmacy("open-51", 0.051, "0900", "1900");
         var client =
@@ -72,6 +73,70 @@ class FacilityServiceTest {
         var found = service.findNearby(37.5663, 126.9779, 1000, true, FacilityType.PHARMACY, 1);
 
         assertThat(found).singleElement().extracting(f -> f.id()).isEqualTo("facility:nmc:open-51");
+    }
+
+    @Test
+    void openOrUnknownLooksPastClosedRowsAndOrdersConfirmedOpenBeforeUnknown() {
+        List<PharmacyApiClient.RawPharmacy> closed =
+                IntStream.range(0, 50)
+                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0100", "0200"))
+                        .toList();
+        var unknown = pharmacy("unknown-51", 0.051, null, null);
+        var fartherOpen = pharmacy("open-52", 0.052, "0900", "1900");
+        var client =
+                new CountingPharmacyClient(
+                        java.util.stream.Stream.concat(
+                                        closed.stream(),
+                                        java.util.stream.Stream.of(unknown, fartherOpen))
+                                .toList()) {
+                    @Override
+                    public DutyTable weeklyHours(String hpid) {
+                        weeklyHoursRequests.incrementAndGet();
+                        if ("unknown-51".equals(hpid)) {
+                            throw new PublicApiException("weekly hours unavailable");
+                        }
+                        return DutyTable.empty(SourceRef.DataMode.LIVE);
+                    }
+                };
+        var service = pharmacyService(client);
+
+        var found = service.findNearby(
+                37.5663,
+                126.9779,
+                1000,
+                FacilityOperationPreference.OPEN_OR_UNKNOWN,
+                FacilityType.PHARMACY,
+                2);
+
+        assertThat(found)
+                .extracting(Facility::id)
+                .containsExactly("facility:nmc:open-52", "facility:nmc:unknown-51");
+        assertThat(found).extracting(f -> f.operation().isOpenNow()).containsExactly(true, null);
+        assertThat(client.weeklyHoursRequests).hasValue(52);
+    }
+
+    @Test
+    void openOrUnknownExcludesConfirmedClosedRowsEvenWhenTheLimitHasRoom() {
+        var client =
+                new CountingPharmacyClient(
+                        List.of(
+                                pharmacy("closed", 0.001, "0100", "0200"),
+                                pharmacy("unknown", 0.002, null, null),
+                                pharmacy("open", 0.003, "0900", "1900")));
+        var service = pharmacyService(client);
+
+        var found = service.findNearby(
+                37.5663,
+                126.9779,
+                1000,
+                FacilityOperationPreference.OPEN_OR_UNKNOWN,
+                FacilityType.PHARMACY,
+                3);
+
+        assertThat(found)
+                .extracting(Facility::id)
+                .containsExactly("facility:nmc:open", "facility:nmc:unknown");
+        assertThat(found).noneMatch(facility -> Boolean.FALSE.equals(facility.operation().isOpenNow()));
     }
 
     @Test
@@ -94,7 +159,7 @@ class FacilityServiceTest {
         var client =
                 new CountingPharmacyClient(
                         IntStream.range(0, 150)
-                                .mapToObj(i -> pharmacy("pharmacy-" + i, 0.001 + i * 0.001, "0000", "0001"))
+                                .mapToObj(i -> pharmacy("pharmacy-" + i, 0.001 + i * 0.001, "0100", "0200"))
                                 .toList());
         var service = pharmacyService(client);
 
@@ -335,6 +400,42 @@ class FacilityServiceTest {
                 service.findNearby(37.5663, 126.9779, 2_000, false, FacilityType.EMERGENCY_ROOM, 1);
 
         assertThat(found).singleElement().extracting(Facility::id).isEqualTo("facility:nmc-emergency:near");
+    }
+
+    @Test
+    void openOrUnknownKeepsEmergencyRoomsWhileConfirmedOpenOnlyDoesNotGuess() {
+        var emergencyClient =
+                new CountingEmergencyRoomClient(
+                        List.of(new EmergencyRoomApiClient.RawEmergencyRoom(
+                                "near", "Near ER", "Seoul", null, 37.5664, 126.9779)));
+        var service =
+                new FacilityService(
+                        null,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        emergencyClient,
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        var openOrUnknown = service.findNearby(
+                37.5663,
+                126.9779,
+                2_000,
+                FacilityOperationPreference.OPEN_OR_UNKNOWN,
+                FacilityType.EMERGENCY_ROOM,
+                1);
+        var confirmedOnly = service.findNearby(
+                37.5663,
+                126.9779,
+                2_000,
+                FacilityOperationPreference.CONFIRMED_OPEN_ONLY,
+                FacilityType.EMERGENCY_ROOM,
+                1);
+
+        assertThat(openOrUnknown)
+                .singleElement()
+                .satisfies(facility -> assertThat(facility.operation().isOpenNow()).isNull());
+        assertThat(confirmedOnly).isEmpty();
     }
 
     private static PharmacyApiClient.RawPharmacy pharmacy(String hpid, double distanceKm) {
