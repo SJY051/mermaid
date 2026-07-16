@@ -26,19 +26,27 @@ final class ResponsePlanner {
     private static final String ER_TARGET_TOKEN = "emergencyroomtarget";
     private static final Pattern FACILITY_MENTION = Pattern.compile(
             "\\b(?:pharmac(?:y|ies)|drugstores?|hospitals?|" + ER_TARGET_TOKEN + ")\\b");
-    private static final Pattern LOCATION_ANCHOR = Pattern.compile(
-            "\\b(?:find|locate|show(?: me)?|where (?:is|are)|look for)\\b");
     private static final Pattern LANDMARK_RELATION = Pattern.compile(
-            "\\b(?:near|beside|by|around|at|in|inside|next to|close to|across from)\\b");
+            "\\b(?:near|beside|by|around|at|in|inside|next to|close to|closest to|across from)\\b");
+    private static final Pattern LANDMARK_TARGET_BREAK = Pattern.compile(
+            "\\b(?:and|or|where|find|locate|show|look|me|my|here|current)\\b");
     private static final Pattern LOCATION_SIGNAL = Pattern.compile(
             "\\b(?:closest|directions?|find|locate|map|nearest|nearby|where)\\b"
                     + "|\\blook\\s+for\\b|\\b(?:near|around)\\s+(?:me|my current location)\\b");
     private static final Pattern OPEN_SIGNAL = Pattern.compile(
-            "\\bopen(?:ed)?\\b(?:\\s+\\w+){0,3}\\s+\\b(?:now|currently|today|tonight|moment|minute)\\b"
-                    + "|\\b(?:now|currently|today|tonight|moment|minute)\\b"
-                    + "(?:\\s+\\w+){0,3}\\s+\\bopen(?:ed)?\\b"
-                    + "|\\b(?:currently|still)\\s+open(?:ed)?\\b"
+            "\\bopen\\b(?:\\s+\\w+){0,3}\\s+\\b(?:now|currently|today|tonight|moment|minute|present|presently|instant)\\b"
+                    + "|\\bopened\\b(?:\\s+\\w+){0,2}\\s+\\b(?:right\\s+now|currently|present|instant)\\b"
+                    + "|\\b(?:now|currently|today|tonight|moment|minute|present|presently|instant)\\b"
+                    + "(?:\\s+\\w+){0,3}\\s+\\bopen\\b"
+                    + "|\\b(?:currently|presently|still)\\s+open(?:ed)?\\b"
+                    + "|\\boperating\\s+(?:right\\s+now|currently|at\\s+present)\\b"
+                    + "|\\bopen\\s+as\\s+we\\s+speak\\b"
                     + "|\\b24[ -]?hours?\\b|\\b24\\s*/\\s*7\\b");
+    private static final Pattern OPEN_BEFORE_FACILITY_BRIDGE =
+            Pattern.compile("\\s*(?:(?:nearby|nearest|closest)\\s+)?");
+    private static final Pattern FACILITY_BEFORE_OPEN_BRIDGE = Pattern.compile(
+            "\\s*(?:(?:near|around)\\s+(?:me|my current location)\\s*)?"
+                    + "(?:(?:(?:that|which)\\s+)?(?:is|are)\\s*)?");
     private static final Pattern NON_FACILITY_INTENT = Pattern.compile(
             "\\b(?:allerg(?:y|ic|ies)|cold|cough|dose|fever|headache|interaction|medicine|"
                     + "medication|pain|sick|sore throat|symptoms?|tablet|treatment)\\b");
@@ -47,11 +55,18 @@ final class ResponsePlanner {
             + "(?:child|baby|son|daughter|mother|father|parent|partner|friend)"
             + "|(?:the|a) patient)";
     private static final Pattern CARE_DECISION = Pattern.compile(
-            "\\bshould\\s+" + CARE_SUBJECT + "\\s+(?:go|visit)\\b"
+            "\\b(?:should|ought(?:\\s+to)?)\\s+" + CARE_SUBJECT
+                    + "\\s+(?:go|visit|get\\s+checked|be\\s+(?:taken|brought))\\b"
                     + "|\\b" + CARE_SUBJECT
-                    + "\\s+(?:should|needs?\\s+to|must|has\\s+to)\\s+(?:go|visit)\\b"
+                    + "\\s+(?:should|ought\\s+to|needs?\\s+to|must|has\\s+to)"
+                    + "\\s+(?:go|visit|get\\s+checked|be\\s+(?:taken|brought))\\b"
                     + "|\\b(?:do|does)\\s+" + CARE_SUBJECT
                     + "\\s+need\\s+to\\s+(?:go|visit)\\b"
+                    + "|\\b" + CARE_SUBJECT + "\\s+(?:requires?|needs?)\\s+(?:a\\s+|the\\s+)?hospital\\b"
+                    + "|\\b(?:a\\s+)?hospital\\s+(?:would|could|might)\\s+be"
+                    + "\\s+(?:appropriate|necessary|suitable)\\s+for\\b"
+                    + "|\\bhospital\\s+care\\s+(?:is|(?:would|could|might)\\s+be)"
+                    + "\\s+(?:appropriate|necessary|suitable)\\s+for\\b"
                     + "|\\bsigns? (?:that )?i need\\b.*\\b(?:hospital|ers?|emergency rooms?)\\b");
 
     private static final Pattern NEUTRAL_LEGAL_INFORMATION = Pattern.compile(
@@ -64,16 +79,24 @@ final class ResponsePlanner {
                     + "|`[^`]*`|“[^”]*”|‘[^’]*’");
     private static final Pattern NON_DRUG_CONTROLLED_CONTEXT = Pattern.compile(
             "\\bfentanyl(?:[-\\s]+test(?:[-\\s]+(?:strips?|kits?))?"
-                    + "|[-\\s]+testing[-\\s]+kits?)\\b"
+                    + "|[-\\s]+testing[-\\s]+kits?"
+                    + "|[-\\s]+detection[-\\s]+(?:cards?|strips?|kits?))\\b"
                     + "|\\b(?:books?|articles?|reports?|documentaries)\\s+(?:about|on)\\s+fentanyl\\b");
     private static final Pattern OPERATIONAL_GUIDANCE = Pattern.compile(
-            "\\b(?:how\\s+(?:can|could|do|would)|where\\s+can"
-                    + "|(?:explain|tell me|show me)\\s+how|instructions?"
-                    + "|step-by-step|steps?\\s+(?:for|to)|best\\s+way|help\\s+me)\\b");
+            "\\b(?:how\\s+(?:can|could|do|would)|where\\s+(?:can|do)"
+                    + "|(?:explain|tell me|show me|teach me)\\s+how|instructions?"
+                    + "|step-by-step|steps?\\s+(?:for|to)|best\\s+way"
+                    + "|(?:help|can you help)\\s+me|give me (?:a )?guide)\\b");
+    private static final Pattern PROTECTIVE_GUIDANCE = Pattern.compile(
+            "\\b(?:how\\s+(?:can|could|do)|(?:explain|show|tell) me how(?: to)?)\\s+"
+                    + "(?:(?:i|we|someone)\\s+)?(?:avoid|report|stop|prevent|detect|identify)\\b");
+    private static final Pattern PROTECTIVE_CONTINUATION =
+            Pattern.compile("\\b(?:and|but|while|when)\\b");
     private static final Pattern CONTROLLED_SUBJECT = Pattern.compile(
             "\\b(?:fentanyl|controlled\\s+drugs?|medical\\s+narcotics?|narcotics?|illicit\\s+drugs?)\\b");
     private static final Pattern ACQUISITION_ACTION =
-            Pattern.compile("\\b(?:buy(?:ing)?|sell(?:ing)?|obtain(?:ing)?|get(?:ting)?)\\b");
+            Pattern.compile("\\b(?:acquir(?:e|ed|ing)|buy(?:ing)?|sell(?:ing)?|obtain(?:ing)?|"
+                    + "get(?:ting)?|purchas(?:e|ed|ing)|sourc(?:e|ed|ing))\\b");
     private static final Pattern BLACK_MARKET = Pattern.compile("\\bblack\\s+market\\b");
     private static final Pattern WITHOUT_PRESCRIPTION =
             Pattern.compile("\\bwithout\\s+(?:a\\s+)?prescription\\b");
@@ -82,7 +105,8 @@ final class ResponsePlanner {
     private static final Pattern CREATE_FAKE_PRESCRIPTION = Pattern.compile(
             "\\b(?:create|creating|make|making)\\b.*\\b(?:fake|forged)\\s+prescriptions?\\b");
     private static final Pattern MANUFACTURE_ACTION =
-            Pattern.compile("\\b(?:make|making|manufacture|manufacturing|grow|growing|cultivate|cultivating)\\b");
+            Pattern.compile("\\b(?:make|making|manufacture|manufacturing|produce|producing|"
+                    + "synthesiz(?:e|ed|ing)|grow|growing|cultivate|cultivating)\\b");
     private static final Pattern MANUFACTURE_EVASION = Pattern.compile(
             "\\b(?:at\\s+home|without\\s+(?:being\\s+)?caught|evad(?:e|ing)|conceal(?:ing)?)\\b");
     private static final Pattern MULTIPLE_PRESCRIBERS = Pattern.compile(
@@ -90,7 +114,15 @@ final class ResponsePlanner {
                     + "|\\bprescriptions?\\s+from\\s+(?:multiple|several)\\s+(?:doctors?|clinicians?)\\b");
     private static final Pattern MONITORING = Pattern.compile("\\bmonitoring\\b");
     private static final Pattern MONITORING_EVASION = Pattern.compile(
-            "\\b(?:bypass|evade|avoid|without|unnoticed|notic(?:e|ing)|conceal|hide)\\b");
+            "\\b(?:bypass|evade|avoid|conceal|hide)\\b(?:\\s+\\w+){0,3}\\s+\\bmonitoring\\b"
+                    + "|\\bwithout\\s+monitoring\\b"
+                    + "|\\bmonitoring\\b(?:\\s+\\w+){0,3}\\s+\\b(?:unnoticed|not\\s+notic(?:e|ing))\\b");
+    private static final Pattern PREVENT_MONITORING_DETECTION = Pattern.compile(
+            "\\bprevent\\s+(?:prescription\\s+)?monitoring\\s+from\\s+(?:detecting|noticing)\\b");
+    private static final Pattern CLAUSE_BOUNDARY =
+            Pattern.compile("[.!?;]+|\\R+|,\\s*(?:and|but)\\s+|"
+                    + "\\band\\s+(?=(?:is|are|can|could|should|would|where|how|what|who|why|"
+                    + "i|we|you|he|she|they)\\b)|\\bhowever\\b");
     private static final Pattern LICENSED_CARE = Pattern.compile(
             "\\b(?:discuss|ask|talk)\\b.*\\b(?:licensed )?(?:doctor|clinician|pharmacist)\\b");
 
@@ -279,23 +311,19 @@ final class ResponsePlanner {
             return null;
         }
 
-        String targetText = normalized.substring(lastLocationAnchorEnd(normalized));
-        List<FacilityMention> mentions = facilityMentions(targetText);
+        List<FacilityMention> mentions = facilityMentions(normalized);
         EnumSet<FacilityType> types = EnumSet.noneOf(FacilityType.class);
-        if (!mentions.isEmpty()) {
-            types.add(mentions.getFirst().type());
-            for (int index = 1; index < mentions.size(); index++) {
-                FacilityMention previous = mentions.get(index - 1);
-                FacilityMention current = mentions.get(index);
-                String between = current.start() <= previous.end()
-                        ? ""
-                        : current.normalizedText().substring(previous.end(), current.start());
-                if (!LANDMARK_RELATION.matcher(between).find()) {
-                    types.add(current.type());
-                }
+        List<FacilityMention> targetMentions = new ArrayList<>();
+        for (int index = 0; index < mentions.size(); index++) {
+            FacilityMention current = mentions.get(index);
+            int previousEnd = index == 0 ? 0 : mentions.get(index - 1).end();
+            String before = current.normalizedText().substring(previousEnd, current.start());
+            if (!isLandmarkMention(before)) {
+                types.add(current.type());
+                targetMentions.add(current);
             }
         }
-        boolean openNow = OPEN_SIGNAL.matcher(normalized).find();
+        boolean openNow = isOpenNowRequest(targetMentions);
         if (types.size() != 1 || (!LOCATION_SIGNAL.matcher(normalized).find() && !openNow)) {
             return null;
         }
@@ -316,26 +344,99 @@ final class ResponsePlanner {
                 availability);
     }
 
+    private static boolean isLandmarkMention(String beforeMention) {
+        Matcher relation = LANDMARK_RELATION.matcher(beforeMention);
+        int relationEnd = -1;
+        while (relation.find()) {
+            relationEnd = relation.end();
+        }
+        if (relationEnd < 0) {
+            return false;
+        }
+        String relationTail = beforeMention.substring(relationEnd).trim();
+        return !LANDMARK_TARGET_BREAK.matcher(relationTail).find();
+    }
+
+    private static boolean isOpenNowRequest(List<FacilityMention> targetMentions) {
+        for (FacilityMention target : targetMentions) {
+            Matcher openSignal = OPEN_SIGNAL.matcher(target.normalizedText());
+            while (openSignal.find()) {
+                if (openSignal.end() <= target.start()) {
+                    String bridge = target.normalizedText()
+                            .substring(openSignal.end(), target.start());
+                    if (OPEN_BEFORE_FACILITY_BRIDGE.matcher(bridge).matches()) {
+                        return true;
+                    }
+                } else if (openSignal.start() >= target.end()) {
+                    String bridge = target.normalizedText()
+                            .substring(target.end(), openSignal.start());
+                    if (FACILITY_BEFORE_OPEN_BRIDGE.matcher(bridge).matches()) {
+                        return true;
+                    }
+                } else if (openSignal.start() <= target.start()
+                        && openSignal.end() >= target.end()) {
+                    String overlap = target.normalizedText()
+                            .substring(openSignal.start(), openSignal.end());
+                    if (!overlap.matches(".*[.!?;,].*")) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private static boolean isExplicitControlEvasion(String normalized) {
         String policyText = NON_DRUG_CONTROLLED_CONTEXT
                 .matcher(maskQuotedSpans(normalized))
                 .replaceAll(" ");
-        if (!OPERATIONAL_GUIDANCE.matcher(policyText).find()) {
+        for (String clause : CLAUSE_BOUNDARY.split(policyText)) {
+            if (isExplicitControlEvasionClause(clause)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isExplicitControlEvasionClause(String clause) {
+        if (!OPERATIONAL_GUIDANCE.matcher(clause).find()) {
             return false;
         }
 
-        boolean acquisitionEvasion = ACQUISITION_ACTION.matcher(policyText).find()
-                && CONTROLLED_SUBJECT.matcher(policyText).find()
-                && (BLACK_MARKET.matcher(policyText).find()
-                        || WITHOUT_PRESCRIPTION.matcher(policyText).find());
-        boolean prescriptionForgery = DIRECT_PRESCRIPTION_FORGERY.matcher(policyText).find()
-                || CREATE_FAKE_PRESCRIPTION.matcher(policyText).find();
-        boolean unlicensedManufacture = MANUFACTURE_ACTION.matcher(policyText).find()
-                && CONTROLLED_SUBJECT.matcher(policyText).find()
-                && MANUFACTURE_EVASION.matcher(policyText).find();
-        boolean monitoringEvasion = MULTIPLE_PRESCRIBERS.matcher(policyText).find()
-                && MONITORING.matcher(policyText).find()
-                && MONITORING_EVASION.matcher(policyText).find();
+        Matcher protective = PROTECTIVE_GUIDANCE.matcher(clause);
+        if (protective.find()) {
+            if (MULTIPLE_PRESCRIBERS.matcher(clause).find()
+                    && PREVENT_MONITORING_DETECTION.matcher(clause).find()) {
+                return true;
+            }
+            Matcher continuation = PROTECTIVE_CONTINUATION.matcher(clause);
+            if (continuation.find(protective.end())) {
+                do {
+                    if (hasExplicitControlEvasionOperation(
+                            clause.substring(continuation.end()))) {
+                        return true;
+                    }
+                } while (continuation.find());
+            }
+            return false;
+        }
+
+        return hasExplicitControlEvasionOperation(clause);
+    }
+
+    private static boolean hasExplicitControlEvasionOperation(String clause) {
+        boolean acquisitionEvasion = ACQUISITION_ACTION.matcher(clause).find()
+                && CONTROLLED_SUBJECT.matcher(clause).find()
+                && (BLACK_MARKET.matcher(clause).find()
+                        || WITHOUT_PRESCRIPTION.matcher(clause).find());
+        boolean prescriptionForgery = DIRECT_PRESCRIPTION_FORGERY.matcher(clause).find()
+                || CREATE_FAKE_PRESCRIPTION.matcher(clause).find();
+        boolean unlicensedManufacture = MANUFACTURE_ACTION.matcher(clause).find()
+                && CONTROLLED_SUBJECT.matcher(clause).find()
+                && MANUFACTURE_EVASION.matcher(clause).find();
+        boolean monitoringEvasion = MULTIPLE_PRESCRIBERS.matcher(clause).find()
+                && MONITORING.matcher(clause).find()
+                && MONITORING_EVASION.matcher(clause).find();
         return acquisitionEvasion
                 || prescriptionForgery
                 || unlicensedManufacture
@@ -344,15 +445,6 @@ final class ResponsePlanner {
 
     private static String maskQuotedSpans(String normalized) {
         return QUOTED_SPAN.matcher(normalized).replaceAll(" ");
-    }
-
-    private static int lastLocationAnchorEnd(String normalized) {
-        Matcher matcher = LOCATION_ANCHOR.matcher(normalized);
-        int end = 0;
-        while (matcher.find()) {
-            end = matcher.end();
-        }
-        return end;
     }
 
     private static List<FacilityMention> facilityMentions(String text) {
