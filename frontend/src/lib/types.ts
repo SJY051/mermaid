@@ -124,6 +124,8 @@ export interface FacilityOperation {
   status: OperationStatus
   statusConfidence: StatusConfidence
   verifiedAt: string | null
+  /** Provider-published schedule update time; distinct from the server fetch time above. */
+  scheduleUpdatedAt: string | null
   notice: string
 }
 

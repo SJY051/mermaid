@@ -350,6 +350,7 @@ class ErrorContractTest {
                                 .param("type", "pharmacy"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(org.hamcrest.Matchers.startsWith("facility:nmc:")))
+                .andExpect(jsonPath("$[0].operation.scheduleUpdatedAt").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$[0].source.dataMode").value("fixture"));
     }
 

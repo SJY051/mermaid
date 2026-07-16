@@ -36,6 +36,7 @@ function seedSavedFacility(
           status: isOpenNow === true ? 'open' : isOpenNow === false ? 'closed' : 'unknown',
           statusConfidence: isOpenNow === null ? 'unknown' : 'official_schedule',
           verifiedAt: isOpenNow === null ? null : '2026-07-14T00:00:00Z',
+          scheduleUpdatedAt: null,
           notice: '',
         },
         source: { id: 'nmc:1', provider: 'nmc', recordId: '1', retrievedAt: '2026-07-14T00:00:00Z', dataMode, title: 'National Medical Center' },

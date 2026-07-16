@@ -41,7 +41,7 @@ const savedFacility = {
     nameKo: '가나약국',
     type: 'pharmacy' as const,
     addressKo: null,
-    operation: { isOpenNow: null, status: 'unknown' as const, statusConfidence: 'unknown' as const, verifiedAt: null, notice: '' },
+    operation: { isOpenNow: null, status: 'unknown' as const, statusConfidence: 'unknown' as const, verifiedAt: null, scheduleUpdatedAt: null, notice: '' },
     source: { id: 'nmc:1', provider: 'nmc', recordId: '1', retrievedAt: '2026-07-14T12:00:00Z', dataMode: 'live' as const, title: 'National Medical Center' },
   },
   alias: '',
@@ -447,6 +447,19 @@ describe('deviceId is anonymous and stable', () => {
     saveSavedFacilities([savedFacility])
     expect(getDeviceId()).toBe(id)
     expect(loadSavedFacilities()).toHaveLength(1)
+  })
+
+  it('keeps a pre-schedule-update saved facility and normalizes its missing field', () => {
+    const legacy = structuredClone(savedFacility) as Record<string, unknown>
+    const snapshot = legacy.snapshot as { operation: Record<string, unknown> }
+    delete snapshot.operation.scheduleUpdatedAt
+    localStorage.setItem(
+      SAVED_FACILITIES_STORAGE,
+      JSON.stringify({ schemaVersion: '1.0', data: [legacy] }),
+    )
+
+    expect(loadSavedFacilities()).toHaveLength(1)
+    expect(loadSavedFacilities()[0].snapshot.operation.scheduleUpdatedAt).toBeNull()
   })
 
   it('refuses a conversation stored before the grounding invariants, and deletes it (P0)', () => {

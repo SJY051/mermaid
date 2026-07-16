@@ -12,6 +12,7 @@ import com.mermaid.facility.HospitalApiClient;
 import com.mermaid.facility.HospitalDetailApiClient;
 import com.mermaid.facility.HolidayApiClient;
 import com.mermaid.facility.PharmacyApiClient;
+import com.mermaid.facility.SeoulPharmacyOperatingApiClient;
 import com.mermaid.facility.domain.DutyTable;
 import java.nio.ByteBuffer;
 import java.time.Instant;
@@ -48,6 +49,31 @@ class CacheConfigTest {
         assertThat(back).isEqualTo(table);
         assertThat(((DutyTable) back).byDay().get(1)).containsExactly("0900", "1900");
         assertThat(((DutyTable) back).origin()).isEqualTo(SourceRef.DataMode.LIVE);
+    }
+
+    @Test
+    @DisplayName("the Seoul full-table cache value round-trips with its typed HPID index")
+    void seoulPharmacyOperatingTableRoundTrips() {
+        Instant retrievedAt = Instant.parse("2026-07-16T00:00:00Z");
+        var row =
+                new SeoulPharmacyOperatingApiClient.RawOperatingRow(
+                        "C1111111",
+                        new DutyTable(Map.of(1, List.of("0830", "1900")), SourceRef.DataMode.LIVE),
+                        java.util.Set.of(),
+                        Instant.parse("2026-06-20T08:40:03Z"));
+        var value =
+                new SeoulPharmacyOperatingApiClient.OperatingTable(
+                        Map.of(row.hpid(), row), SourceRef.DataMode.LIVE, retrievedAt);
+
+        Object back = pair().read(pair().write(value));
+
+        assertThat(back).isEqualTo(value);
+        assertThat(((SeoulPharmacyOperatingApiClient.OperatingTable) back)
+                        .forHpid("C1111111")
+                        .weeklyHours()
+                        .byDay()
+                        .get(1))
+                .containsExactly("0830", "1900");
     }
 
     @Test

@@ -55,7 +55,7 @@ const pharmacy = {
   latitude: 37.5,
   longitude: 127.0,
   distanceMeters: 120,
-  operation: { isOpenNow: true, status: 'open', statusConfidence: 'inferred', verifiedAt: null, notice: '' },
+  operation: { isOpenNow: true, status: 'open', statusConfidence: 'inferred', verifiedAt: null, scheduleUpdatedAt: null, notice: '' },
 } as Facility
 
 const props = { types: ['pharmacy'], radiusM: 1000, openNow: true }

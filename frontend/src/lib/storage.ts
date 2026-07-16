@@ -182,7 +182,9 @@ function isSavedFacility(value: unknown): value is SavedFacility {
     (operation.isOpenNow === true || operation.isOpenNow === false || operation.isOpenNow === null) &&
     (operation.status === 'open' || operation.status === 'closed' || operation.status === 'unknown') &&
     (operation.statusConfidence === 'official_realtime' || operation.statusConfidence === 'official_schedule' || operation.statusConfidence === 'inferred' || operation.statusConfidence === 'unknown') &&
-    isNullableString(operation.verifiedAt) && typeof operation.notice === 'string' &&
+    isNullableString(operation.verifiedAt) &&
+    (operation.scheduleUpdatedAt === undefined || isNullableString(operation.scheduleUpdatedAt)) &&
+    typeof operation.notice === 'string' &&
     isRecord(source) && typeof source.id === 'string' && typeof source.provider === 'string' &&
     isNullableString(source.recordId) && typeof source.retrievedAt === 'string' &&
     (source.dataMode === 'live' || source.dataMode === 'fixture') && typeof source.title === 'string'
@@ -194,7 +196,15 @@ function isSavedFacilities(value: unknown): value is SavedFacility[] {
 }
 
 export function loadSavedFacilities(): SavedFacility[] {
-  return read<SavedFacility[]>(localStorage, SAVED_FACILITIES_KEY, [], isSavedFacilities)
+  return read<SavedFacility[]>(localStorage, SAVED_FACILITIES_KEY, [], isSavedFacilities).map((facility) => ({
+    ...facility,
+    snapshot: {
+      ...facility.snapshot,
+      // Saved places predate this provider field. Keep the snapshot instead of treating that harmless
+      // omission as corruption, and make its nullable contract explicit for the current UI.
+      operation: { ...facility.snapshot.operation, scheduleUpdatedAt: facility.snapshot.operation.scheduleUpdatedAt ?? null },
+    },
+  }))
 }
 
 export function saveSavedFacilities(items: SavedFacility[]): void {
