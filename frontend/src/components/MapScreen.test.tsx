@@ -211,7 +211,7 @@ describe('MapScreen', () => {
     ).toBeInTheDocument()
   })
 
-  it('keeps emergency-room loading and empty states distinct', async () => {
+  it('keeps emergency-room loading distinct and uses safety copy for an empty result', async () => {
     const user = userEvent.setup()
     let settleEmergencyRooms!: (facilities: Facility[]) => void
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
@@ -227,10 +227,19 @@ describe('MapScreen', () => {
     await user.click(await screen.findByRole('button', { name: 'Emergency rooms' }))
 
     expect(screen.getByText('Loading emergency rooms…')).toBeInTheDocument()
-    expect(screen.queryByText('No emergency rooms found within 1000m.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).not.toBeInTheDocument()
 
     settleEmergencyRooms([])
-    expect(await screen.findByText('No emergency rooms found within 1000m.')).toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No emergency rooms found within 1000m.')).not.toBeInTheDocument()
     expect(screen.queryByText('Loading emergency rooms…')).not.toBeInTheDocument()
   })
 

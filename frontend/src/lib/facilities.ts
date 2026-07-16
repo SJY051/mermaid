@@ -12,6 +12,9 @@ export interface FacilityQuery {
 export const EMERGENCY_ROOM_HOURS_NOTICE =
   'Opening hours are not available for these official emergency-room records. Call before you go.'
 
+export const EMPTY_FACILITY_RESULT_NOTICE =
+  'No facilities matching these filters were found. Try changing the filters or contacting a local health service.'
+
 /**
  * `GET /api/v1/facilities`.
  *

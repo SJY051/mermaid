@@ -172,6 +172,12 @@ describe('NearbyFacilities', () => {
     )
     expect(screen.getByTestId('stub-caption')).not.toHaveTextContent('open now')
     expect(
+      await screen.findByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No emergency rooms found within 1000m.')).not.toBeInTheDocument()
+    expect(
       screen.getByText(
         'Opening hours are not available for these official emergency-room records. Call before you go.',
       ),

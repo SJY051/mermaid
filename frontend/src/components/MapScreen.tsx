@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Phone } from 'lucide-react'
 import {
+  EMPTY_FACILITY_RESULT_NOTICE,
   fetchFacilities,
   fetchGeocode,
   EMERGENCY_ROOM_HOURS_NOTICE,
@@ -245,6 +246,9 @@ export function MapScreen({ active }: MapScreenProps) {
           : 'emergency rooms'
   const resultSummaryKind =
     emergencyRoomMode && facilities.length === 1 ? 'emergency room' : resultKind
+  const emptyResultNotice = emergencyRoomMode
+    ? EMPTY_FACILITY_RESULT_NOTICE
+    : `No ${resultKind} found within ${RADIUS_M}m.`
   const showResultSummary =
     !loadingFacilities &&
     !(typeFilter === 'hospital' && hospitalUnavailable) &&
@@ -374,9 +378,7 @@ export function MapScreen({ active }: MapScreenProps) {
       )}
 
       {showEmptyState && (
-        <p className="text-sm text-secondary">
-          No {resultKind} found within {RADIUS_M}m.
-        </p>
+        <p className="text-sm text-secondary">{emptyResultNotice}</p>
       )}
 
       {openNowOnly && split.unknown.length > 0 && (

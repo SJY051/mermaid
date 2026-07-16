@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FacilityMap } from './FacilityMap'
 import {
+  EMPTY_FACILITY_RESULT_NOTICE,
   fetchFacilities,
   fetchGeocode,
   EMERGENCY_ROOM_HOURS_NOTICE,
@@ -79,6 +80,11 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
   const plural =
     type === 'pharmacy' ? 'pharmacies' : type === 'hospital' ? 'hospitals' : 'emergency rooms'
   const caption = `${plural} within ${radiusM}m${effectiveOpenNow ? ', open now' : ''}`
+  const emptyResultNotice = emergencyRoomMode
+    ? EMPTY_FACILITY_RESULT_NOTICE
+    : `No ${plural} found within ${radiusM}m${
+        effectiveOpenNow ? ' that we know to be open right now' : ''
+      }.`
 
   async function handleUseDeviceLocation() {
     setLocating(true)
@@ -159,10 +165,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}
 
       {!loadingFacilities && !error && facilities.length === 0 && (
-        <p className="text-sm text-secondary">
-          No {plural} found within {radiusM}m
-          {effectiveOpenNow ? ' that we know to be open right now' : ''}.
-        </p>
+        <p className="text-sm text-secondary">{emptyResultNotice}</p>
       )}
     </div>
   )
