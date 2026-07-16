@@ -1,17 +1,24 @@
 package com.mermaid.facility;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.common.FixtureLoader;
+import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
 import com.mermaid.config.DataModeProperties;
 import com.mermaid.config.PublicApiProperties;
 import java.net.URI;
 import java.util.concurrent.atomic.AtomicReference;
-import org.springframework.cache.annotation.Cacheable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 class EmergencyRoomApiClientTest {
 
@@ -56,18 +63,19 @@ class EmergencyRoomApiClientTest {
     }
 
     @Test
-    @DisplayName("nearby origins share a 100-m list cache key")
-    void nearbyOriginsShareGridCacheKey() throws NoSuchMethodException {
-        Cacheable cacheable =
-                EmergencyRoomApiClient.class
-                        .getMethod("findNear", double.class, double.class)
-                        .getAnnotation(Cacheable.class);
+    @DisplayName("nearby origins share a 100-m list cache key without crossing data modes")
+    void nearbyOriginsShareGridCacheKeyWithoutCrossingDataModes() {
+        var fixture = clientFor(DataModeProperties.DataMode.FIXTURE, "");
+        var live = clientFor(DataModeProperties.DataMode.LIVE, "decoding-key");
 
-        assertThat(cacheable.key()).contains("cacheKeyFor");
-        assertThat(EmergencyRoomApiClient.cacheKeyFor(37.56631, 126.97791))
-                .isEqualTo(EmergencyRoomApiClient.cacheKeyFor(37.56634, 126.97794));
-        assertThat(EmergencyRoomApiClient.cacheKeyFor(37.56631, 126.97791))
-                .isNotEqualTo(EmergencyRoomApiClient.cacheKeyFor(37.56680, 126.97791));
+        assertThat(fixture.cacheKeyFor(37.56631, 126.97791))
+                .isEqualTo(fixture.cacheKeyFor(37.56634, 126.97794));
+        assertThat(fixture.cacheKeyFor(37.56631, 126.97791))
+                .isNotEqualTo(fixture.cacheKeyFor(37.56680, 126.97791));
+        // Removing mode/origin from the key makes this assertion red and would let a fixture
+        // response be served after a process switches to live mode against the same Redis.
+        assertThat(fixture.cacheKeyFor(37.56631, 126.97791))
+                .isNotEqualTo(live.cacheKeyFor(37.56631, 126.97791));
     }
 
     @Test
@@ -120,5 +128,76 @@ class EmergencyRoomApiClientTest {
         assertThat(fixtureClient().parse(response))
                 .extracting(EmergencyRoomApiClient.RawEmergencyRoom::hpid)
                 .containsExactly("valid");
+    }
+
+    @Test
+    @DisplayName("a live WebClient failure never preserves request values or the service-key cause")
+    void liveFailureDropsSecretCoordinatesAndCause() {
+        String secret = "never-log-this-emergency-key";
+        WebClient webClient =
+                WebClient.builder()
+                        .exchangeFunction(
+                                request ->
+                                        Mono.error(
+                                                new IllegalStateException(
+                                                        request.url()
+                                                                + " upstream failed "
+                                                                + secret
+                                                                + " at 37.5663,126.9779")))
+                        .build();
+        Logger logger = (Logger) LoggerFactory.getLogger(EmergencyRoomApiClient.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            assertThatThrownBy(
+                            () ->
+                                    clientFor(
+                                                    webClient,
+                                                    DataModeProperties.DataMode.LIVE,
+                                                    secret)
+                                            .findNear(37.5663, 126.9779))
+                    .isInstanceOf(PublicApiException.class)
+                    .hasMessage("Emergency-room lookup failed")
+                    .hasNoCause()
+                    .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
+            assertThat(appender.list).isEmpty();
+
+            EmergencyRoomApiClient.EmergencyRoomBatch fallback =
+                    clientFor(webClient, DataModeProperties.DataMode.HYBRID, secret)
+                            .findNear(37.5663, 126.9779);
+            assertThat(fallback.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .allSatisfy(
+                            message ->
+                                    assertThat(message)
+                                            .doesNotContain(secret, "serviceKey", "37.5663", "126.9779"));
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    private EmergencyRoomApiClient clientFor(
+            DataModeProperties.DataMode mode, String serviceKey) {
+        return clientFor(null, mode, serviceKey);
+    }
+
+    private EmergencyRoomApiClient clientFor(
+            WebClient webClient, DataModeProperties.DataMode mode, String serviceKey) {
+        return new EmergencyRoomApiClient(
+                webClient,
+                new PublicApiProperties(
+                        serviceKey,
+                        "https://x",
+                        "https://emergency.example",
+                        "https://x",
+                        "https://x",
+                        "https://x",
+                        "https://x",
+                        "https://x"),
+                new DataModeProperties(mode),
+                new FixtureLoader(new ObjectMapper()));
     }
 }
