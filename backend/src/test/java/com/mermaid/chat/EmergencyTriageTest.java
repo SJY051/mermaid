@@ -45,6 +45,8 @@ class EmergencyTriageTest {
             strings = {
                 "I am having an anaphylactic reaction.",
                 "My throat is suddenly swelling.",
+                "My throat suddenly started swelling.",
+                "My tongue suddenly began swelling.",
                 "I had an anaphylactic reaction five years ago.",
             })
     void escalatesApprovedAnaphylaxisAndAirwaySwelling(String text) {

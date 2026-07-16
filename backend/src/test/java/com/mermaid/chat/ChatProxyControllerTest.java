@@ -1160,6 +1160,7 @@ class ChatProxyControllerTest {
                 strings = {
                     "I am having an anaphylactic reaction.",
                     "My tongue is suddenly swelling.",
+                    "My throat suddenly started swelling.",
                     "I have sudden abdominal pain.",
                     "I have severe stomach pain.",
                 })
