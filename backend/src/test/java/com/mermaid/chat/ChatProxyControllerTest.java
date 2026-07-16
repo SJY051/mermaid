@@ -1298,6 +1298,25 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("a usable empty medicine result keeps the map and explains the empty card state")
+        void mixedTurnKeepsFacilityActionWhenMedicineResultIsEmpty() throws Exception {
+            ControllerHarness harness = harness(modelAnswer("[]", "[]"), emptyContext());
+
+            MermAidAnswer answer = answerOf(harness.controller().completions(request(
+                    "I have a mild fever, need medicine, and want the nearest pharmacy.")));
+
+            assertThat(harness.retrievalCalls()).hasValue(1);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.summary())
+                    .containsIgnoringCase("no official medicine record matched")
+                    .containsIgnoringCase("nearby care");
+            assertThat(answer.uiActions())
+                    .singleElement()
+                    .isInstanceOf(UiAction.OpenFacilityMap.class);
+            assertThat(answer.drugs()).isEmpty();
+        }
+
+        @Test
         @DisplayName("a public-data failure preserves the map action and logs no upstream message")
         void mixedTurnKeepsFacilityActionWhenPublicDataFails() throws Exception {
             String sensitiveMessage = "UPSTREAM_MESSAGE_SENTINEL lat=37.123456,lng=127.654321";

@@ -114,6 +114,30 @@ class ResponseAnswerComposerTest {
     }
 
     @Test
+    void facilitySurvivesAUsableEmptyOfficialMedicineResult() {
+        DrugContext empty = new DrugContext("", Map.of(), List.of());
+        when(medicineBuilder.build(empty)).thenReturn(Optional.empty());
+
+        MermAidAnswer answer = composer.compose(
+                plan(
+                        ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION,
+                        Set.of(
+                                ResponsePlan.Capability.FACILITY_LOOKUP,
+                                ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
+                                ResponsePlan.Capability.PROFESSIONAL_CONSULTATION),
+                        pharmacy(
+                                FacilityOperationPreference.ANY,
+                                ResponsePlan.FacilityAvailability.READY)),
+                new CapabilityResults(null, empty, Set.of()));
+
+        assertThat(answer.summary())
+                .containsIgnoringCase("no official medicine record matched")
+                .containsIgnoringCase("nearby care");
+        assertFacilityAction(answer, "pharmacy", FacilityOperationPreference.ANY);
+        assertThat(answer.drugs()).isEmpty();
+    }
+
+    @Test
     void missingLocationProducesHonestPromptInsteadOfFalseEmptyOrMapAction() {
         MermAidAnswer answer = composer.compose(
                 plan(
