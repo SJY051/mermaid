@@ -26,11 +26,18 @@ vi.stubGlobal(
  * no fabricated drugs) are part of what the screen shows.
  */
 const streamChatMock = vi.hoisted(() => vi.fn())
+const nearbyFacilitiesPropsMock = vi.hoisted(() => vi.fn())
 const fetchMock = vi.fn()
 vi.mock('../lib/openaiClient', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/openaiClient')>()
   return { ...actual, streamChat: streamChatMock }
 })
+vi.mock('./NearbyFacilities', () => ({
+  NearbyFacilities: (props: unknown) => {
+    nearbyFacilitiesPropsMock(props)
+    return <div data-testid="nearby-facilities-stub" />
+  },
+}))
 
 /** A generator the test resolves by hand, so the pending state can be observed. */
 function pendingStream() {
@@ -103,6 +110,7 @@ beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
   fetchMock.mockReset()
+  nearbyFacilitiesPropsMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
 })
 
@@ -230,6 +238,52 @@ describe('when the answer arrives', () => {
     release(JSON.stringify(emergency))
 
     expect(await screen.findByText('Call 119 now')).toBeInTheDocument()
+  })
+
+  it('preserves the legacy ER openNow payload until its type-aware safety upgrade', async () => {
+    const answer = JSON.parse(validAnswer)
+    answer.uiActions = [
+      {
+        type: 'OPEN_FACILITY_MAP',
+        payload: { types: ['emergency_room'], radiusM: 1000, openNow: true },
+      },
+    ]
+    streamChatMock.mockReturnValue(completedStream(JSON.stringify(answer)))
+    renderChat()
+
+    await ask('Where is the nearest ER?')
+
+    expect(await screen.findByTestId('nearby-facilities-stub')).toBeInTheDocument()
+    expect(nearbyFacilitiesPropsMock).toHaveBeenCalledWith({
+      types: ['emergency_room'],
+      radiusM: 1000,
+      openNow: true,
+    })
+  })
+
+  it('preserves an explicit server-owned facility operation preference', async () => {
+    const answer = JSON.parse(validAnswer)
+    answer.uiActions = [
+      {
+        type: 'OPEN_FACILITY_MAP',
+        payload: {
+          types: ['emergency_room'],
+          radiusM: 1000,
+          operationPreference: 'confirmed_open_only',
+        },
+      },
+    ]
+    streamChatMock.mockReturnValue(completedStream(JSON.stringify(answer)))
+    renderChat()
+
+    await ask('Show only ERs confirmed open.')
+
+    expect(await screen.findByTestId('nearby-facilities-stub')).toBeInTheDocument()
+    expect(nearbyFacilitiesPropsMock).toHaveBeenCalledWith({
+      types: ['emergency_room'],
+      radiusM: 1000,
+      operationPreference: 'confirmed_open_only',
+    })
   })
 
   it('resolves each drug provenance by sourceRefId and labels a fixture card in a mixed answer', async () => {
