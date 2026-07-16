@@ -153,4 +153,28 @@ describe('NearbyFacilities', () => {
       )
     })
   })
+
+  it('treats an emergency-room chat action as hours-unknown even when openNow is requested', async () => {
+    fetchFacilitiesMock.mockResolvedValue([])
+
+    render(
+      <NearbyFacilities types={['emergency_room']} radiusM={1000} openNow={true} />,
+    )
+
+    await waitFor(() => {
+      expect(fetchFacilitiesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'emergency_room', openNow: false }),
+        expect.any(AbortSignal),
+      )
+    })
+    expect(screen.getByTestId('stub-caption')).toHaveTextContent(
+      'emergency rooms within 1000m',
+    )
+    expect(screen.getByTestId('stub-caption')).not.toHaveTextContent('open now')
+    expect(
+      screen.getByText(
+        'Opening hours are not available for these official emergency-room records. Call before you go.',
+      ),
+    ).toBeInTheDocument()
+  })
 })

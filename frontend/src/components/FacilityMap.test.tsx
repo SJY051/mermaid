@@ -125,6 +125,33 @@ const facility = (over: Partial<Facility> = {}): Facility => ({
   ...over,
 })
 
+const emergencyRoomFixture = (): Facility =>
+  facility({
+    id: 'facility:nmc-emergency:A1100006',
+    type: 'emergency_room',
+    nameKo: '강북삼성병원',
+    addressKo: '서울특별시 종로구 새문안로 29 (평동)',
+    phone: '02-2001-2001',
+    latitude: 37.568497631233825,
+    longitude: 126.96793805451702,
+    distanceMeters: 911.2,
+    operation: {
+      isOpenNow: null,
+      status: 'unknown',
+      statusConfidence: 'unknown',
+      verifiedAt: '2026-07-16T00:00:00Z',
+      notice: 'Opening hours are not published for this place. Call to check.',
+    },
+    source: {
+      id: 'src:nmc-emergency:A1100006',
+      provider: '국립중앙의료원 응급의료기관 정보',
+      recordId: 'A1100006',
+      retrievedAt: '2026-07-16T00:00:00Z',
+      dataMode: 'fixture',
+      title: 'National Medical Center — emergency facility directory',
+    },
+  })
+
 const centre = { lat: 37.5663, lng: 126.9779 }
 
 beforeEach(() => {
@@ -303,6 +330,62 @@ describe('fixture provenance is visible wherever the shared map is used (spec §
 })
 
 describe('facility details (UI-03, DEV-207)', () => {
+  it('renders the emergency-room fixture across marker, legend, list, and detail safely', async () => {
+    const user = userEvent.setup()
+    installNaverStub()
+    const emergencyRoom = emergencyRoomFixture()
+    render(
+      <FavoritesProvider>
+        <FacilityMap center={centre} facilities={[emergencyRoom]} />
+      </FavoritesProvider>,
+    )
+
+    const map = screen.getByTestId('naver-map')
+    const pin = await waitFor(() => {
+      const button = map.querySelector<HTMLButtonElement>('button[data-facility-index="0"]')
+      expect(button).not.toBeNull()
+      return button!
+    })
+    expect(pin).toHaveAttribute('data-facility-kind', 'emergency_room')
+    expect(pin).toHaveAttribute('data-facility-status', 'unknown')
+    expect(pin.querySelector('[data-kind-icon="emergency_room"]')).not.toBeNull()
+    expect(pin).toHaveAccessibleName(
+      '강북삼성병원 Emergency room, Hours unknown, 911 metres from the map centre. Open details.',
+    )
+
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    expect(legend).toHaveTextContent('Emergency room')
+    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).not.toBeNull()
+    expect(legend).toHaveTextContent('Hours unknown')
+    expect(legend).not.toHaveTextContent('Open now')
+    expect(legend).not.toHaveTextContent('Closed')
+
+    const list = screen.getByTestId('facility-list')
+    expect(list).toHaveTextContent('Emergency room · Hours unknown · 911m from map centre')
+    expect(list).toHaveTextContent('서울특별시 종로구 새문안로 29 (평동)')
+    expect(list).toHaveTextContent('National Medical Center — emergency facility directory')
+    expect(within(list).getByText('Sample data')).toBeInTheDocument()
+    expect(within(list).getByRole('link', { name: '02-2001-2001' })).toHaveAttribute(
+      'href',
+      'tel:02-2001-2001',
+    )
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent('Sample data')
+
+    await user.click(within(list).getByRole('button', { name: /강북삼성병원/ }))
+    const drawer = screen.getByRole('dialog', { name: '강북삼성병원' })
+    expect(within(drawer).getByText('Emergency room')).toBeInTheDocument()
+    expect(within(drawer).getByText('Hours unknown')).toBeInTheDocument()
+    expect(within(drawer).getByText('서울특별시 종로구 새문안로 29 (평동)')).toBeInTheDocument()
+    expect(within(drawer).getByRole('link', { name: 'Call 02-2001-2001' })).toHaveAttribute(
+      'href',
+      'tel:02-2001-2001',
+    )
+    expect(within(drawer).getByTestId('facility-source')).toHaveTextContent(
+      'National Medical Center — emergency facility directory',
+    )
+    expect(within(drawer).getByText('Sample data')).toBeInTheDocument()
+  })
+
   it('opens the detail drawer when a facility in the accessible list is selected', async () => {
     const user = userEvent.setup()
     installNaverStub()
@@ -500,6 +583,23 @@ describe('manual location selection', () => {
 })
 
 describe('map pins use shape for kind and a non-colour glyph for status', () => {
+  it('keeps an empty emergency-room mode legend free of open and closed claims', () => {
+    installNaverStub()
+    render(
+      <FacilityMap
+        center={centre}
+        facilities={[]}
+        facilityType="emergency_room"
+      />,
+    )
+
+    const legend = screen.getByRole('group', { name: 'Map marker legend' })
+    expect(legend).toHaveTextContent('Emergency room')
+    expect(legend).toHaveTextContent('Hours unknown')
+    expect(legend).not.toHaveTextContent('Open now')
+    expect(legend).not.toHaveTextContent('Closed')
+  })
+
   it('renders only displayed supported facility types in its persistent legend', async () => {
     const { markers } = installNaverStub()
     const hospital = facility({
@@ -514,9 +614,10 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
         notice: '',
       },
     })
-    render(<FacilityMap center={centre} facilities={[facility(), hospital]} />)
+    const emergencyRoom = emergencyRoomFixture()
+    render(<FacilityMap center={centre} facilities={[facility(), hospital, emergencyRoom]} />)
 
-    await waitFor(() => expect(markers).toHaveLength(2))
+    await waitFor(() => expect(markers).toHaveLength(3))
     const map = screen.getByTestId('naver-map')
     expect(
       map.querySelector('[data-facility-kind="pharmacy"][data-facility-status="open"] [data-status-glyph="open"]'),
@@ -527,10 +628,10 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
     const legend = screen.getByRole('group', { name: 'Map marker legend' })
     expect(legend).toHaveTextContent('Pharmacy')
     expect(legend).toHaveTextContent('Hospital')
+    expect(legend).toHaveTextContent('Emergency room')
     expect(legend.querySelector('[data-legend-kind="pharmacy"]')).not.toBeNull()
     expect(legend.querySelector('[data-legend-kind="hospital"]')).not.toBeNull()
-    expect(legend).not.toHaveTextContent('Emergency room')
-    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).toBeNull()
+    expect(legend.querySelector('[data-legend-kind="emergency_room"]')).not.toBeNull()
     expect(legend).toHaveTextContent('Open now')
     expect(legend).toHaveTextContent('Hours unknown')
     expect(legend).toHaveTextContent('Closed')

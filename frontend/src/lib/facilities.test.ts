@@ -43,6 +43,21 @@ describe('fetchFacilities builds the request the backend actually documents', ()
     expect(url.searchParams.get('open_now')).toBe('false')
   })
 
+  it('forces emergency-room requests to open_now=false even when a caller asks for true', async () => {
+    const spy = mockFetch({})
+    await fetchFacilities({
+      lat: 37.5,
+      lng: 127.02,
+      radiusM: 1000,
+      openNow: true,
+      type: 'emergency_room',
+    })
+
+    const url = requestedUrl(spy)
+    expect(url.searchParams.get('type')).toBe('emergency_room')
+    expect(url.searchParams.get('open_now')).toBe('false')
+  })
+
   it('passes the abort signal through', async () => {
     const spy = mockFetch({})
     const controller = new AbortController()

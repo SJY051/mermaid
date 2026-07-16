@@ -1,13 +1,15 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
-import { ChevronRight, Cross, Crosshair, Pill, Search } from 'lucide-react'
+import { ChevronRight, Cross, Crosshair, HeartPulse, Phone, Pill, Search } from 'lucide-react'
 import { useNaverMap } from '../hooks/useNaverMap'
-import type { Facility, GeocodeResult } from '../lib/types'
+import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 import { DetailDrawer } from './DetailDrawer'
 
 export interface FacilityMapProps {
   center: { lat: number; lng: number }
   zoom?: number
   facilities?: Facility[]
+  /** Requested mode, including when loading, failed, or empty results contain no type evidence. */
+  facilityType?: FacilityType
   /** Related facilities rendered outside the map also carry fixture provenance. */
   additionalFixtureData?: boolean
   /** Rendered above the map. The assistant's own words about why it opened. */
@@ -27,6 +29,7 @@ export interface FacilityMapProps {
 
 /** `null` means "we could not tell", and it must never be drawn as "Closed" (spec §2-13). */
 function openLabel(facility: Facility): string {
+  if (facility.type === 'emergency_room') return 'Hours unknown'
   if (facility.operation.isOpenNow === true) return 'Open now'
   if (facility.operation.isOpenNow === false) return 'Closed'
   return 'Hours unknown'
@@ -39,12 +42,14 @@ function facilityTypeLabel(facility: Facility): string {
 }
 
 function operationGlyph(facility: Facility): string {
+  if (facility.type === 'emergency_room') return '?'
   if (facility.operation.isOpenNow === true) return '✓'
   if (facility.operation.isOpenNow === false) return '×'
   return '?'
 }
 
 function operationStatus(facility: Facility): 'open' | 'closed' | 'unknown' {
+  if (facility.type === 'emergency_room') return 'unknown'
   if (facility.operation.isOpenNow === true) return 'open'
   if (facility.operation.isOpenNow === false) return 'closed'
   return 'unknown'
@@ -65,6 +70,13 @@ interface MarkerTokens {
 }
 
 function markerTokens(facility: Facility): MarkerTokens {
+  if (facility.type === 'emergency_room') {
+    return {
+      fill: 'var(--color-yellow-subtle)',
+      ring: 'var(--color-yellow-ring)',
+      glyph: 'var(--color-yellow-vivid)',
+    }
+  }
   if (facility.operation.isOpenNow === true) {
     return {
       fill: 'var(--color-green-subtle)',
@@ -182,6 +194,7 @@ export function FacilityMap({
   center,
   zoom = 15,
   facilities = [],
+  facilityType,
   additionalFixtureData = false,
   caption,
   notice,
@@ -268,6 +281,9 @@ export function FacilityMap({
   }, [map, ready, facilities, markerIdPrefix])
 
   const displayedFacilityTypes = new Set(facilities.map((facility) => facility.type))
+  const onlyEmergencyRooms =
+    facilities.length > 0 && facilities.every((facility) => facility.type === 'emergency_room')
+  const emergencyRoomMode = facilityType === 'emergency_room' || onlyEmergencyRooms
 
   async function searchAddress(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -327,18 +343,34 @@ export function FacilityMap({
             Hospital
           </span>
         )}
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-green-ring bg-green-subtle text-[11px] font-bold text-green-vivid">✓</span>
-          Open now
-        </span>
+        {(displayedFacilityTypes.has('emergency_room') || emergencyRoomMode) && (
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              data-legend-kind="emergency_room"
+              aria-hidden="true"
+              className="grid h-4 w-4 rotate-45 place-items-center rounded-[3px] border border-yellow-ring bg-yellow-subtle text-yellow-vivid"
+            >
+              <HeartPulse className="-rotate-45" size={12} />
+            </span>
+            Emergency room
+          </span>
+        )}
+        {!emergencyRoomMode && (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-green-ring bg-green-subtle text-[11px] font-bold text-green-vivid">✓</span>
+            Open now
+          </span>
+        )}
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-yellow-ring bg-yellow-subtle text-[11px] font-bold text-yellow-vivid">?</span>
           Hours unknown
         </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-strong bg-muted text-[11px] font-bold text-primary">×</span>
-          Closed
-        </span>
+        {!emergencyRoomMode && (
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full border border-strong bg-muted text-[11px] font-bold text-primary">×</span>
+            Closed
+          </span>
+        )}
       </div>
 
       {manualLocation && (
@@ -483,29 +515,78 @@ export function FacilityMap({
 
       {facilities.length > 0 && (
         <ul data-testid="facility-list" className="space-y-1 text-sm">
-          {facilities.map((facility) => (
-            <li key={facility.id}>
-              <button
-                type="button"
-                className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-primary hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
-                onClick={() => setSelectedFacility(facility)}
-              >
-                <span className="max-w-[35%] shrink-0 truncate text-primary" lang="ko">
-                  {facility.nameKo}
-                </span>
-                <span className="flex min-w-0 flex-1 items-center justify-end gap-1 text-right">
-                  <span aria-hidden="true" className="shrink-0 font-bold">
-                    {operationGlyph(facility)}
+          {facilities.map((facility) => {
+            if (facility.type === 'emergency_room') {
+              const address = facility.addressEn ?? facility.addressKo
+              return (
+                <li key={facility.id} className="rounded-lg border border-primary p-2">
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-start justify-between gap-3 rounded-lg p-1 text-left text-primary hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
+                    onClick={() => setSelectedFacility(facility)}
+                  >
+                    <span className="min-w-0 space-y-1">
+                      <span className="block truncate font-medium text-primary" lang="ko">
+                        {facility.nameKo}
+                      </span>
+                      <span className="block text-xs text-primary">
+                        {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
+                        {distanceLabel(facility)}
+                      </span>
+                      <span className="block text-xs text-secondary" lang={facility.addressEn ? 'en' : 'ko'}>
+                        {address ?? 'Address unavailable'}
+                      </span>
+                      <span className="block text-xs text-secondary">
+                        {facility.source.title}
+                        {facility.source.dataMode === 'fixture' && (
+                          <>
+                            <span> · </span>
+                            <span className="font-medium text-primary">Sample data</span>
+                          </>
+                        )}
+                      </span>
+                    </span>
+                    <ChevronRight aria-hidden="true" className="mt-1 shrink-0" size={16} />
+                  </button>
+                  {facility.phone ? (
+                    <a
+                      href={`tel:${facility.phone}`}
+                      className="mt-1 inline-flex min-h-11 items-center gap-1 px-1 text-sm text-primary underline"
+                    >
+                      <Phone aria-hidden="true" size={14} />
+                      {facility.phone}
+                    </a>
+                  ) : (
+                    <p className="mt-1 px-1 text-xs text-secondary">Phone unavailable</p>
+                  )}
+                </li>
+              )
+            }
+
+            return (
+              <li key={facility.id}>
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg px-2 text-left text-primary hover:bg-muted focus-visible:outline-2 focus-visible:outline-offset-2"
+                  onClick={() => setSelectedFacility(facility)}
+                >
+                  <span className="max-w-[35%] shrink-0 truncate text-primary" lang="ko">
+                    {facility.nameKo}
                   </span>
-                  <span className="min-w-0">
-                    {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
-                    {distanceLabel(facility)}
+                  <span className="flex min-w-0 flex-1 items-center justify-end gap-1 text-right">
+                    <span aria-hidden="true" className="shrink-0 font-bold">
+                      {operationGlyph(facility)}
+                    </span>
+                    <span className="min-w-0">
+                      {facilityTypeLabel(facility)} · {openLabel(facility)} ·{' '}
+                      {distanceLabel(facility)}
+                    </span>
+                    <ChevronRight aria-hidden="true" className="shrink-0" size={16} />
                   </span>
-                  <ChevronRight aria-hidden="true" className="shrink-0" size={16} />
-                </span>
-              </button>
-            </li>
-          ))}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
 

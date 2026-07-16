@@ -9,6 +9,9 @@ export interface FacilityQuery {
   type?: FacilityType
 }
 
+export const EMERGENCY_ROOM_HOURS_NOTICE =
+  'Opening hours are not available for these official emergency-room records. Call before you go.'
+
 /**
  * `GET /api/v1/facilities`.
  *
@@ -22,11 +25,15 @@ export async function fetchFacilities(
   { lat, lng, radiusM = 1000, openNow = false, type = 'pharmacy' }: FacilityQuery,
   signal?: AbortSignal,
 ): Promise<Facility[]> {
+  // NMC's emergency-room endpoint is a location directory, not live availability data. Even if a
+  // chat action asks for open-only results, sending `true` would turn every unknown-hours record
+  // into a misleading empty result.
+  const effectiveOpenNow = type === 'emergency_room' ? false : openNow
   const params = new URLSearchParams({
     lat: String(lat),
     lng: String(lng),
     radius_m: String(radiusM),
-    open_now: String(openNow),
+    open_now: String(effectiveOpenNow),
     type,
   })
 
