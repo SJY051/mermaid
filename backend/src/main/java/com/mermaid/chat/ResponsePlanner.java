@@ -2,11 +2,14 @@ package com.mermaid.chat;
 
 import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.facility.domain.FacilityOperationPreference;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -16,75 +19,78 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 final class ResponsePlanner {
 
-    private static final Pattern PHARMACY =
-            Pattern.compile("\\b(?:pharmac(?:y|ies)|drugstores?)\\b");
-    private static final Pattern HOSPITAL = Pattern.compile("\\bhospitals?\\b");
     private static final Pattern EMERGENCY_ROOM =
             Pattern.compile("\\b(?:ers?|emergency rooms?|emergency departments?)\\b");
     private static final Pattern HOSPITAL_EMERGENCY_ROOM = Pattern.compile(
-            "\\bhospitals?\\s+(?:ers?|emergency rooms?|emergency departments?)\\b");
-    private static final Pattern HOSPITAL_LANDMARK = Pattern.compile(
-            "\\b(?:near|beside|by|around|next to|close to)\\s+(?:the|a|an)\\s+hospitals?\\b");
+            "\\bhospitals?(?:['’]s)?\\s+(?:ers?|emergency rooms?|emergency departments?)\\b");
+    private static final String ER_TARGET_TOKEN = "emergencyroomtarget";
+    private static final Pattern FACILITY_MENTION = Pattern.compile(
+            "\\b(?:pharmac(?:y|ies)|drugstores?|hospitals?|" + ER_TARGET_TOKEN + ")\\b");
+    private static final Pattern LOCATION_ANCHOR = Pattern.compile(
+            "\\b(?:find|locate|show(?: me)?|where (?:is|are)|look for)\\b");
+    private static final Pattern LANDMARK_RELATION = Pattern.compile(
+            "\\b(?:near|beside|by|around|at|in|inside|next to|close to|across from)\\b");
     private static final Pattern LOCATION_SIGNAL = Pattern.compile(
             "\\b(?:closest|directions?|find|locate|map|nearest|nearby|where)\\b"
                     + "|\\blook\\s+for\\b|\\b(?:near|around)\\s+(?:me|my current location)\\b");
     private static final Pattern OPEN_SIGNAL = Pattern.compile(
-            "\\bopen(?:ed)?\\b(?:\\s+\\w+){0,2}\\s+\\b(?:now|currently|today|tonight)\\b"
-                    + "|\\b(?:currently|still)\\s+open\\b|\\bopen\\s+at\\s+the\\s+moment\\b"
+            "\\bopen(?:ed)?\\b(?:\\s+\\w+){0,3}\\s+\\b(?:now|currently|today|tonight|moment|minute)\\b"
+                    + "|\\b(?:now|currently|today|tonight|moment|minute)\\b"
+                    + "(?:\\s+\\w+){0,3}\\s+\\bopen(?:ed)?\\b"
+                    + "|\\b(?:currently|still)\\s+open(?:ed)?\\b"
                     + "|\\b24[ -]?hours?\\b|\\b24\\s*/\\s*7\\b");
     private static final Pattern NON_FACILITY_INTENT = Pattern.compile(
             "\\b(?:allerg(?:y|ic|ies)|cold|cough|dose|fever|headache|interaction|medicine|"
                     + "medication|pain|sick|sore throat|symptoms?|tablet|treatment)\\b");
-    private static final String CARE_SUBJECT =
-            "(?:i|my (?:child|baby|son|daughter|mother|father|parent|partner|friend)"
-                    + "|our (?:child|baby|son|daughter|parent)|the patient|he|she|they)";
+    private static final String CARE_SUBJECT = "(?:i|we|you|he|she|they|someone|this person"
+            + "|(?:my|our|their|his|her) "
+            + "(?:child|baby|son|daughter|mother|father|parent|partner|friend)"
+            + "|(?:the|a) patient)";
     private static final Pattern CARE_DECISION = Pattern.compile(
-            "\\b(?:should i|do i need to)\\s+(?:go|visit)\\b"
-                    + "|\\b(?:whether|if) " + CARE_SUBJECT + " should\\s+(?:go|visit)\\b"
+            "\\bshould\\s+" + CARE_SUBJECT + "\\s+(?:go|visit)\\b"
+                    + "|\\b" + CARE_SUBJECT
+                    + "\\s+(?:should|needs?\\s+to|must|has\\s+to)\\s+(?:go|visit)\\b"
+                    + "|\\b(?:do|does)\\s+" + CARE_SUBJECT
+                    + "\\s+need\\s+to\\s+(?:go|visit)\\b"
                     + "|\\bsigns? (?:that )?i need\\b.*\\b(?:hospital|ers?|emergency rooms?)\\b");
 
     private static final Pattern NEUTRAL_LEGAL_INFORMATION = Pattern.compile(
             "\\b(?:prescribed legally|legal(?:ly)? prescribed|medical narcotic)\\b"
                     + ".*\\b(?:korea|korean law|law)\\b"
                     + "|\\b(?:korea|korean law|law)\\b.*\\b(?:prescribed legally|medical narcotic)\\b");
-    private static final String OPERATIONAL_REQUEST =
-            "(?:how (?:can|do) i|where can i|tell me how(?: to)?|help me(?: to)?"
-                    + "|give me (?:step-by-step )?(?:instructions|steps)(?: (?:on|for))?"
-                    + "|what is the best way(?: to)?)";
-    private static final String LAUNCH_CONTROLLED_SUBJECT =
-            "(?:fentanyl(?!\\s+(?:test\\s+strips?|testing\\s+kits?)\\b)"
-                    + "|controlled drug|medical narcotic|narcotic|illicit drug)";
     private static final Pattern QUOTED_SPAN = Pattern.compile(
             "\\\"(?:[^\\\"\\\\]|\\\\.)*\\\""
                     + "|(?<![\\p{L}\\p{N}])'(?:[^'\\\\]|\\\\.)*'(?![\\p{L}\\p{N}])"
-                    + "|“[^”]*”|‘[^’]*’");
-    private static final Pattern BLACK_MARKET = Pattern.compile(
-            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*\\b"
-                    + LAUNCH_CONTROLLED_SUBJECT + "\\b.*\\bblack market\\b"
-                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*"
-                    + "\\bblack market\\b.*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b");
-    private static final Pattern WITHOUT_PRESCRIPTION = Pattern.compile(
-            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*\\b"
-                    + LAUNCH_CONTROLLED_SUBJECT + "\\b.*\\bwithout (?:a )?prescription\\b"
-                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*"
-                    + "\\bwithout (?:a )?prescription\\b.*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b");
-    private static final Pattern FORGED_OR_STOLEN_PRESCRIPTION = Pattern.compile(
-            "\\b" + OPERATIONAL_REQUEST
-                    + "\\s+(?:successfully )?(?:forge|steal|create a fake)\\b.*\\bprescription\\b");
-    private static final Pattern UNLICENSED_MANUFACTURE = Pattern.compile(
-            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:make|manufacture|grow|cultivate)\\b"
-                    + ".*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b"
-                    + ".*\\b(?:at home|without (?:being )?caught|evad(?:e|ing)|conceal(?:ing)?)\\b");
+                    + "|`[^`]*`|“[^”]*”|‘[^’]*’");
+    private static final Pattern NON_DRUG_CONTROLLED_CONTEXT = Pattern.compile(
+            "\\bfentanyl(?:[-\\s]+test(?:[-\\s]+(?:strips?|kits?))?"
+                    + "|[-\\s]+testing[-\\s]+kits?)\\b"
+                    + "|\\b(?:books?|articles?|reports?|documentaries)\\s+(?:about|on)\\s+fentanyl\\b");
+    private static final Pattern OPERATIONAL_GUIDANCE = Pattern.compile(
+            "\\b(?:how\\s+(?:can|could|do|would)|where\\s+can"
+                    + "|(?:explain|tell me|show me)\\s+how|instructions?"
+                    + "|step-by-step|steps?\\s+(?:for|to)|best\\s+way|help\\s+me)\\b");
+    private static final Pattern CONTROLLED_SUBJECT = Pattern.compile(
+            "\\b(?:fentanyl|controlled\\s+drugs?|medical\\s+narcotics?|narcotics?|illicit\\s+drugs?)\\b");
+    private static final Pattern ACQUISITION_ACTION =
+            Pattern.compile("\\b(?:buy(?:ing)?|sell(?:ing)?|obtain(?:ing)?|get(?:ting)?)\\b");
+    private static final Pattern BLACK_MARKET = Pattern.compile("\\bblack\\s+market\\b");
+    private static final Pattern WITHOUT_PRESCRIPTION =
+            Pattern.compile("\\bwithout\\s+(?:a\\s+)?prescription\\b");
+    private static final Pattern DIRECT_PRESCRIPTION_FORGERY = Pattern.compile(
+            "\\b(?:forge|forging|steal|stealing)\\b.*\\bprescriptions?\\b");
+    private static final Pattern CREATE_FAKE_PRESCRIPTION = Pattern.compile(
+            "\\b(?:create|creating|make|making)\\b.*\\b(?:fake|forged)\\s+prescriptions?\\b");
+    private static final Pattern MANUFACTURE_ACTION =
+            Pattern.compile("\\b(?:make|making|manufacture|manufacturing|grow|growing|cultivate|cultivating)\\b");
+    private static final Pattern MANUFACTURE_EVASION = Pattern.compile(
+            "\\b(?:at\\s+home|without\\s+(?:being\\s+)?caught|evad(?:e|ing)|conceal(?:ing)?)\\b");
+    private static final Pattern MULTIPLE_PRESCRIBERS = Pattern.compile(
+            "\\b(?:multiple|several)\\s+(?:doctors?|clinicians?)\\b"
+                    + "|\\bprescriptions?\\s+from\\s+(?:multiple|several)\\s+(?:doctors?|clinicians?)\\b");
+    private static final Pattern MONITORING = Pattern.compile("\\bmonitoring\\b");
     private static final Pattern MONITORING_EVASION = Pattern.compile(
-            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:bypass|evade|avoid)\\b"
-                    + ".*\\b(?:prescription\\s+)?monitoring\\b"
-                    + ".*\\b(?:multiple|several)\\s+(?:doctors?|clinicians?)\\b"
-                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:multiple|several)\\s+"
-                    + "(?:doctors?|clinicians?)\\b.*\\b(?:prescription\\s+)?monitoring\\b"
-                    + ".*\\b(?:bypass|evade|avoid)\\b"
-                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:multiple|several)\\s+"
-                    + "(?:doctors?|clinicians?)\\b.*\\bprescrib(?:e|ing)\\b"
-                    + ".*\\bmonitoring\\b.*\\b(?:notic(?:e|ing)|bypass|evad(?:e|ing))\\b");
+            "\\b(?:bypass|evade|avoid|without|unnoticed|notic(?:e|ing)|conceal|hide)\\b");
     private static final Pattern LICENSED_CARE = Pattern.compile(
             "\\b(?:discuss|ask|talk)\\b.*\\b(?:licensed )?(?:doctor|clinician|pharmacist)\\b");
 
@@ -100,7 +106,7 @@ final class ResponsePlanner {
         }
 
         String normalized = input.latestUserTurn().toLowerCase(Locale.ROOT);
-        if (isExplicitControlEvasion(maskQuotedSpans(normalized))) {
+        if (isExplicitControlEvasion(normalized)) {
             return new ResponsePlan(
                     ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE,
                     Set.of(ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL),
@@ -272,20 +278,22 @@ final class ResponsePlanner {
         if (CARE_DECISION.matcher(normalized).find()) {
             return null;
         }
+
+        String targetText = normalized.substring(lastLocationAnchorEnd(normalized));
+        List<FacilityMention> mentions = facilityMentions(targetText);
         EnumSet<FacilityType> types = EnumSet.noneOf(FacilityType.class);
-        if (PHARMACY.matcher(normalized).find()) {
-            types.add(FacilityType.PHARMACY);
-        }
-        boolean emergencyRoom = EMERGENCY_ROOM.matcher(normalized).find();
-        if (emergencyRoom) {
-            types.add(FacilityType.EMERGENCY_ROOM);
-        }
-        String hospitalTargetText = HOSPITAL_EMERGENCY_ROOM.matcher(normalized).replaceAll(" ");
-        if (types.contains(FacilityType.PHARMACY)) {
-            hospitalTargetText = HOSPITAL_LANDMARK.matcher(hospitalTargetText).replaceAll(" ");
-        }
-        if (HOSPITAL.matcher(hospitalTargetText).find()) {
-            types.add(FacilityType.HOSPITAL);
+        if (!mentions.isEmpty()) {
+            types.add(mentions.getFirst().type());
+            for (int index = 1; index < mentions.size(); index++) {
+                FacilityMention previous = mentions.get(index - 1);
+                FacilityMention current = mentions.get(index);
+                String between = current.start() <= previous.end()
+                        ? ""
+                        : current.normalizedText().substring(previous.end(), current.start());
+                if (!LANDMARK_RELATION.matcher(between).find()) {
+                    types.add(current.type());
+                }
+            }
         }
         boolean openNow = OPEN_SIGNAL.matcher(normalized).find();
         if (types.size() != 1 || (!LOCATION_SIGNAL.matcher(normalized).find() && !openNow)) {
@@ -309,16 +317,71 @@ final class ResponsePlanner {
     }
 
     private static boolean isExplicitControlEvasion(String normalized) {
-        return BLACK_MARKET.matcher(normalized).find()
-                || WITHOUT_PRESCRIPTION.matcher(normalized).find()
-                || FORGED_OR_STOLEN_PRESCRIPTION.matcher(normalized).find()
-                || UNLICENSED_MANUFACTURE.matcher(normalized).find()
-                || MONITORING_EVASION.matcher(normalized).find();
+        String policyText = NON_DRUG_CONTROLLED_CONTEXT
+                .matcher(maskQuotedSpans(normalized))
+                .replaceAll(" ");
+        if (!OPERATIONAL_GUIDANCE.matcher(policyText).find()) {
+            return false;
+        }
+
+        boolean acquisitionEvasion = ACQUISITION_ACTION.matcher(policyText).find()
+                && CONTROLLED_SUBJECT.matcher(policyText).find()
+                && (BLACK_MARKET.matcher(policyText).find()
+                        || WITHOUT_PRESCRIPTION.matcher(policyText).find());
+        boolean prescriptionForgery = DIRECT_PRESCRIPTION_FORGERY.matcher(policyText).find()
+                || CREATE_FAKE_PRESCRIPTION.matcher(policyText).find();
+        boolean unlicensedManufacture = MANUFACTURE_ACTION.matcher(policyText).find()
+                && CONTROLLED_SUBJECT.matcher(policyText).find()
+                && MANUFACTURE_EVASION.matcher(policyText).find();
+        boolean monitoringEvasion = MULTIPLE_PRESCRIBERS.matcher(policyText).find()
+                && MONITORING.matcher(policyText).find()
+                && MONITORING_EVASION.matcher(policyText).find();
+        return acquisitionEvasion
+                || prescriptionForgery
+                || unlicensedManufacture
+                || monitoringEvasion;
     }
 
     private static String maskQuotedSpans(String normalized) {
         return QUOTED_SPAN.matcher(normalized).replaceAll(" ");
     }
+
+    private static int lastLocationAnchorEnd(String normalized) {
+        Matcher matcher = LOCATION_ANCHOR.matcher(normalized);
+        int end = 0;
+        while (matcher.find()) {
+            end = matcher.end();
+        }
+        return end;
+    }
+
+    private static List<FacilityMention> facilityMentions(String text) {
+        String normalizedText = HOSPITAL_EMERGENCY_ROOM
+                .matcher(text)
+                .replaceAll(" " + ER_TARGET_TOKEN + " ");
+        normalizedText = EMERGENCY_ROOM
+                .matcher(normalizedText)
+                .replaceAll(" " + ER_TARGET_TOKEN + " ");
+
+        List<FacilityMention> mentions = new ArrayList<>();
+        Matcher matcher = FACILITY_MENTION.matcher(normalizedText);
+        while (matcher.find()) {
+            String value = matcher.group();
+            FacilityType type;
+            if (value.equals(ER_TARGET_TOKEN)) {
+                type = FacilityType.EMERGENCY_ROOM;
+            } else if (value.startsWith("pharmac") || value.startsWith("drugstore")) {
+                type = FacilityType.PHARMACY;
+            } else {
+                type = FacilityType.HOSPITAL;
+            }
+            mentions.add(new FacilityMention(type, matcher.start(), matcher.end(), normalizedText));
+        }
+        return List.copyOf(mentions);
+    }
+
+    private record FacilityMention(
+            FacilityType type, int start, int end, String normalizedText) {}
 
     private static ResponsePlan emergencyPlan(String reasonCode) {
         return new ResponsePlan(
