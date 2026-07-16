@@ -188,6 +188,32 @@ class ResponsePlannerTest {
         assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+        "What does Korean law say about legally prescribed medical narcotics?",
+        "Under Korean law, are medical narcotics legally prescribed?"
+    })
+    void neutralLegalParaphrasesNavigateToOfficialSourcesWithoutModelAdvice(String input) {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner t5OnlyPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, true));
+
+        ResponsePlan actual = t5OnlyPlanner.plan(
+                new PlanningInput(input, input, FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode())
+                .isEqualTo(ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION);
+        assertThat(actual.reasonCodes())
+                .containsExactly(ResponsePlan.ReasonCode.NEUTRAL_LEGAL_INFORMATION);
+    }
+
     @Test
     void disabledT5PolicyFallsBackWithoutCallingADisabledAdviser() {
         AtomicInteger adviceCalls = new AtomicInteger();
