@@ -29,12 +29,28 @@ public class EmergencyTriage {
     /**
      * Red flags, in English, matched case-insensitively against the user's own words.
      *
-     * <p>TODO(team, DEV-405): PM/UX and a second developer must review this list before the demo.
-     * Add: severe allergic reaction, anaphylaxis, seizure, poisoning/overdose, head injury with
-     * vomiting. Keep each pattern narrow enough to explain to a user why it fired.
+     * <p>The anaphylaxis, sudden airway-swelling, and sudden/severe abdominal-pain boundaries are
+     * product-approved high-sensitivity rules (SJY051, 2026-07-16). They deliberately do not infer
+     * tense or negation. Other candidate groups still require a separate decision before addition.
      */
     private static final List<RedFlag> RED_FLAGS =
             List.of(
+                    new RedFlag("ANAPHYLAXIS", "(?i)\\b(anaphylaxis|anaphylactic( reaction)?)\\b"),
+                    new RedFlag(
+                            "AIRWAY_SWELLING",
+                            "(?i)(\\bsudden(ly)? swelling (of )?(my |the |his |her |their |our |your )?"
+                                    + "(lip|lips|mouth|throat|tongue)\\b"
+                                    + "|\\bsudden(ly)? (my |the |his |her |their |our |your )?"
+                                    + "(lip|lips|mouth|throat|tongue) swelling\\b"
+                                    + "|\\b(my |the |his |her |their |our |your )?"
+                                    + "(lip|lips|mouth|throat|tongue) (is |are |started |began )?"
+                                    + "sudden(ly)? (swelling|swollen)\\b"
+                                    + "|\\b(my |the |his |her |their |our |your )?"
+                                    + "(lip|lips|mouth|throat|tongue) sudden(ly)? "
+                                    + "(started|began) swelling\\b)"),
+                    new RedFlag(
+                            "ABDOMINAL_PAIN",
+                            "(?i)\\b(sudden|severe) (abdominal|stomach) pain\\b"),
                     new RedFlag("CHEST_PAIN", "(?i)\\b(chest (pain|pressure|tightness)|crushing chest)\\b"),
                     new RedFlag(
                             "BREATHING",
