@@ -18,9 +18,11 @@ import com.mermaid.facility.domain.DutyTable;
 import java.net.URI;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,6 +32,18 @@ import reactor.core.publisher.Mono;
 
 /** Tests for DEV-202's HIRA-first pharmacy directory and provider-specific hours. */
 class PharmacyApiClientTest {
+
+    @Test
+    @DisplayName("pharmacy detail uses a new cache namespace for the retrievedAt record schema")
+    void basisDetailUsesRetrievedAtCacheNamespace() throws NoSuchMethodException {
+        Cacheable cacheable =
+                PharmacyApiClient.class
+                        .getMethod("basisDetail", String.class)
+                        .getAnnotation(Cacheable.class);
+
+        // Reverting to the v1 name makes old two-field Redis JSON deserialize with retrievedAt=null.
+        assertThat(cacheable.value()).containsExactly("pharmacyBasisDetail.v2");
+    }
 
     @Test
     @DisplayName("normalizes the HIRA radius response into the existing pharmacy row contract")
@@ -399,8 +413,12 @@ class PharmacyApiClientTest {
                     .hasNoCause()
                     .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
             assertThat(appender.list)
-                    .extracting(ILoggingEvent::getFormattedMessage)
-                    .allSatisfy(message -> assertThat(message).doesNotContain(secret, "ServiceKey"));
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(secret, "ServiceKey");
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
             appender.list.clear();
 
             assertThatThrownBy(() -> client.findNearForOpenNow(37.5663, 126.9779, 1000))
@@ -409,10 +427,15 @@ class PharmacyApiClientTest {
                     .hasNoCause()
                     .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
             assertThat(appender.list)
-                    .extracting(ILoggingEvent::getFormattedMessage)
-                    .allSatisfy(message -> assertThat(message).doesNotContain(secret, "serviceKey"));
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(secret, "serviceKey");
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
         } finally {
             logger.detachAppender(appender);
+            appender.stop();
         }
     }
 
@@ -519,6 +542,71 @@ class PharmacyApiClientTest {
     }
 
     @Test
+    @DisplayName("the public detail route spends quota before its upstream basis request (issue #95)")
+    void basisDetailDoesNotReachNmcAfterItsReservedBudgetIsSpent() {
+        var props =
+                new PublicApiProperties(
+                        "configured-key", "https://nmc.example", "https://x", "https://x", "https://x",
+                        "https://x", "https://x");
+        var loader = new FixtureLoader(new ObjectMapper());
+        var upstreamCalls = new AtomicInteger();
+        NmcCallQuota oneDetailCall = kind -> kind != NmcCallKind.DETAIL || upstreamCalls.get() == 0;
+        PharmacyApiClient client =
+                new PharmacyApiClient(
+                        null,
+                        props,
+                        new DataModeProperties(DataModeProperties.DataMode.LIVE),
+                        loader,
+                        oneDetailCall) {
+                    @Override
+                    protected JsonNode fetchBasis(String hpid) {
+                        upstreamCalls.incrementAndGet();
+                        return loader.load("pharmacy_basis.json");
+                    }
+                };
+
+        assertThat(client.basisDetail("C1110693").detail()).isNotNull();
+        assertThatThrownBy(() -> client.basisDetail("C2222222"))
+                .isInstanceOf(PublicApiException.class)
+                .hasMessage("Pharmacy detail lookup failed for C2222222");
+
+        // Removing acquireNmcCall(DETAIL, ...) makes the second request reach fetchBasis and turns
+        // this red. It protects the real public detail route, not a standalone limiter object.
+        assertThat(upstreamCalls).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("every live NMC path asks the shared quota before its upstream request (issue #95)")
+    void directoryAndSchedulePathsReachTheSharedQuotaBoundary() {
+        var props =
+                new PublicApiProperties(
+                        "configured-key", "https://nmc.example", "https://x", "https://x", "https://x",
+                        "https://x", "https://x");
+        var kinds = new java.util.ArrayList<NmcCallKind>();
+        NmcCallQuota denyAll =
+                kind -> {
+                    kinds.add(kind);
+                    return false;
+                };
+        var client =
+                new PharmacyApiClient(
+                        null,
+                        props,
+                        new DataModeProperties(DataModeProperties.DataMode.LIVE),
+                        new FixtureLoader(new ObjectMapper()),
+                        denyAll);
+
+        assertThatThrownBy(() -> client.findNearForOpenNow(37.5663, 126.9779, 1000))
+                .isInstanceOf(PublicApiException.class);
+        assertThatThrownBy(() -> client.weeklyHours("C1110693"))
+                .isInstanceOf(PublicApiException.class);
+
+        // Deleting either acquireNmcCall call leaves its kind absent and turns this red before a
+        // WebClient request could spend the shared credential.
+        assertThat(kinds).containsExactly(NmcCallKind.DIRECTORY, NmcCallKind.SCHEDULE);
+    }
+
+    @Test
     @DisplayName("a matching row without a name or coordinates is rejected, not a partial 200 card")
     void basisDetailRejectsIncompleteRow() throws Exception {
         // The row carries the requested hpid but no dutyName and no wgs84Lat/Lon. Returning it would
@@ -608,6 +696,96 @@ class PharmacyApiClientTest {
         assertThatThrownBy(() -> client.basisDetail("C1110693"))
                 .isInstanceOf(PublicApiException.class)
                 .hasMessage("Pharmacy detail lookup failed for C1110693")
+                .hasNoCause();
+    }
+
+    // ----- issue #95 -----
+
+    private static final String SECRET_SENTINEL = "decoding-key-DO-NOT-LOG";
+
+    /** A client whose NMC basis fetch fails with an exception carrying the service key and URI. */
+    private PharmacyApiClient leakingBasisClient(DataModeProperties.DataMode mode) {
+        var props =
+                new PublicApiProperties(
+                        SECRET_SENTINEL, "https://pharmacy.example", "https://x", "https://x",
+                        "https://x", "https://x", "https://x");
+        return new PharmacyApiClient(
+                null, props, new DataModeProperties(mode), new FixtureLoader(new ObjectMapper())) {
+            @Override
+            protected JsonNode fetchBasis(String hpid) {
+                throw new IllegalStateException(
+                        "GET https://pharmacy.example/getParmacyBassInfoInqire?serviceKey="
+                                + SECRET_SENTINEL
+                                + "&HPID="
+                                + hpid);
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("a row with a non-finite or out-of-range coordinate is rejected (issue #95)")
+    void basisDetailRejectsInvalidCoordinates() throws Exception {
+        for (String badCoords :
+                List.of(
+                        "\"wgs84Lat\":\"NaN\",\"wgs84Lon\":126.97",
+                        "\"wgs84Lat\":37.56,\"wgs84Lon\":\"Infinity\"",
+                        "\"wgs84Lat\":999,\"wgs84Lon\":126.97")) {
+            String envelope =
+                    ("{\"response\":{\"header\":{\"resultCode\":\"00\",\"resultMsg\":\"OK\"},"
+                                    + "\"body\":{\"items\":{\"item\":{\"hpid\":\"C1110693\","
+                                    + "\"dutyName\":\"청실약국\",\"dutyAddr\":\"서울 중구\",%s}}}}}")
+                            .formatted(badCoords);
+            assertThat(
+                            fixtureClient()
+                                    .parseBasisDetail(
+                                            new ObjectMapper().readTree(envelope),
+                                            "C1110693",
+                                            SourceRef.DataMode.LIVE))
+                    .as(badCoords)
+                    .isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("NMC basis failure paths log no service key, URI, or exception text (§2-7, issue #95)")
+    void basisFailurePathsLogNoSecrets() {
+        Logger logger = (Logger) LoggerFactory.getLogger(PharmacyApiClient.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            var hybrid = leakingBasisClient(DataModeProperties.DataMode.HYBRID);
+            // weeklyHours falls back to the fixture and logs; basisDetail for an absent id throws.
+            hybrid.weeklyHours("C9999999");
+            assertThatThrownBy(() -> hybrid.basisDetail("C9999999"))
+                    .isInstanceOf(PublicApiException.class)
+                    .hasNoCause()
+                    .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
+
+            assertThat(logs.list)
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(SECRET_SENTINEL, "HPID=", "pharmacy.example");
+                                // A formatted message can be clean while Logback still stores and
+                                // later prints a URI-bearing throwable. Keep that graph empty too.
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("a live weekly-hours failure throws without the URI-bearing cause (§2-7, issue #95)")
+    void weeklyHoursLiveFailureHasNoCause() {
+        assertThatThrownBy(
+                        () ->
+                                leakingBasisClient(DataModeProperties.DataMode.LIVE)
+                                        .weeklyHours("C1110693"))
+                .isInstanceOf(PublicApiException.class)
+                .hasMessage("Pharmacy weekly-hours lookup failed for C1110693")
                 .hasNoCause();
     }
 }

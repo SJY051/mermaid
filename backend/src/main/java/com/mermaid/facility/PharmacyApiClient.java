@@ -81,12 +81,14 @@ public class PharmacyApiClient {
     private static final String FIXTURE = "pharmacy.json";
     private static final String BASIS_FIXTURE = "pharmacy_basis.json";
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final NmcCallQuota UNMETERED_TEST_QUOTA = kind -> true;
 
     private final WebClient publicApiWebClient;
     private final PublicApiProperties properties;
     private final HiraPharmacyProperties hiraProperties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
+    private final NmcCallQuota nmcCallQuota;
 
     @Autowired
     public PharmacyApiClient(
@@ -94,12 +96,24 @@ public class PharmacyApiClient {
             PublicApiProperties properties,
             HiraPharmacyProperties hiraProperties,
             DataModeProperties dataMode,
-            FixtureLoader fixtures) {
+            FixtureLoader fixtures,
+            NmcCallQuota nmcCallQuota) {
         this.publicApiWebClient = publicApiWebClient;
         this.properties = properties;
         this.hiraProperties = hiraProperties;
         this.dataMode = dataMode;
         this.fixtures = fixtures;
+        this.nmcCallQuota = nmcCallQuota;
+    }
+
+    /** Compatibility constructor for focused tests that provide a HIRA endpoint. */
+    public PharmacyApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            HiraPharmacyProperties hiraProperties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, hiraProperties, dataMode, fixtures, UNMETERED_TEST_QUOTA);
     }
 
     /** Compatibility constructor for focused tests and existing direct callers. */
@@ -113,7 +127,24 @@ public class PharmacyApiClient {
                 properties,
                 new HiraPharmacyProperties(DEFAULT_HIRA_BASE_URL),
                 dataMode,
-                fixtures);
+                fixtures,
+                UNMETERED_TEST_QUOTA);
+    }
+
+    /** Package-visible constructor for a deterministic quota-boundary test. */
+    PharmacyApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            NmcCallQuota nmcCallQuota) {
+        this(
+                publicApiWebClient,
+                properties,
+                new HiraPharmacyProperties(DEFAULT_HIRA_BASE_URL),
+                dataMode,
+                fixtures,
+                nmcCallQuota);
     }
 
     /**
@@ -222,6 +253,7 @@ public class PharmacyApiClient {
     }
 
     private PharmacyBatch nmcBatch(double lat, double lng, int radiusMeters) {
+        acquireNmcCall(NmcCallKind.DIRECTORY, "directory");
         JsonNode raw =
                 publicApiWebClient
                         .get()
@@ -611,14 +643,8 @@ public class PharmacyApiClient {
         }
 
         try {
-            JsonNode raw =
-                    publicApiWebClient
-                            .get()
-                            .uri(weeklyHoursUriFor(hpid))
-                            .retrieve()
-                            .bodyToMono(JsonNode.class)
-                            .block();
-            return parseWeeklyHours(raw, hpid, SourceRef.DataMode.LIVE);
+            acquireNmcCall(NmcCallKind.SCHEDULE, "weekly-hours");
+            return parseWeeklyHours(fetchBasis(hpid), hpid, SourceRef.DataMode.LIVE);
         } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
                 // No exception text: it can carry the request URI and its serviceKey (§2-7).
@@ -640,6 +666,20 @@ public class PharmacyApiClient {
     }
 
     /**
+     * The one NMC basis fetch, shared by {@link #weeklyHours} and {@link #basisDetail}. Separated so a
+     * regression test can inject a failure whose message carries the request URI (and its serviceKey),
+     * and prove neither reaches the logs (§2-7).
+     */
+    protected JsonNode fetchBasis(String hpid) {
+        return publicApiWebClient
+                .get()
+                .uri(weeklyHoursUriFor(hpid))
+                .retrieve()
+                .bodyToMono(JsonNode.class)
+                .block();
+    }
+
+    /**
      * A single pharmacy's full basis record for the detail-by-id path (DEV-205, UI-03).
      *
      * <p>{@code getParmacyBassInfoInqire?HPID=…} is the one pharmacy call that echoes name, address,
@@ -653,7 +693,11 @@ public class PharmacyApiClient {
      * negative result is cached too, which spares the 1,000/day quota a repeated lookup of an id that
      * upstream does not know.
      */
-    @Cacheable(value = "pharmacyBasisDetail", key = "#hpid")
+    @Cacheable(
+            // v2 adds PharmacyDetailBatch.retrievedAt. Reading a v1 JSON entry would leave that
+            // required provenance timestamp null, so do not deserialize the old record shape.
+            value = "pharmacyBasisDetail.v2",
+            key = "#hpid")
     public PharmacyDetailBatch basisDetail(String hpid) {
         if (dataMode.isFixtureOnly()) {
             return fixtureDetail(hpid);
@@ -662,17 +706,11 @@ public class PharmacyApiClient {
             log.warn("DATA_GO_KR_SERVICE_KEY is not set — falling back to fixture pharmacy detail");
             return fixtureDetail(hpid);
         }
-
         try {
-            JsonNode raw =
-                    publicApiWebClient
-                            .get()
-                            .uri(weeklyHoursUriFor(hpid))
-                            .retrieve()
-                            .bodyToMono(JsonNode.class)
-                            .block();
+            acquireNmcCall(NmcCallKind.DETAIL, "detail");
             return new PharmacyDetailBatch(
-                    parseBasisDetail(raw, hpid, SourceRef.DataMode.LIVE), SourceRef.DataMode.LIVE);
+                    parseBasisDetail(fetchBasis(hpid), hpid, SourceRef.DataMode.LIVE),
+                    SourceRef.DataMode.LIVE);
         } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
                 PharmacyDetailBatch fallback = fixtureDetail(hpid);
@@ -695,6 +733,14 @@ public class PharmacyApiClient {
         return new PharmacyDetailBatch(
                 parseBasisDetail(fixtures.load(BASIS_FIXTURE), hpid, SourceRef.DataMode.FIXTURE),
                 SourceRef.DataMode.FIXTURE);
+    }
+
+    private void acquireNmcCall(NmcCallKind kind, String operation) {
+        if (!nmcCallQuota.tryAcquire(kind)) {
+            // No upstream request follows this branch. Returning SOURCE_UNAVAILABLE is retryable and
+            // preserves the shared NMC daily reserve instead of letting one anonymous caller drain it.
+            throw new PublicApiException("NMC " + operation + " lookup is temporarily unavailable");
+        }
     }
 
     /**
@@ -724,11 +770,13 @@ public class PharmacyApiClient {
             Double longitude = PublicApiResponse.number(row, "wgs84Lon");
             if (name == null || name.isBlank()
                     || address == null || address.isBlank()
-                    || latitude == null || longitude == null) {
-                // Without a name, address, or location this is not the "fully reconstructed pharmacy"
-                // the detail endpoint (and API_명세서.md) promises. Treat it as not found rather than a
-                // 200 card with null identity fields that would look verified (spec §2-9). Phone and
-                // the timetable stay best-effort — a card renders without them.
+                    || latitude == null || !Double.isFinite(latitude) || Math.abs(latitude) > 90.0
+                    || longitude == null || !Double.isFinite(longitude) || Math.abs(longitude) > 180.0) {
+                // Without a name, address, or a finite, in-range coordinate this is not the "fully
+                // reconstructed pharmacy" the detail endpoint (and API_명세서.md) promises: NaN,
+                // Infinity, or an out-of-range lat/lng would place a verified-looking card nowhere real.
+                // Treat it as not found rather than a 200 with junk identity/coordinates (spec §2-9).
+                // Phone and the timetable stay best-effort — a card renders without them.
                 return null;
             }
             return new PharmacyDetail(
@@ -866,8 +914,19 @@ public class PharmacyApiClient {
             Double longitude,
             DutyTable weeklyHours) {}
 
-    /** NMC pharmacy detail plus provenance; {@code detail} is null when HPID did not match. */
-    public record PharmacyDetailBatch(PharmacyDetail detail, SourceRef.DataMode origin) {}
+    /**
+     * NMC pharmacy detail plus provenance; {@code detail} is null when HPID did not match.
+     *
+     * @param retrievedAt when this batch was actually fetched. Carried through the cache so a hit does
+     *     not let the caller restamp a hours-old response as freshly verified (issue #95).
+     */
+    public record PharmacyDetailBatch(
+            PharmacyDetail detail, SourceRef.DataMode origin, Instant retrievedAt) {
+
+        public PharmacyDetailBatch(PharmacyDetail detail, SourceRef.DataMode origin) {
+            this(detail, origin, Instant.now());
+        }
+    }
 
     /** HIRA identity reconstructed from the name-filtered directory plus provenance. */
     public record HiraIdentityBatch(
