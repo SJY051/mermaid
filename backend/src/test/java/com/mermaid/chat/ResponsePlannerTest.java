@@ -191,12 +191,37 @@ class ResponsePlannerTest {
     @ParameterizedTest
     @ValueSource(strings = {
         "What does Korean law say about legally prescribed medical narcotics?",
-        "Under Korean law, are medical narcotics legally prescribed?"
+        "Under Korean law, are medical narcotics legally prescribed?",
+        "Are medical narcotics covered by Korean law?",
+        "What does Korean law say about a medical narcotic?"
     })
     void neutralLegalParaphrasesNavigateToOfficialSourcesWithoutModelAdvice(String input) {
         AtomicInteger adviceCalls = new AtomicInteger();
         ResponsePlanner t5OnlyPlanner = new ResponsePlanner(
                 new EmergencyTriage(), new RiskTierFeatureProperties(false, false, true));
+
+        ResponsePlan actual = t5OnlyPlanner.plan(
+                new PlanningInput(input, input, FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode())
+                .isEqualTo(ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION);
+        assertThat(actual.reasonCodes())
+                .containsExactly(ResponsePlan.ReasonCode.NEUTRAL_LEGAL_INFORMATION);
+    }
+
+    @Test
+    void neutralMedicalNarcoticTerminologyNavigatesToOfficialSources() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner t5OnlyPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, true));
+        String input = "What does 'medical narcotic' mean?";
 
         ResponsePlan actual = t5OnlyPlanner.plan(
                 new PlanningInput(input, input, FacilityRuntime.allAvailable()),
