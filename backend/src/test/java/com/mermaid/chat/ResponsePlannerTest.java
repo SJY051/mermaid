@@ -8,6 +8,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.ResponsePlanner.FacilityRuntime;
 import com.mermaid.chat.ResponsePlanner.PlanningInput;
+import com.mermaid.config.RiskTierFeatureProperties;
 import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.facility.domain.FacilityOperationPreference;
 import java.io.InputStream;
@@ -36,7 +37,8 @@ class ResponsePlannerTest {
             "facility-adapter-unavailable",
             "facility-mixed-symptom-medicine-pharmacy");
 
-    private final ResponsePlanner planner = new ResponsePlanner(new EmergencyTriage());
+    private final ResponsePlanner planner =
+            new ResponsePlanner(new EmergencyTriage(), RiskTierFeatureProperties.allEnabled());
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("proposedLaunchCases")
@@ -117,6 +119,174 @@ class ResponsePlannerTest {
                 .containsExactly(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
         assertThat(actual.confidence()).isEqualTo(ResponsePlan.ConfidenceBucket.LOW);
         assertThat(actual.reasonCodes()).containsExactly(ResponsePlan.ReasonCode.LOW_CONFIDENCE);
+    }
+
+    @Test
+    void disabledAmbiguousPlanningUsesLegacyMedicinePathWithoutCallingTheAdviser() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner disabledPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, false));
+
+        ResponsePlan actual = disabledPlanner.plan(
+                new PlanningInput(
+                        "What does inflammation mean?",
+                        "What does inflammation mean?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+        assertThat(actual.capabilities())
+                .containsExactlyInAnyOrder(
+                        ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
+                        ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
+    }
+
+    @Test
+    void facilityOnlyRoutingStaysEnabledWhenEveryModelPolicyFlagIsOff() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner disabledPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, false));
+
+        ResponsePlan actual = disabledPlanner.plan(
+                new PlanningInput(
+                        "Where is the nearest emergency room?",
+                        "Where is the nearest emergency room?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode())
+                .isEqualTo(ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.FACILITY_LOOKUP);
+    }
+
+    @Test
+    void deterministicT5CanBeEnabledWithoutAmbiguousModelPlanning() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner t5OnlyPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, true));
+
+        ResponsePlan actual = t5OnlyPlanner.plan(
+                new PlanningInput(
+                        "Where can I buy fentanyl without a prescription?",
+                        "Where can I buy fentanyl without a prescription?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE);
+    }
+
+    @Test
+    void disabledT5PolicyFallsBackWithoutCallingADisabledAdviser() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner disabledPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, false));
+
+        ResponsePlan actual = disabledPlanner.plan(
+                new PlanningInput(
+                        "Where can I buy fentanyl without a prescription?",
+                        "Where can I buy fentanyl without a prescription?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
+    }
+
+    @Test
+    void disabledT5PolicyCannotExposeExplicitEvasionThroughGeneralExplanation() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner noT5Planner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(true, true, false));
+        ModelPlanAdvice unsafeT1 = new ModelPlanAdvice(
+                ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
+                Set.of(ResponsePlan.Capability.GENERAL_EXPLANATION),
+                ResponsePlan.ConfidenceBucket.HIGH,
+                Set.of(ResponsePlan.ReasonCode.GENERAL_INFORMATION));
+
+        ResponsePlan actual = noT5Planner.plan(
+                new PlanningInput(
+                        "Where can I buy fentanyl without a prescription?",
+                        "Where can I buy fentanyl without a prescription?",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return unsafeT1;
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
+    }
+
+    @Test
+    void emergencyTriageStaysCanonicalAndZeroAdviserWhenEveryFlagIsOff() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner disabledPlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, false, false));
+
+        ResponsePlan actual = disabledPlanner.plan(
+                new PlanningInput(
+                        "I have crushing chest pain and cannot breathe.",
+                        "I have crushing chest pain and cannot breathe.",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return ModelPlanAdvice.none();
+                });
+
+        assertThat(adviceCalls).hasValue(0);
+        assertThat(actual.mode()).isEqualTo(ResponsePlan.ResponseMode.T4_EMERGENCY);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.EMERGENCY_RESPONSE);
+        assertThat(actual.reasonCodes())
+                .containsExactly(ResponsePlan.ReasonCode.EMERGENCY_RED_FLAG);
+        assertThat(actual.emergencyDecision().reasonCode()).isEqualTo("CHEST_PAIN");
+    }
+
+    @Test
+    void disabledGeneralExplanationCannotEraseADeterministicFacilityAction() {
+        AtomicInteger adviceCalls = new AtomicInteger();
+        ResponsePlanner noProsePlanner = new ResponsePlanner(
+                new EmergencyTriage(), new RiskTierFeatureProperties(false, true, true));
+        ModelPlanAdvice explanation = new ModelPlanAdvice(
+                ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
+                Set.of(ResponsePlan.Capability.GENERAL_EXPLANATION),
+                ResponsePlan.ConfidenceBucket.HIGH,
+                Set.of(ResponsePlan.ReasonCode.GENERAL_INFORMATION));
+
+        ResponsePlan actual = noProsePlanner.plan(
+                new PlanningInput(
+                        "I have a mild fever and want a nearby pharmacy.",
+                        "I have a mild fever and want a nearby pharmacy.",
+                        FacilityRuntime.allAvailable()),
+                () -> {
+                    adviceCalls.incrementAndGet();
+                    return explanation;
+                });
+
+        assertThat(adviceCalls).hasValue(1);
+        assertThat(actual.capabilities())
+                .containsExactly(ResponsePlan.Capability.FACILITY_LOOKUP);
+        assertThat(actual.facilityIntent()).isNotNull();
     }
 
     @Test

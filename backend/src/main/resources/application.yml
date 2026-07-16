@@ -72,6 +72,13 @@ mermaid:
   # hybrid  — call them, fall back to fixtures on failure, and label the data as such
   # fixture — never touch the network (reproducible demos, CI, and the 1,000/day quota)
   data-mode: ${DATA_MODE:hybrid}
+  chat:
+    risk-tier:
+      # Deterministic facility routing is intentionally not gated here. These three switches cover
+      # only behavior that still needs PM/clinical/legal activation review (DEV-603 FR-803).
+      general-explanation-enabled: ${RISK_TIER_GENERAL_EXPLANATION_ENABLED:false}
+      ambiguous-planning-enabled: ${RISK_TIER_AMBIGUOUS_PLANNING_ENABLED:false}
+      t5-policy-enabled: ${RISK_TIER_T5_POLICY_ENABLED:false}
   naver-map:
     # Geocoding is server-only: Vite must never see the Client Secret. This is the one host that
     # answered for our subscribed NCP application; naveropenapi.apigw.ntruss.com answered 401.

@@ -1,7 +1,8 @@
 package com.mermaid.chat;
 
-import com.mermaid.facility.domain.FacilityType;
+import com.mermaid.config.RiskTierFeatureProperties;
 import com.mermaid.facility.domain.FacilityOperationPreference;
+import com.mermaid.facility.domain.FacilityType;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
@@ -132,6 +133,7 @@ final class ResponsePlanner {
             "\\b(?:discuss|ask|talk)\\b.*\\b(?:licensed )?(?:doctor|clinician|pharmacist)\\b");
 
     private final EmergencyTriage emergencyTriage;
+    private final RiskTierFeatureProperties features;
 
     ResponsePlan plan(PlanningInput input, Supplier<ModelPlanAdvice> modelAdviceSupplier) {
         Objects.requireNonNull(input, "input");
@@ -144,14 +146,18 @@ final class ResponsePlanner {
 
         String normalized = input.latestUserTurn().toLowerCase(Locale.ROOT);
         if (isExplicitControlEvasion(normalized)) {
-            return new ResponsePlan(
-                    ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE,
-                    Set.of(ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL),
-                    ResponsePlan.ConfidenceBucket.HIGH,
-                    Set.of(ResponsePlan.ReasonCode.EXPLICIT_CONTROL_EVASION),
-                    null);
+            if (features.t5PolicyEnabled()) {
+                return new ResponsePlan(
+                        ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE,
+                        Set.of(ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL),
+                        ResponsePlan.ConfidenceBucket.HIGH,
+                        Set.of(ResponsePlan.ReasonCode.EXPLICIT_CONTROL_EVASION),
+                        null);
+            }
+            return consultationPlan(ResponsePlan.ConfidenceBucket.HIGH, null);
         }
-        if (NEUTRAL_LEGAL_INFORMATION.matcher(normalized).find()) {
+        if (features.t5PolicyEnabled()
+                && NEUTRAL_LEGAL_INFORMATION.matcher(normalized).find()) {
             return new ResponsePlan(
                     ResponsePlan.ResponseMode.T1_ANSWER_GENERAL_OR_LOCATE_CARE,
                     Set.of(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION),
@@ -164,6 +170,9 @@ final class ResponsePlanner {
         if (facilityIntent != null && !NON_FACILITY_INTENT.matcher(normalized).find()) {
             return facilityOnlyPlan(facilityIntent);
         }
+        if (!features.ambiguousPlanningEnabled()) {
+            return legacyMedicinePlan(facilityIntent);
+        }
 
         ModelPlanAdvice advice;
         try {
@@ -172,13 +181,17 @@ final class ResponsePlanner {
             advice = ModelPlanAdvice.none();
         }
         return adjudicate(
-                advice == null ? ModelPlanAdvice.none() : advice, facilityIntent, normalized);
+                advice == null ? ModelPlanAdvice.none() : advice,
+                facilityIntent,
+                normalized,
+                features.generalExplanationEnabled());
     }
 
     private static ResponsePlan adjudicate(
             ModelPlanAdvice advice,
             ResponsePlan.FacilityIntent facilityIntent,
-            String normalizedUserTurn) {
+            String normalizedUserTurn,
+            boolean generalExplanationEnabled) {
         if (advice.suggestedMode() == ResponsePlan.ResponseMode.T4_EMERGENCY) {
             return emergencyPlan("MODEL_ESCALATION");
         }
@@ -199,18 +212,20 @@ final class ResponsePlanner {
                 copyAllowed(
                         advice.suggestedCapabilities(),
                         capabilities,
-                        ResponsePlan.Capability.GENERAL_EXPLANATION,
                         ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
                         ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION);
+                copyGeneralExplanation(
+                        advice.suggestedCapabilities(), capabilities, generalExplanationEnabled);
                 yield Set.of(ResponsePlan.ReasonCode.GENERAL_INFORMATION);
             }
             case T2_ANSWER_WITH_CONSULTATION -> {
                 copyAllowed(
                         advice.suggestedCapabilities(),
                         capabilities,
-                        ResponsePlan.Capability.GENERAL_EXPLANATION,
                         ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
                         ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION);
+                copyGeneralExplanation(
+                        advice.suggestedCapabilities(), capabilities, generalExplanationEnabled);
                 capabilities.add(ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
                 yield Set.of(ResponsePlan.ReasonCode.PROFESSIONAL_CONTEXT);
             }
@@ -251,12 +266,40 @@ final class ResponsePlanner {
         }
     }
 
+    private static void copyGeneralExplanation(
+            Set<ResponsePlan.Capability> advised,
+            Set<ResponsePlan.Capability> target,
+            boolean enabled) {
+        if (enabled && advised.contains(ResponsePlan.Capability.GENERAL_EXPLANATION)) {
+            target.add(ResponsePlan.Capability.GENERAL_EXPLANATION);
+        }
+    }
+
     private static ResponsePlan consultationFallback(
             ResponsePlan.ConfidenceBucket confidence, ResponsePlan.FacilityIntent facilityIntent) {
         return consultationPlan(
                 confidence == null ? ResponsePlan.ConfidenceBucket.LOW : confidence,
                 facilityIntent,
                 ResponsePlan.ReasonCode.LOW_CONFIDENCE);
+    }
+
+    private static ResponsePlan legacyMedicinePlan(
+            ResponsePlan.FacilityIntent facilityIntent) {
+        EnumSet<ResponsePlan.Capability> capabilities = EnumSet.of(
+                ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP,
+                ResponsePlan.Capability.PROFESSIONAL_CONSULTATION);
+        EnumSet<ResponsePlan.ReasonCode> reasonCodes =
+                EnumSet.of(ResponsePlan.ReasonCode.LOW_CONFIDENCE);
+        if (facilityIntent != null) {
+            capabilities.add(ResponsePlan.Capability.FACILITY_LOOKUP);
+            reasonCodes.addAll(facilityReasonCodes(facilityIntent));
+        }
+        return new ResponsePlan(
+                ResponsePlan.ResponseMode.T2_ANSWER_WITH_CONSULTATION,
+                Set.copyOf(capabilities),
+                ResponsePlan.ConfidenceBucket.LOW,
+                Set.copyOf(reasonCodes),
+                facilityIntent);
     }
 
     private static ResponsePlan consultationPlan(
