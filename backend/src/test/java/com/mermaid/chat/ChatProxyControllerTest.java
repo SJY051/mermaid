@@ -98,17 +98,22 @@ class ChatProxyControllerTest {
         }
     }
 
-    private record ControllerHarness(ChatProxyController controller, FakeUpstream upstream) {}
+    private record ControllerHarness(
+            ChatProxyController controller,
+            FakeUpstream upstream,
+            AtomicInteger retrievalCalls) {}
 
     private ChatProxyController controller(String modelReply, DrugContext context) {
         return harness(modelReply, context).controller();
     }
 
     private ControllerHarness harness(String modelReply, DrugContext context) {
+        AtomicInteger retrievalCalls = new AtomicInteger();
         var retriever = new DrugContextRetriever(null, null, null, mapper) {
             @Override
             public DrugContext retrieve(
                     String userText, String allUserText, MermaidRequestExtension.StructuredExclusions exclusions) {
+                retrievalCalls.incrementAndGet();
                 return context;
             }
         };
@@ -124,7 +129,7 @@ class ChatProxyControllerTest {
                 new EmergencyTriage(),
                 normalizer,
                 mapper);
-        return new ControllerHarness(controller, upstream);
+        return new ControllerHarness(controller, upstream, retrievalCalls);
     }
 
     private static DrugContext contextWith(String... productNames) {
@@ -1218,6 +1223,92 @@ class ChatProxyControllerTest {
             assertThat(harness.upstream().calls).hasValue(0);
             assertThat(answer.drugs()).singleElement().extracting(MermAidAnswer.DrugCard::sourceRefId)
                     .isEqualTo(TYLENOL_SOURCE.id());
+        }
+    }
+
+    @Nested
+    @DisplayName("risk-tier facility composition")
+    class RiskTierFacilityComposition {
+
+        @Test
+        @DisplayName("a facility-only turn bypasses medicine retrieval and returns an open-or-unknown action")
+        void facilityOnlyBypassesMedicineLookup() throws Exception {
+            ControllerHarness harness = harness(modelAnswer("[]", "[]"), emptyContext());
+
+            MermAidAnswer answer = answerOf(harness
+                    .controller()
+                    .completions(request("Where is the closest pharmacy open right now?")));
+
+            assertThat(harness.retrievalCalls())
+                    .as("facility navigation must not enter medicine Pass 1")
+                    .hasValue(0);
+            assertThat(harness.upstream().calls).as("facility-only is deterministic").hasValue(0);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.sourceRefs()).isEmpty();
+            assertThat(answer.summary()).doesNotContainIgnoringCase("medicine information");
+            assertThat(answer.uiActions())
+                    .singleElement()
+                    .isInstanceOfSatisfying(UiAction.OpenFacilityMap.class, action -> {
+                        assertThat(action.payload().types()).containsExactly("pharmacy");
+                        assertThat(action.payload().operationPreference())
+                                .isEqualTo(com.mermaid.facility.domain.FacilityOperationPreference.OPEN_OR_UNKNOWN);
+                        assertThat(action.payload().openNow()).isNull();
+                    });
+        }
+
+        @Test
+        @DisplayName("JSON and SSE resolve the same deterministic facility answer")
+        void facilityOnlyJsonAndSseMatch() throws Exception {
+            ControllerHarness jsonHarness = harness(modelAnswer("[]", "[]"), emptyContext());
+            ControllerHarness sseHarness = harness(modelAnswer("[]", "[]"), emptyContext());
+
+            MermAidAnswer json = answerOf(jsonHarness
+                    .controller()
+                    .completions(request("Where is the closest hospital?")));
+            MermAidAnswer sse = streamedAnswerOf(
+                    sseHarness.controller(), request("Where is the closest hospital?"));
+
+            assertThat(sse).isEqualTo(json);
+            assertThat(jsonHarness.retrievalCalls()).hasValue(0);
+            assertThat(sseHarness.retrievalCalls()).hasValue(0);
+            assertThat(jsonHarness.upstream().calls).hasValue(0);
+            assertThat(sseHarness.upstream().calls).hasValue(0);
+        }
+
+        @Test
+        @DisplayName("a Pass 1 failure cannot erase the pharmacy action from a mixed turn")
+        void mixedTurnKeepsFacilityActionWhenMedicineLookupIsUnavailable() throws Exception {
+            ControllerHarness harness =
+                    harness(modelAnswer("[]", "[]"), searchUnavailableContext());
+
+            MermAidAnswer answer = answerOf(harness.controller().completions(request(
+                    "I have a mild fever, need medicine, and want the nearest pharmacy.")));
+
+            assertThat(harness.retrievalCalls()).hasValue(1);
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.sourceRefs()).isEmpty();
+            assertThat(answer.uiActions())
+                    .singleElement()
+                    .isInstanceOf(UiAction.OpenFacilityMap.class);
+            assertThat(answer.summary())
+                    .doesNotContain(ServerAuthoredSearchUnavailableAnswer.SUMMARY)
+                    .containsIgnoringCase("nearby care");
+        }
+
+        @Test
+        @DisplayName("allergy direct answers still outrank facility composition")
+        void allergyDirectAnswerStillShortCircuits() throws Exception {
+            ControllerHarness harness =
+                    harness(modelAnswer("[]", "[]"), DrugContext.allergyClarification());
+
+            MermAidAnswer answer = answerOf(harness.controller().completions(
+                    request("I am allergic to something. Where is the nearest pharmacy?")));
+
+            assertThat(answer).isEqualTo(AllergyClarification.answer());
+            assertThat(answer.uiActions()).isEmpty();
+            assertThat(harness.retrievalCalls()).hasValue(1);
+            assertThat(harness.upstream().calls).hasValue(0);
         }
     }
 
