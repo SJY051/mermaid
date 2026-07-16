@@ -40,8 +40,13 @@ public class EmergencyRoomApiClient {
      * stable upstream list without inheriting someone else's NMC {@code distance} value.
      */
     @Cacheable(
-            value = "emergencyRoomsNear.v1",
-            key = "T(com.mermaid.facility.EmergencyRoomApiClient).cacheKeyFor(#lat, #lng)")
+            // v2 splits entries by execution mode and planned origin. A v1 entry may have been
+            // written by fixture, hybrid, or live mode under the same coordinate key.
+            value = "emergencyRoomsNear.v2",
+            key = "#root.target.cacheKeyFor(#lat, #lng)",
+            // A configured hybrid lookup that falls back to the fixture is deliberately not
+            // cached: otherwise that temporary fallback would mask a later recovered live source.
+            unless = "#result.origin().name() == 'FIXTURE' && #root.target.bypassesFixtureFallbackCache()")
     public EmergencyRoomBatch findNear(double lat, double lng) {
         if (dataMode.isFixtureOnly()) {
             return fixtureBatch();
@@ -61,7 +66,9 @@ public class EmergencyRoomApiClient {
                 log.warn("emergency-room lookup failed, falling back to fixture");
                 return fixtureBatch();
             }
-            throw new PublicApiException("Emergency-room lookup failed near " + lat + "," + lng, e);
+            // WebClient's cause can retain the complete URI, including the service key. Do not
+            // attach it (or request coordinates) to an exception the global handler may log.
+            throw new PublicApiException("Emergency-room lookup failed");
         }
     }
 
@@ -85,9 +92,24 @@ public class EmergencyRoomApiClient {
         return new EmergencyRoomBatch(parse(fixtures.load(FIXTURE)), SourceRef.DataMode.FIXTURE);
     }
 
-    /** Public because Spring SpEL resolves static cache-key methods through {@link Class#getMethods()}. */
-    public static String cacheKeyFor(double lat, double lng) {
-        return Math.round(lat * 1000) + ":" + Math.round(lng * 1000);
+    /** Public because Spring SpEL resolves target methods through {@link Class#getMethods()}. */
+    public String cacheKeyFor(double lat, double lng) {
+        return Math.round(lat * 1000)
+                + ":"
+                + Math.round(lng * 1000)
+                + ":mode="
+                + dataMode.dataMode().wire()
+                + ":origin="
+                + (usesFixtureBeforeFetch() ? "fixture" : "live");
+    }
+
+    /** A configured hybrid fallback is transient and must not occupy the live cache route. */
+    public boolean bypassesFixtureFallbackCache() {
+        return dataMode.allowsFallback() && properties.isConfigured();
+    }
+
+    private boolean usesFixtureBeforeFetch() {
+        return dataMode.isFixtureOnly() || !properties.isConfigured();
     }
 
     List<RawEmergencyRoom> parse(JsonNode raw) {

@@ -19,7 +19,7 @@ class EmergencyRoomCacheTest {
 
     @BeforeEach
     void clearCache() {
-        cacheManager.getCache("emergencyRoomsNear.v1").clear();
+        cacheManager.getCache("emergencyRoomsNear.v2").clear();
     }
 
     @Test
@@ -29,5 +29,11 @@ class EmergencyRoomCacheTest {
 
         assertThat(second).isSameAs(first);
         assertThat(second.emergencyRooms()).isNotEmpty();
+        assertThat(
+                        cacheManager
+                                .getCache("emergencyRoomsNear.v2")
+                                .get(emergencyRooms.cacheKeyFor(37.565501, 126.9779))
+                                .get())
+                .isSameAs(first);
     }
 }

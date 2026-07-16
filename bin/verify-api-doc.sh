@@ -63,6 +63,16 @@ echo "$hospital" | grep -q '"type":"hospital"'
 check "GET /facilities?type=hospital returns hospital facilities" $?
 echo "$hospital" | grep -q '"id":"facility:hira:'
 check "GET /facilities?type=hospital is not an empty legacy 200 response" $?
+emergency=$(curl -s "$BASE/facilities?lat=37.5663&lng=126.9779&radius_m=1000&type=emergency_room")
+echo "$emergency" | grep -q '"type":"emergency_room"'
+check "GET /facilities?type=emergency_room returns NMC emergency facilities" $?
+echo "$emergency" | grep -q '"dataMode":"fixture"'
+check "응급실 fixture 응답은 source.dataMode=fixture" $?
+echo "$emergency" | grep -q '"isOpenNow":null'
+check "응급실 위치 데이터는 isOpenNow=null (운영시간 미추정)" $?
+emergency_open=$(curl -s "$BASE/facilities?lat=37.5663&lng=126.9779&radius_m=1000&type=emergency_room&open_now=true")
+echo "$emergency_open" | grep -q '^\[\]$'
+check "응급실 open_now=true 는 unknown 시간을 open/closed로 추측하지 않는다" $?
 expect GET "/facilities/facility:nmc:C1110693"                 200   # 약국 단건 상세
 # Captured HIRA ykiho wrapped once more in base64url for a path-safe facility id.
 HIRA_FIXTURE_ID="facility:hira:SkRRNE1UZzRNU00xTVNNa01TTWtNQ01rT0Rra016Z3hNelV4SXpFeEl5UXhJeVF6SXlRM09TUTBOakV3TURJak5qRWpKREVqSkRRakpEZ3o"
