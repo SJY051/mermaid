@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -1151,6 +1153,49 @@ class ChatProxyControllerTest {
     @Nested
     @DisplayName("emergency screening still runs first")
     class Emergency {
+
+        @ParameterizedTest
+        @DisplayName("approved C1 and C2 phrases bypass retrieval and both model passes")
+        @ValueSource(
+                strings = {
+                    "I am having an anaphylactic reaction.",
+                    "My tongue is suddenly swelling.",
+                    "My throat suddenly started swelling.",
+                    "I have sudden abdominal pain.",
+                    "I have severe stomach pain.",
+                })
+        void approvedClinicalExpressionsShortCircuit(String userText) throws Exception {
+            AtomicInteger retrievalCalls = new AtomicInteger();
+            var upstream = new FakeUpstream(modelAnswer("[]", "[]"));
+            IngredientNormalizer normalizer = new IngredientNormalizer();
+            AnswerValidator validator = new AnswerValidator(normalizer);
+            var controller = new ChatProxyController(
+                    upstream,
+                    new DrugContextRetriever(null, null, null, mapper) {
+                        @Override
+                        public DrugContext retrieve(
+                                String latestUserText,
+                                String allUserText,
+                                MermaidRequestExtension.StructuredExclusions exclusions) {
+                            retrievalCalls.incrementAndGet();
+                            return emptyContext();
+                        }
+                    },
+                    new StructuredOutputFallback(mapper),
+                    validator,
+                    new ServerAuthoredAnswerBuilder(normalizer, validator),
+                    new EmergencyTriage(),
+                    normalizer,
+                    mapper);
+
+            MermAidAnswer answer = answerOf(controller.completions(request(userText)));
+
+            assertThat(answer.urgency().level()).isEqualTo(MermAidAnswer.Urgency.Level.EMERGENCY);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.uiActions()).anyMatch(action -> action instanceof UiAction.ShowEmergencyCall);
+            assertThat(retrievalCalls).as("Pass 1 and official retrieval never start").hasValue(0);
+            assertThat(upstream.calls).as("the whole-answer model pass never starts").hasValue(0);
+        }
 
         @Test
         @DisplayName("a red flag answers from code, with no drugs and a 119 action")

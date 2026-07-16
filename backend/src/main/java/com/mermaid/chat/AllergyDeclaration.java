@@ -26,20 +26,49 @@ import java.util.regex.Pattern;
  * see a pharmacist rather than shown an antihistamine. A false positive costs one worse answer. A
  * false negative offers an allergic person a drug from the class they react to.
  *
- * <p><b>It is not complete, and cannot be.</b> "Ibuprofen gives me hives" declares an allergy without
- * naming one and does not fire. But we never learn of that allergy at all, so a reviewer-signed class
- * table would not have caught it either: this rule is not the weaker half of a better mechanism.
+ * <p>Approved causal hives forms open the same fail-closed gate without diagnosing a mechanism. The
+ * scanner only records that the user tied a named cause to hives; it does not preserve, display, or
+ * make a clinical claim about that name.
  *
  * <p>TODO(team, DEV-405): English only, like {@link EmergencyTriage}. Korean phrasings (알레르기, 알러지)
  * belong here, and should be reviewed alongside that class's red flags rather than bolted on alone.
  */
 final class AllergyDeclaration {
 
+    /**
+     * A bounded, syntactically named cause — not proof that the cause is a medicine. This scanner
+     * has no medicine ontology, and consulting the model would reopen the safety boundary it guards.
+     * The existing high-sensitivity policy therefore accepts a non-medicine false positive here:
+     * it can suppress a recommendation, but it cannot diagnose, block an ingredient, or display the
+     * captured text as a server claim.
+     */
+    private static final String NAMED_CAUSE =
+            "[\\p{L}\\p{N}][\\p{L}\\p{N}'-]*(?:\\s+[\\p{L}\\p{N}][\\p{L}\\p{N}'-]*){0,3}";
+
     private static final List<Pattern> PATTERNS =
             List.of(
                     Pattern.compile("(?i)\\ball?erg(?:y|ies|ic)\\b"),
                     Pattern.compile("(?i)\\banaphyla(?:xis|ctic)\\b"),
                     Pattern.compile("(?i)\\bintoleran(?:t|ce)\\b"));
+
+    private static final List<Pattern> CAUSAL_HIVES_PATTERNS =
+            List.of(
+                    Pattern.compile(
+                            "(?i)\\b" + NAMED_CAUSE + "\\s+(?:gives|causes)\\s+me\\s+hives\\b"),
+                    Pattern.compile(
+                            "(?i)\\bI\\s+get\\s+hives\\s+(?:from|after\\s+taking)\\s+"
+                                    + NAMED_CAUSE
+                                    + "\\b"),
+                    Pattern.compile(
+                            "(?i)\\bI\\s+break\\s+out\\s+in\\s+hives\\s+when\\s+I\\s+take\\s+"
+                                    + NAMED_CAUSE
+                                    + "\\b"));
+
+    private static final Pattern NEGATIVE_WITH_EXCEPTION = Pattern.compile(
+            "(?i)\\bno(?:\\s+known)?(?:\\s+drug)?\\s+allerg(?:y|ies)\\s+except\\b");
+
+    private static final Pattern EXPLICIT_NEGATIVE = Pattern.compile(
+            "(?i)\\b(?:no\\s+known\\s+drug\\s+allergies|no\\s+known\\s+allergies|no\\s+allergies|NKDA)\\b");
 
     private AllergyDeclaration() {}
 
@@ -53,6 +82,14 @@ final class AllergyDeclaration {
         if (userText == null || userText.isBlank()) {
             return false;
         }
-        return PATTERNS.stream().anyMatch(p -> p.matcher(userText).find());
+        if (CAUSAL_HIVES_PATTERNS.stream().anyMatch(p -> p.matcher(userText).find())
+                || NEGATIVE_WITH_EXCEPTION.matcher(userText).find()) {
+            return true;
+        }
+
+        // Each approved negative removes only its own span. Any positive declaration elsewhere in
+        // the transcript remains visible to the existing high-sensitivity matchers and wins.
+        String withoutExplicitNegatives = EXPLICIT_NEGATIVE.matcher(userText).replaceAll(" ");
+        return PATTERNS.stream().anyMatch(p -> p.matcher(withoutExplicitNegatives).find());
     }
 }
