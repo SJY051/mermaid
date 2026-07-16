@@ -286,6 +286,45 @@ describe('when the answer arrives', () => {
     })
   })
 
+  it('renders the server allowlisted legal sources with their verification date', async () => {
+    const answer = JSON.parse(validAnswer)
+    answer.summary =
+      'For current Korean rules, use the official sources below. This service does not interpret the law.'
+    answer.uiActions = [
+      {
+        type: 'OPEN_OFFICIAL_SOURCE',
+        payload: {
+          sourceId: 'korean-narcotics-control-act',
+          label: 'National Law Information Center — Narcotics Control Act',
+          url: 'https://www.law.go.kr/LSW/lsSc.do?eventGubun=060101&menuId=1&query=%EB%A7%88%EC%95%BD%EB%A5%98+%EA%B4%80%EB%A6%AC%EC%97%90+%EA%B4%80%ED%95%9C+%EB%B2%95%EB%A5%A0&section=&subMenuId=15&tabMenuId=81',
+          verifiedOn: '2026-07-16',
+        },
+      },
+      {
+        type: 'OPEN_OFFICIAL_SOURCE',
+        payload: {
+          sourceId: 'mfds-medical-narcotic-analgesic-standards',
+          label: 'MFDS — Medical narcotic analgesic prescribing standards',
+          url: 'https://www.mfds.go.kr/brd/m_218/view.do?Data_stts_gubun=C9999&company_cd=&company_nm=&itm_seq_1=0&itm_seq_2=0&multi_itm_seq=0&page=19&seq=33698&srchFr=&srchTo=&srchTp=0&srchWord=%EC%9D%98%EC%95%BD%ED%92%88',
+          verifiedOn: '2026-07-16',
+        },
+      },
+    ]
+    streamChatMock.mockReturnValue(completedStream(JSON.stringify(answer)))
+    renderChat()
+
+    await ask('Is fentanyl ever prescribed legally in Korea?')
+
+    expect(
+      await screen.findByRole('link', { name: /National Law Information Center/i }),
+    ).toHaveAttribute('href', answer.uiActions[0].payload.url)
+    expect(screen.getByRole('link', { name: /MFDS/i })).toHaveAttribute(
+      'href',
+      answer.uiActions[1].payload.url,
+    )
+    expect(screen.getAllByText('Verified on 2026-07-16')).toHaveLength(2)
+  })
+
   it('resolves each drug provenance by sourceRefId and labels a fixture card in a mixed answer', async () => {
     const mixedAnswer = JSON.parse(validAnswer)
     mixedAnswer.dataStatus = 'mixed'

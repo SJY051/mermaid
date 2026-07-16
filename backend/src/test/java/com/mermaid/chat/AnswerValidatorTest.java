@@ -381,6 +381,22 @@ class AnswerValidatorTest {
     }
 
     @Test
+    @DisplayName("server-only official source actions are rejected from model answers")
+    void officialSourceNavigationIsServerOnly() {
+        MermAidAnswer a =
+                answer(
+                        MermAidAnswer.Urgency.Level.ROUTINE,
+                        List.of(),
+                        List.of(UiAction.OpenOfficialSource.koreanNarcoticsControlAct()),
+                        List.of(),
+                        MermAidAnswer.DataStatus.UNAVAILABLE);
+
+        assertThat(validator.validate(a, Map.of()))
+                .extracting(Enum::name)
+                .containsExactly("INV8_SERVER_ONLY_ACTION");
+    }
+
+    @Test
     @DisplayName("invariant 7 — a script tag in a drug warning is caught too")
     void rejectsScriptInDrugWarning() {
         MermAidAnswer.DrugCard nasty =

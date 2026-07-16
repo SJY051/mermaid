@@ -98,6 +98,18 @@ export type UiAction =
   | { type: 'OPEN_DRUG_DETAIL'; payload: { drugId: string } }
   | { type: 'SHOW_EMERGENCY_CALL'; payload: { phone: string; label: string } }
   | { type: 'ASK_CLARIFYING_QUESTION'; payload: { question: string } }
+  | {
+      type: 'OPEN_OFFICIAL_SOURCE'
+      /** Exact server allowlist tuple; the model is not allowed to mint source links. */
+      payload: {
+        sourceId:
+          | 'korean-narcotics-control-act'
+          | 'mfds-medical-narcotic-analgesic-standards'
+        label: string
+        url: string
+        verifiedOn: string
+      }
+    }
 
 export interface Urgency {
   level: UrgencyLevel
