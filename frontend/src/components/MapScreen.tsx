@@ -256,6 +256,7 @@ export function MapScreen({ active }: MapScreenProps) {
   const showResultSummary =
     !loadingFacilities &&
     !hospitalUnavailable &&
+    !(typeFilter === 'all' && fetchError !== null) &&
     (!fetchError || facilities.length > 0)
   const showEmptyState =
     !loadingFacilities &&

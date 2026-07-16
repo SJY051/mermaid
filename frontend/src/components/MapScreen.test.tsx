@@ -191,6 +191,9 @@ describe('MapScreen', () => {
     expect(await screen.findByTestId(`map-facility-${pharmacy.id}`)).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Emergency-room lookup failed.')
     expect(screen.queryByText(/No facilities found/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('1 facilities · 1 Open now · 0 Hours unknown'),
+    ).not.toBeInTheDocument()
   })
 
   it('loads emergency-room fixture results with open_now off and disables Open now', async () => {
