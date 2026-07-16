@@ -27,9 +27,10 @@ final class ResponsePlanner {
     private static final Pattern FACILITY_MENTION = Pattern.compile(
             "\\b(?:pharmac(?:y|ies)|drugstores?|hospitals?|" + ER_TARGET_TOKEN + ")\\b");
     private static final Pattern LANDMARK_RELATION = Pattern.compile(
-            "\\b(?:near|beside|by|around|at|in|inside|next to|close to|closest to|across from)\\b");
+            "\\b(?:near|beside|by|around|at|in|inside|next to|close to|closest to|"
+                    + "across(?: the street)? from)\\b");
     private static final Pattern LANDMARK_TARGET_BREAK = Pattern.compile(
-            "\\b(?:and|or|where|find|locate|show|look|me|my|here|current)\\b");
+            "\\b(?:and|or|where|find|locate|show|look|me|my|us|our|here|current)\\b");
     private static final Pattern LOCATION_SIGNAL = Pattern.compile(
             "\\b(?:closest|directions?|find|locate|map|nearest|nearby|where)\\b"
                     + "|\\blook\\s+for\\b|\\b(?:near|around)\\s+(?:me|my current location)\\b");
@@ -41,12 +42,13 @@ final class ResponsePlanner {
                     + "|\\b(?:currently|presently|still)\\s+open(?:ed)?\\b"
                     + "|\\boperating\\s+(?:right\\s+now|currently|at\\s+present)\\b"
                     + "|\\bopen\\s+as\\s+we\\s+speak\\b"
+                    + "|\\bopen\\s+at\\s+this\\s+hour\\b"
                     + "|\\b24[ -]?hours?\\b|\\b24\\s*/\\s*7\\b");
     private static final Pattern OPEN_BEFORE_FACILITY_BRIDGE =
             Pattern.compile("\\s*(?:(?:nearby|nearest|closest)\\s+)?");
     private static final Pattern FACILITY_BEFORE_OPEN_BRIDGE = Pattern.compile(
             "\\s*(?:(?:near|around)\\s+(?:me|my current location)\\s*)?"
-                    + "(?:(?:(?:that|which)\\s+)?(?:is|are)\\s*)?");
+                    + "(?:(?:(?:that|which)\\s+(?:is|are)|that['’]s|(?:is|are))\\s*)?");
     private static final Pattern NON_FACILITY_INTENT = Pattern.compile(
             "\\b(?:allerg(?:y|ic|ies)|cold|cough|dose|fever|headache|interaction|medicine|"
                     + "medication|pain|sick|sore throat|symptoms?|tablet|treatment)\\b");
@@ -91,12 +93,12 @@ final class ResponsePlanner {
             "\\b(?:how\\s+(?:can|could|do)|(?:explain|show|tell) me how(?: to)?)\\s+"
                     + "(?:(?:i|we|someone)\\s+)?(?:avoid|report|stop|prevent|detect|identify)\\b");
     private static final Pattern PROTECTIVE_CONTINUATION =
-            Pattern.compile("\\b(?:and|but|while|when)\\b");
+            Pattern.compile("\\b(?:and|but|then|while|when)\\b");
     private static final Pattern CONTROLLED_SUBJECT = Pattern.compile(
             "\\b(?:fentanyl|controlled\\s+drugs?|medical\\s+narcotics?|narcotics?|illicit\\s+drugs?)\\b");
     private static final Pattern ACQUISITION_ACTION =
             Pattern.compile("\\b(?:acquir(?:e|ed|ing)|buy(?:ing)?|sell(?:ing)?|obtain(?:ing)?|"
-                    + "get(?:ting)?|purchas(?:e|ed|ing)|sourc(?:e|ed|ing))\\b");
+                    + "get(?:ting)?|procur(?:e|ed|ing)|purchas(?:e|ed|ing)|sourc(?:e|ed|ing))\\b");
     private static final Pattern BLACK_MARKET = Pattern.compile("\\bblack\\s+market\\b");
     private static final Pattern WITHOUT_PRESCRIPTION =
             Pattern.compile("\\bwithout\\s+(?:a\\s+)?prescription\\b");
@@ -106,7 +108,8 @@ final class ResponsePlanner {
             "\\b(?:create|creating|make|making)\\b.*\\b(?:fake|forged)\\s+prescriptions?\\b");
     private static final Pattern MANUFACTURE_ACTION =
             Pattern.compile("\\b(?:make|making|manufacture|manufacturing|produce|producing|"
-                    + "synthesiz(?:e|ed|ing)|grow|growing|cultivate|cultivating)\\b");
+                    + "compound(?:ed|ing)?|synthesiz(?:e|ed|ing)|grow|growing|"
+                    + "cultivate|cultivating)\\b");
     private static final Pattern MANUFACTURE_EVASION = Pattern.compile(
             "\\b(?:at\\s+home|without\\s+(?:being\\s+)?caught|evad(?:e|ing)|conceal(?:ing)?)\\b");
     private static final Pattern MULTIPLE_PRESCRIBERS = Pattern.compile(
@@ -121,6 +124,8 @@ final class ResponsePlanner {
             "\\bprevent\\s+(?:prescription\\s+)?monitoring\\s+from\\s+(?:detecting|noticing)\\b");
     private static final Pattern CLAUSE_BOUNDARY =
             Pattern.compile("[.!?;]+|\\R+|,\\s*(?:and|but)\\s+|"
+                    + ":\\s*(?=(?:is|are|can|could|should|would|where|how|what|who|why|"
+                    + "i|we|you|he|she|they)\\b)|"
                     + "\\band\\s+(?=(?:is|are|can|could|should|would|where|how|what|who|why|"
                     + "i|we|you|he|she|they)\\b)|\\bhowever\\b");
     private static final Pattern LICENSED_CARE = Pattern.compile(
