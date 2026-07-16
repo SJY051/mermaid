@@ -61,7 +61,7 @@ class FacilityServiceTest {
     void openNowLooksPastTheReturnedLimitForAFartherOpenPharmacy() {
         List<PharmacyApiClient.RawPharmacy> closed =
                 IntStream.range(0, 50)
-                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0000", "0001"))
+                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0100", "0200"))
                         .toList();
         var fartherOpen = pharmacy("open-51", 0.051, "0900", "1900");
         var client =
@@ -79,7 +79,7 @@ class FacilityServiceTest {
     void openOrUnknownLooksPastClosedRowsAndOrdersConfirmedOpenBeforeUnknown() {
         List<PharmacyApiClient.RawPharmacy> closed =
                 IntStream.range(0, 50)
-                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0000", "0001"))
+                        .mapToObj(i -> pharmacy("closed-" + i, 0.001 + i * 0.001, "0100", "0200"))
                         .toList();
         var unknown = pharmacy("unknown-51", 0.051, null, null);
         var fartherOpen = pharmacy("open-52", 0.052, "0900", "1900");
@@ -116,6 +116,30 @@ class FacilityServiceTest {
     }
 
     @Test
+    void openOrUnknownExcludesConfirmedClosedRowsEvenWhenTheLimitHasRoom() {
+        var client =
+                new CountingPharmacyClient(
+                        List.of(
+                                pharmacy("closed", 0.001, "0100", "0200"),
+                                pharmacy("unknown", 0.002, null, null),
+                                pharmacy("open", 0.003, "0900", "1900")));
+        var service = pharmacyService(client);
+
+        var found = service.findNearby(
+                37.5663,
+                126.9779,
+                1000,
+                FacilityOperationPreference.OPEN_OR_UNKNOWN,
+                FacilityType.PHARMACY,
+                3);
+
+        assertThat(found)
+                .extracting(Facility::id)
+                .containsExactly("facility:nmc:open", "facility:nmc:unknown");
+        assertThat(found).noneMatch(facility -> Boolean.FALSE.equals(facility.operation().isOpenNow()));
+    }
+
+    @Test
     void ordinaryPharmacySearchFetchesOnlyTheReturnedLimitOfWeeklyTables() {
         var client =
                 new CountingPharmacyClient(
@@ -135,7 +159,7 @@ class FacilityServiceTest {
         var client =
                 new CountingPharmacyClient(
                         IntStream.range(0, 150)
-                                .mapToObj(i -> pharmacy("pharmacy-" + i, 0.001 + i * 0.001, "0000", "0001"))
+                                .mapToObj(i -> pharmacy("pharmacy-" + i, 0.001 + i * 0.001, "0100", "0200"))
                                 .toList());
         var service = pharmacyService(client);
 

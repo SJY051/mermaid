@@ -8,6 +8,7 @@ import com.mermaid.common.SourceRef;
 import com.mermaid.facility.domain.DutyTable;
 import com.mermaid.facility.domain.Facility;
 import com.mermaid.facility.domain.FacilityOperation;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import com.mermaid.facility.domain.FacilityType;
 import com.mermaid.facility.domain.OpenInterval;
 import com.mermaid.facility.domain.WeeklyHours;
@@ -101,16 +102,55 @@ public class FacilityService {
 
     public List<Facility> findNearby(
             double lat, double lng, int radiusMeters, boolean openNow, FacilityType type) {
-        return findNearby(lat, lng, radiusMeters, openNow, type, MAX_FACILITY_RESULTS);
+        return findNearby(
+                lat,
+                lng,
+                radiusMeters,
+                FacilityOperationPreference.fromLegacyOpenNow(openNow),
+                type,
+                MAX_FACILITY_RESULTS);
     }
 
-    /** Returns the nearest requested number of facilities. */
+    /** Legacy boolean overload retained for API and internal call-site compatibility. */
     public List<Facility> findNearby(
             double lat, double lng, int radiusMeters, boolean openNow, FacilityType type, int limit) {
+        return findNearby(
+                lat,
+                lng,
+                radiusMeters,
+                FacilityOperationPreference.fromLegacyOpenNow(openNow),
+                type,
+                limit);
+    }
+
+    public List<Facility> findNearby(
+            double lat,
+            double lng,
+            int radiusMeters,
+            FacilityOperationPreference operationPreference,
+            FacilityType type) {
+        return findNearby(
+                lat,
+                lng,
+                radiusMeters,
+                operationPreference,
+                type,
+                MAX_FACILITY_RESULTS);
+    }
+
+    /** Returns the requested number of facilities under the explicit tri-state hours contract. */
+    public List<Facility> findNearby(
+            double lat,
+            double lng,
+            int radiusMeters,
+            FacilityOperationPreference operationPreference,
+            FacilityType type,
+            int limit) {
         return switch (type) {
-            case PHARMACY -> pharmacies(lat, lng, radiusMeters, openNow, limit);
-            case HOSPITAL -> hospitals(lat, lng, radiusMeters, openNow, limit);
-            case EMERGENCY_ROOM -> emergencyRooms(lat, lng, radiusMeters, openNow, limit);
+            case PHARMACY -> pharmacies(lat, lng, radiusMeters, operationPreference, limit);
+            case HOSPITAL -> hospitals(lat, lng, radiusMeters, operationPreference, limit);
+            case EMERGENCY_ROOM -> emergencyRooms(
+                    lat, lng, radiusMeters, operationPreference, limit);
         };
     }
 
@@ -292,16 +332,22 @@ public class FacilityService {
     }
 
     private List<Facility> pharmacies(
-            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
+            double lat,
+            double lng,
+            int radiusMeters,
+            FacilityOperationPreference operationPreference,
+            int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         Instant operationRetrievedAt = now.toInstant();
 
         PharmacyApiClient.PharmacyBatch batch =
-                openNow
+                operationPreference == FacilityOperationPreference.CONFIRMED_OPEN_ONLY
                         ? pharmacyApiClient.findNearForOpenNow(lat, lng, radiusMeters)
                         : pharmacyApiClient.findNear(lat, lng, radiusMeters);
-        int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
+        int candidateLimit = operationPreference.usesExpandedCandidateSet()
+                ? MAX_OPEN_NOW_CANDIDATES
+                : limit;
         List<PharmacyApiClient.RawPharmacy> candidates =
                 batch.pharmacies().stream()
                 // HIRA accepts a radius while NMC does not, but both batches are grid-cached. Recheck
@@ -332,10 +378,8 @@ public class FacilityService {
                                         operationRetrievedAt,
                                         batch.retrievedAt()))
                 .stream()
-                // `open_now=true` returns only status=open. A pharmacy whose timetable we could not
-                // read is excluded rather than guessed at, in either direction (spec §2-13).
-                .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
-                .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .filter(f -> operationPreference.includes(f.operation().isOpenNow()))
+                .sorted(operationOrder(operationPreference))
                 .limit(limit)
                 .toList();
     }
@@ -525,7 +569,11 @@ public class FacilityService {
     }
 
     private List<Facility> hospitals(
-            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
+            double lat,
+            double lng,
+            int radiusMeters,
+            FacilityOperationPreference operationPreference,
+            int limit) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
         HospitalApiClient.HospitalBatch batch = hospitalApiClient.findNear(lat, lng, radiusMeters);
@@ -541,7 +589,9 @@ public class FacilityService {
         // HIRA detail calls are per-ykiho. For an ordinary map load, inspect only pins that can be
         // returned; for open-now, inspect a wider but fixed candidate set so a farther open hospital
         // is not hidden behind nearer closed ones.
-        int candidateLimit = openNow ? MAX_OPEN_NOW_CANDIDATES : limit;
+        int candidateLimit = operationPreference.usesExpandedCandidateSet()
+                ? MAX_OPEN_NOW_CANDIDATES
+                : limit;
         List<NearbyHospital> candidates =
                 batch.hospitals().stream()
                         .map(h -> new NearbyHospital(h, hospitalDistanceMetres(h, lat, lng)))
@@ -563,8 +613,8 @@ public class FacilityService {
                                         now,
                                         holiday))
                 .stream()
-                .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
-                .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                .filter(f -> operationPreference.includes(f.operation().isOpenNow()))
+                .sorted(operationOrder(operationPreference))
                 .limit(limit)
                 .toList();
     }
@@ -661,19 +711,35 @@ public class FacilityService {
     }
 
     private List<Facility> emergencyRooms(
-            double lat, double lng, int radiusMeters, boolean openNow, int limit) {
+            double lat,
+            double lng,
+            int radiusMeters,
+            FacilityOperationPreference operationPreference,
+            int limit) {
         Instant retrievedAt = clock.instant();
         EmergencyRoomApiClient.EmergencyRoomBatch batch = emergencyRoomApiClient.findNear(lat, lng);
 
         return batch.emergencyRooms().stream()
                 .map(raw -> toEmergencyRoom(raw, batch.origin(), lat, lng, retrievedAt))
                 .filter(f -> f.distanceMeters() <= radiusMeters)
-                // No NMC location record proves an emergency department is open. `true` would lie,
-                // so open_now includes only an explicitly confirmed open status.
-                .filter(f -> !openNow || Boolean.TRUE.equals(f.operation().isOpenNow()))
-                .sorted(Comparator.comparingDouble(Facility::distanceMeters))
+                // No NMC location record proves an emergency department is open. The explicit
+                // preference decides whether unknown-hours rows remain visible without guessing.
+                .filter(f -> operationPreference.includes(f.operation().isOpenNow()))
+                .sorted(operationOrder(operationPreference))
                 .limit(limit)
                 .toList();
+    }
+
+    private static Comparator<Facility> operationOrder(
+            FacilityOperationPreference operationPreference) {
+        Comparator<Facility> distance = Comparator.comparingDouble(Facility::distanceMeters);
+        if (operationPreference != FacilityOperationPreference.OPEN_OR_UNKNOWN) {
+            return distance;
+        }
+        return Comparator.comparingInt(
+                        (Facility facility) -> operationPreference.operationRank(
+                                facility.operation().isOpenNow()))
+                .thenComparing(distance);
     }
 
     private Facility toEmergencyRoom(

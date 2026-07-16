@@ -1,6 +1,9 @@
 package com.mermaid.facility;
 
+import com.mermaid.common.ApiException;
+import com.mermaid.common.ErrorCode;
 import com.mermaid.facility.domain.Facility;
+import com.mermaid.facility.domain.FacilityOperationPreference;
 import com.mermaid.facility.domain.FacilityType;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -24,7 +27,7 @@ public class FacilityController {
     private final FacilityService facilityService;
 
     /**
-     * e.g. {@code ?lat=37.56&lng=126.97&radius_m=500&open_now=true&type=pharmacy}
+     * e.g. {@code ?lat=37.56&lng=126.97&radius_m=500&operation_preference=open_or_unknown&type=pharmacy}
      *
      * <p>{@code open_now=true} returns only facilities we know to be open. A facility whose
      * timetable we could not read is excluded rather than guessed at — see spec §2-13. For
@@ -37,10 +40,21 @@ public class FacilityController {
             @RequestParam @Min(-90) @Max(90) double lat,
             @RequestParam @Min(-180) @Max(180) double lng,
             @RequestParam(name = "radius_m", defaultValue = "1000") @Min(100) @Max(10_000) int radiusM,
-            @RequestParam(name = "open_now", defaultValue = "false") boolean openNow,
+            @RequestParam(name = "open_now", required = false) Boolean openNow,
+            @RequestParam(name = "operation_preference", required = false)
+                    FacilityOperationPreference operationPreference,
             @RequestParam(defaultValue = "pharmacy") FacilityType type,
             @RequestParam(defaultValue = "50") @Min(1) @Max(FacilityService.MAX_FACILITY_RESULTS) int limit) {
-        return facilityService.findNearby(lat, lng, radiusM, openNow, type, limit);
+        if (openNow != null && operationPreference != null) {
+            throw new ApiException(
+                    ErrorCode.INVALID_REQUEST,
+                    "open_now and operation_preference cannot be supplied together");
+        }
+        FacilityOperationPreference resolved =
+                operationPreference != null
+                        ? operationPreference
+                        : FacilityOperationPreference.fromLegacyOpenNow(Boolean.TRUE.equals(openNow));
+        return facilityService.findNearby(lat, lng, radiusM, resolved, type, limit);
     }
 
     /**
