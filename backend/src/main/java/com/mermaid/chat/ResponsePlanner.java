@@ -21,18 +21,26 @@ final class ResponsePlanner {
     private static final Pattern HOSPITAL = Pattern.compile("\\bhospitals?\\b");
     private static final Pattern EMERGENCY_ROOM =
             Pattern.compile("\\b(?:ers?|emergency rooms?|emergency departments?)\\b");
+    private static final Pattern HOSPITAL_EMERGENCY_ROOM = Pattern.compile(
+            "\\bhospitals?\\s+(?:ers?|emergency rooms?|emergency departments?)\\b");
+    private static final Pattern HOSPITAL_LANDMARK = Pattern.compile(
+            "\\b(?:near|beside|by|around|next to|close to)\\s+(?:the|a|an)\\s+hospitals?\\b");
     private static final Pattern LOCATION_SIGNAL = Pattern.compile(
             "\\b(?:closest|directions?|find|locate|map|nearest|nearby|where)\\b"
                     + "|\\blook\\s+for\\b|\\b(?:near|around)\\s+(?:me|my current location)\\b");
     private static final Pattern OPEN_SIGNAL = Pattern.compile(
             "\\bopen(?:ed)?\\b(?:\\s+\\w+){0,2}\\s+\\b(?:now|currently|today|tonight)\\b"
-                    + "|\\b(?:currently|still)\\s+open\\b|\\b24[ -]?hours?\\b");
+                    + "|\\b(?:currently|still)\\s+open\\b|\\bopen\\s+at\\s+the\\s+moment\\b"
+                    + "|\\b24[ -]?hours?\\b|\\b24\\s*/\\s*7\\b");
     private static final Pattern NON_FACILITY_INTENT = Pattern.compile(
             "\\b(?:allerg(?:y|ic|ies)|cold|cough|dose|fever|headache|interaction|medicine|"
                     + "medication|pain|sick|sore throat|symptoms?|tablet|treatment)\\b");
+    private static final String CARE_SUBJECT =
+            "(?:i|my (?:child|baby|son|daughter|mother|father|parent|partner|friend)"
+                    + "|our (?:child|baby|son|daughter|parent)|the patient|he|she|they)";
     private static final Pattern CARE_DECISION = Pattern.compile(
             "\\b(?:should i|do i need to)\\s+(?:go|visit)\\b"
-                    + "|\\b(?:whether|if) i should\\s+(?:go|visit)\\b"
+                    + "|\\b(?:whether|if) " + CARE_SUBJECT + " should\\s+(?:go|visit)\\b"
                     + "|\\bsigns? (?:that )?i need\\b.*\\b(?:hospital|ers?|emergency rooms?)\\b");
 
     private static final Pattern NEUTRAL_LEGAL_INFORMATION = Pattern.compile(
@@ -40,9 +48,16 @@ final class ResponsePlanner {
                     + ".*\\b(?:korea|korean law|law)\\b"
                     + "|\\b(?:korea|korean law|law)\\b.*\\b(?:prescribed legally|medical narcotic)\\b");
     private static final String OPERATIONAL_REQUEST =
-            "(?:how (?:can|do) i|where can i|tell me how to|help me(?: to)?)";
+            "(?:how (?:can|do) i|where can i|tell me how(?: to)?|help me(?: to)?"
+                    + "|give me (?:step-by-step )?(?:instructions|steps)(?: (?:on|for))?"
+                    + "|what is the best way(?: to)?)";
     private static final String LAUNCH_CONTROLLED_SUBJECT =
-            "(?:fentanyl|controlled drug|medical narcotic|narcotic|illicit drug)";
+            "(?:fentanyl(?!\\s+(?:test\\s+strips?|testing\\s+kits?)\\b)"
+                    + "|controlled drug|medical narcotic|narcotic|illicit drug)";
+    private static final Pattern QUOTED_SPAN = Pattern.compile(
+            "\\\"(?:[^\\\"\\\\]|\\\\.)*\\\""
+                    + "|(?<![\\p{L}\\p{N}])'(?:[^'\\\\]|\\\\.)*'(?![\\p{L}\\p{N}])"
+                    + "|“[^”]*”|‘[^’]*’");
     private static final Pattern BLACK_MARKET = Pattern.compile(
             "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:buy|sell|obtain|get)\\b.*\\b"
                     + LAUNCH_CONTROLLED_SUBJECT + "\\b.*\\bblack market\\b"
@@ -61,9 +76,15 @@ final class ResponsePlanner {
                     + ".*\\b" + LAUNCH_CONTROLLED_SUBJECT + "\\b"
                     + ".*\\b(?:at home|without (?:being )?caught|evad(?:e|ing)|conceal(?:ing)?)\\b");
     private static final Pattern MONITORING_EVASION = Pattern.compile(
-            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\bmultiple doctors?\\b"
-                    + ".*\\bprescrib(?:e|ing)\\b.*\\bmonitoring\\b"
-                    + ".*\\b(?:notic(?:e|ing)|evad(?:e|ing)|bypass)\\b");
+            "\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:bypass|evade|avoid)\\b"
+                    + ".*\\b(?:prescription\\s+)?monitoring\\b"
+                    + ".*\\b(?:multiple|several)\\s+(?:doctors?|clinicians?)\\b"
+                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:multiple|several)\\s+"
+                    + "(?:doctors?|clinicians?)\\b.*\\b(?:prescription\\s+)?monitoring\\b"
+                    + ".*\\b(?:bypass|evade|avoid)\\b"
+                    + "|\\b" + OPERATIONAL_REQUEST + "\\b.*\\b(?:multiple|several)\\s+"
+                    + "(?:doctors?|clinicians?)\\b.*\\bprescrib(?:e|ing)\\b"
+                    + ".*\\bmonitoring\\b.*\\b(?:notic(?:e|ing)|bypass|evad(?:e|ing))\\b");
     private static final Pattern LICENSED_CARE = Pattern.compile(
             "\\b(?:discuss|ask|talk)\\b.*\\b(?:licensed )?(?:doctor|clinician|pharmacist)\\b");
 
@@ -79,7 +100,7 @@ final class ResponsePlanner {
         }
 
         String normalized = input.latestUserTurn().toLowerCase(Locale.ROOT);
-        if (isExplicitControlEvasion(normalized)) {
+        if (isExplicitControlEvasion(maskQuotedSpans(normalized))) {
             return new ResponsePlan(
                     ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE,
                     Set.of(ResponsePlan.Capability.ILLEGAL_ASSISTANCE_REFUSAL),
@@ -258,7 +279,12 @@ final class ResponsePlanner {
         boolean emergencyRoom = EMERGENCY_ROOM.matcher(normalized).find();
         if (emergencyRoom) {
             types.add(FacilityType.EMERGENCY_ROOM);
-        } else if (HOSPITAL.matcher(normalized).find()) {
+        }
+        String hospitalTargetText = HOSPITAL_EMERGENCY_ROOM.matcher(normalized).replaceAll(" ");
+        if (types.contains(FacilityType.PHARMACY)) {
+            hospitalTargetText = HOSPITAL_LANDMARK.matcher(hospitalTargetText).replaceAll(" ");
+        }
+        if (HOSPITAL.matcher(hospitalTargetText).find()) {
             types.add(FacilityType.HOSPITAL);
         }
         boolean openNow = OPEN_SIGNAL.matcher(normalized).find();
@@ -288,6 +314,10 @@ final class ResponsePlanner {
                 || FORGED_OR_STOLEN_PRESCRIPTION.matcher(normalized).find()
                 || UNLICENSED_MANUFACTURE.matcher(normalized).find()
                 || MONITORING_EVASION.matcher(normalized).find();
+    }
+
+    private static String maskQuotedSpans(String normalized) {
+        return QUOTED_SPAN.matcher(normalized).replaceAll(" ");
     }
 
     private static ResponsePlan emergencyPlan(String reasonCode) {
