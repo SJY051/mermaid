@@ -119,6 +119,7 @@ class ChatProxyControllerTest {
                 new StructuredOutputFallback(mapper),
                 validator,
                 new ServerAuthoredAnswerBuilder(normalizer, validator),
+                new FacilityIntentRouter(),
                 new EmergencyTriage(),
                 normalizer,
                 mapper);
@@ -225,6 +226,17 @@ class ChatProxyControllerTest {
         return mapper.readValue(content, MermAidAnswer.class);
     }
 
+    private static void assertFacilityMap(
+            MermAidAnswer answer, List<String> types, boolean openNow) {
+        assertThat(answer.uiActions()).singleElement().satisfies(action -> {
+            assertThat(action).isInstanceOf(UiAction.OpenFacilityMap.class);
+            UiAction.MapPayload payload = ((UiAction.OpenFacilityMap) action).payload();
+            assertThat(payload.types()).containsExactlyElementsOf(types);
+            assertThat(payload.openNow()).isEqualTo(openNow);
+            assertThat(payload.radiusM()).isEqualTo(1_000);
+        });
+    }
+
     private static String modelAnswer(String drugsJson, String sourceRefsJson) {
         return """
             {"schemaVersion":"1.0","answerId":"a1","language":"en","dataStatus":"live",
@@ -298,6 +310,7 @@ class ChatProxyControllerTest {
                 new StructuredOutputFallback(mapper),
                 validator,
                 new ServerAuthoredAnswerBuilder(normalizer, validator),
+                new FacilityIntentRouter(),
                 new EmergencyTriage(),
                 normalizer,
                 mapper);
@@ -354,6 +367,36 @@ class ChatProxyControllerTest {
             assertTerminalAnswer(unavailable, ServerAuthoredSearchUnavailableAnswer.answer());
             assertThat(unavailable.answerId()).isNotEqualTo(empty.answerId());
             assertThat(unavailable.summary()).isNotEqualTo(empty.summary());
+        }
+
+        @Test
+        @DisplayName("a requested pharmacy map survives an unavailable medicine lookup")
+        void requestedPharmacySurvivesUnavailableMedicineLookup() throws Exception {
+            ControllerHarness harness =
+                    harness(modelAnswer("[]", "[]"), searchUnavailableContext());
+
+            MermAidAnswer answer = answerOf(harness.controller().completions(request(
+                    "I have a mild fever. Might be a cold and I need to get some medicine. "
+                            + "can you look for pharmacies for me?")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.answerId())
+                    .isEqualTo(ServerAuthoredSearchUnavailableAnswer.ANSWER_ID);
+            assertThat(answer.summary()).contains("map below");
+            assertFacilityMap(answer, List.of("pharmacy"), false);
+        }
+
+        @Test
+        @DisplayName("a facility-only turn returns a map action instead of a medicine-only refusal")
+        void facilityOnlyTurnReturnsRequestedMap() throws Exception {
+            ControllerHarness harness = harness(modelAnswer("[]", "[]"), emptyContext());
+
+            MermAidAnswer answer = answerOf(harness.controller()
+                    .completions(request("where is the closest pharmacy? opened right now")));
+
+            assertThat(harness.upstream().calls).hasValue(0);
+            assertThat(answer.summary()).contains("map below");
+            assertFacilityMap(answer, List.of("pharmacy"), true);
         }
 
         @Test
@@ -914,7 +957,7 @@ class ChatProxyControllerTest {
         @DisplayName("with nothing retrieved, model prose is replaced by the fixed empty answer")
         void emptyContextStillAnswers() throws Exception {
             ControllerHarness harness = harness(modelAnswer("[]", "[]"), emptyContext());
-            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
+            var response = harness.controller().completions(request("What can you do?"));
 
             MermAidAnswer answer = answerOf(response);
             assertThat(harness.upstream().calls).hasValue(0);
@@ -978,6 +1021,32 @@ class ChatProxyControllerTest {
                 assertThat(card.sourceRefId()).isEqualTo(TYLENOL_SOURCE.id());
             });
             assertThat(harness.upstream().calls).hasValue(0);
+        }
+
+        @Test
+        @DisplayName("a requested pharmacy map survives canonical server-authored drug cards")
+        void requestedPharmacySurvivesCanonicalDrugCards() throws Exception {
+            ControllerHarness harness = harness(modelAnswer("[]", "[]"), contextWith(TYLENOL));
+
+            MermAidAnswer answer = answerOf(harness.controller().completions(request(
+                    "I have a mild fever. Might be a cold and I need to get some medicine. "
+                            + "can you look for pharmacies for me?")));
+
+            assertThat(answer.drugs()).hasSize(1);
+            assertThat(answer.summary()).isEqualTo(ServerAuthoredAnswerBuilder.SUMMARY);
+            assertFacilityMap(answer, List.of("pharmacy"), false);
+        }
+
+        @Test
+        @DisplayName("a medicine-only turn does not invent a facility action")
+        void medicineOnlyTurnHasNoFacilityAction() throws Exception {
+            ControllerHarness harness = harness(modelAnswer("[]", "[]"), contextWith(TYLENOL));
+
+            MermAidAnswer answer = answerOf(
+                    harness.controller().completions(request("I have a mild fever")));
+
+            assertThat(answer.drugs()).hasSize(1);
+            assertThat(answer.uiActions()).isEmpty();
         }
 
         @Test
@@ -1077,7 +1146,7 @@ class ChatProxyControllerTest {
         }
 
         @Test
-        @DisplayName("model-supplied duplicate map actions cannot enter an empty answer")
+        @DisplayName("duplicate model map actions are replaced by one server-owned action")
         void duplicateUiActionsCollapse() throws Exception {
             // A live answer really did carry OPEN_FACILITY_MAP once per drug it described.
             String threeMaps = """
@@ -1091,12 +1160,12 @@ class ChatProxyControllerTest {
             var response = harness.controller().completions(request("where is the nearest pharmacy?"));
 
             assertThat(harness.upstream().calls).hasValue(0);
-            assertThat(answerOf(response).uiActions()).isEmpty();
+            assertFacilityMap(answerOf(response), List.of("pharmacy"), false);
         }
 
         @Test
-        @DisplayName("model-supplied distinct map actions cannot enter an empty answer")
-        void differentActionsSurvive() throws Exception {
+        @DisplayName("distinct model map actions cannot change the server-owned payload")
+        void differentModelActionsAreIgnored() throws Exception {
             String twoMaps = """
                 [{"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":1000}},
                  {"type":"OPEN_FACILITY_MAP","payload":{"types":["pharmacy"],"openNow":true,"radiusM":3000}}]
@@ -1107,7 +1176,7 @@ class ChatProxyControllerTest {
             var response = harness.controller().completions(request("pharmacies near me"));
 
             assertThat(harness.upstream().calls).hasValue(0);
-            assertThat(answerOf(response).uiActions()).isEmpty();
+            assertFacilityMap(answerOf(response), List.of("pharmacy"), false);
         }
 
         @Test
@@ -1127,8 +1196,8 @@ class ChatProxyControllerTest {
             MermAidAnswer answer = answerOf(response);
             assertThat(harness.upstream().calls).hasValue(0);
             assertThat(answer.answerId()).isEqualTo(ServerAuthoredEmptyAnswer.ANSWER_ID);
-            assertThat(answer.summary()).isEqualTo(ServerAuthoredEmptyAnswer.SUMMARY);
-            assertThat(answer.uiActions()).isEmpty();
+            assertThat(answer.summary()).contains("map below");
+            assertFacilityMap(answer, List.of("pharmacy"), false);
         }
 
         @Test
@@ -1170,6 +1239,7 @@ class ChatProxyControllerTest {
                     new StructuredOutputFallback(mapper),
                     validator,
                     new ServerAuthoredAnswerBuilder(normalizer, validator),
+                    new FacilityIntentRouter(),
                     new EmergencyTriage(),
                     normalizer,
                     mapper);

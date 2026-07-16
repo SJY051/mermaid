@@ -174,6 +174,7 @@ class ProxyInjectionTest {
                 new ServerAuthoredAnswerBuilder(
                         new IngredientNormalizer(),
                         new AnswerValidator(new IngredientNormalizer())),
+                new FacilityIntentRouter(),
                 new EmergencyTriage(),
                 new IngredientNormalizer(),
                 mapper);
@@ -200,6 +201,7 @@ class ProxyInjectionTest {
                 new ServerAuthoredAnswerBuilder(
                         new IngredientNormalizer(),
                         new AnswerValidator(new IngredientNormalizer())),
+                new FacilityIntentRouter(),
                 new EmergencyTriage(),
                 new IngredientNormalizer(),
                 mapper);

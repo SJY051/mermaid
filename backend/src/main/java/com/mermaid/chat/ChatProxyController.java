@@ -65,6 +65,7 @@ public class ChatProxyController {
     private final StructuredOutputFallback fallback;
     private final AnswerValidator answerValidator;
     private final ServerAuthoredAnswerBuilder serverAuthoredAnswerBuilder;
+    private final FacilityIntentRouter facilityIntentRouter;
     private final EmergencyTriage emergencyTriage;
     private final com.mermaid.drug.IngredientNormalizer ingredientNormalizer;
     private final ObjectMapper objectMapper;
@@ -158,8 +159,10 @@ public class ChatProxyController {
     private MermAidAnswer answer(JsonNode request) {
         MermaidRequestExtension.StructuredExclusions exclusions =
                 MermaidRequestExtension.excludedIngredients(request);
+        String userText = ChatProxyService.lastUserMessage(request);
         return withUnverifiedAllergenCaveat(
-                answer(request, exclusions), exclusions.unverifiedTerms());
+                facilityIntentRouter.route(userText, answer(request, exclusions)),
+                exclusions.unverifiedTerms());
     }
 
     private MermAidAnswer answer(
