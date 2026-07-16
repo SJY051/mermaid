@@ -1297,6 +1297,59 @@ class ChatProxyControllerTest {
         }
 
         @Test
+        @DisplayName("a public-data failure preserves the map action and logs no upstream message")
+        void mixedTurnKeepsFacilityActionWhenPublicDataFails() throws Exception {
+            String sensitiveMessage = "UPSTREAM_MESSAGE_SENTINEL lat=37.123456,lng=127.654321";
+            AtomicInteger retrievalCalls = new AtomicInteger();
+            FakeUpstream upstream = new FakeUpstream(modelAnswer("[]", "[]"));
+            IngredientNormalizer normalizer = new IngredientNormalizer();
+            AnswerValidator validator = new AnswerValidator(normalizer);
+            ChatProxyController controller = new ChatProxyController(
+                    upstream,
+                    new DrugContextRetriever(null, null, null, mapper) {
+                        @Override
+                        public DrugContext retrieve(
+                                String userText,
+                                String allUserText,
+                                MermaidRequestExtension.StructuredExclusions exclusions) {
+                            retrievalCalls.incrementAndGet();
+                            throw new com.mermaid.common.PublicApiException(sensitiveMessage);
+                        }
+                    },
+                    new StructuredOutputFallback(mapper),
+                    validator,
+                    new ServerAuthoredAnswerBuilder(normalizer, validator),
+                    new EmergencyTriage(),
+                    normalizer,
+                    mapper);
+
+            Logger logger = (Logger) LoggerFactory.getLogger(ChatProxyController.class);
+            ListAppender<ILoggingEvent> appender = new ListAppender<>();
+            appender.start();
+            logger.addAppender(appender);
+            MermAidAnswer answer;
+            try {
+                answer = answerOf(controller.completions(request(
+                        "I have a mild fever, need medicine, and want the nearest pharmacy.")));
+            } finally {
+                logger.detachAppender(appender);
+                appender.stop();
+            }
+
+            assertThat(retrievalCalls).hasValue(1);
+            assertThat(upstream.calls).hasValue(0);
+            assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.uiActions())
+                    .singleElement()
+                    .isInstanceOf(UiAction.OpenFacilityMap.class);
+            assertThat(appender.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(message -> message.contains("UPSTREAM_MESSAGE_SENTINEL")
+                            || message.contains("37.123456")
+                            || message.contains("127.654321"));
+        }
+
+        @Test
         @DisplayName("allergy direct answers still outrank facility composition")
         void allergyDirectAnswerStillShortCircuits() throws Exception {
             ControllerHarness harness =
