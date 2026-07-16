@@ -303,6 +303,22 @@ describe('MapScreen', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('uses safety copy when All is empty after hospital lookup is unavailable', async () => {
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([]),
+    )
+
+    render(<MapScreen active={true} />)
+
+    expect(
+      await screen.findByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No facilities found within 1000m.')).not.toBeInTheDocument()
+  })
+
   it('renders null opening hours as Hours unknown, never Closed', async () => {
     const user = userEvent.setup()
     const unknown = facility('unknown', '미상약국', null, '02-111-2222')

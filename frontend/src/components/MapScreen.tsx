@@ -250,7 +250,7 @@ export function MapScreen({ active }: MapScreenProps) {
           : 'emergency rooms'
   const resultSummaryKind =
     emergencyRoomMode && facilities.length === 1 ? 'emergency room' : resultKind
-  const emptyResultNotice = emergencyRoomMode
+  const emptyResultNotice = typeFilter === 'all' || emergencyRoomMode
     ? EMPTY_FACILITY_RESULT_NOTICE
     : `No ${resultKind} found within ${RADIUS_M}m.`
   const showResultSummary =
