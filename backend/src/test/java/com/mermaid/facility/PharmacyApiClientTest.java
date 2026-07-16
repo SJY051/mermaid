@@ -21,6 +21,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,6 +31,18 @@ import reactor.core.publisher.Mono;
 
 /** Tests for DEV-202's HIRA-first pharmacy directory and provider-specific hours. */
 class PharmacyApiClientTest {
+
+    @Test
+    @DisplayName("pharmacy detail uses a new cache namespace for the retrievedAt record schema")
+    void basisDetailUsesRetrievedAtCacheNamespace() throws NoSuchMethodException {
+        Cacheable cacheable =
+                PharmacyApiClient.class
+                        .getMethod("basisDetail", String.class)
+                        .getAnnotation(Cacheable.class);
+
+        // Reverting to the v1 name makes old two-field Redis JSON deserialize with retrievedAt=null.
+        assertThat(cacheable.value()).containsExactly("pharmacyBasisDetail.v2");
+    }
 
     @Test
     @DisplayName("normalizes the HIRA radius response into the existing pharmacy row contract")

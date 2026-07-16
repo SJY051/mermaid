@@ -81,6 +81,9 @@ public class PharmacyApiClient {
     private static final String FIXTURE = "pharmacy.json";
     private static final String BASIS_FIXTURE = "pharmacy_basis.json";
     private static final ObjectMapper JSON = new ObjectMapper();
+    /** Keeps one instance below NMC's 1,000 daily detail-call quota: 30 + 864 = 894/day. */
+    static final int DETAIL_LOOKUP_BURST = 30;
+    static final double DETAIL_LOOKUP_REFILL_PER_SECOND = 0.01;
 
     private final WebClient publicApiWebClient;
     private final PublicApiProperties properties;
@@ -90,11 +93,12 @@ public class PharmacyApiClient {
 
     /**
      * Bounds live NMC detail lookups so enumerating well-formed HPIDs cannot drain the 1,000/day quota
-     * (issue #95). 30 tokens refilling at 0.5/s (≈30/min) leaves real saved-place refreshes untouched
-     * while throttling a scripted burst. See {@link PharmacyDetailRateLimiter}.
+     * (issue #95). The 30-token burst plus 0.01/s sustained rate permits at most 894 calls in a
+     * 24-hour window on one instance, below NMC's 1,000/day budget. See {@link
+     * PharmacyDetailRateLimiter}.
      */
     private final PharmacyDetailRateLimiter detailLookupLimiter =
-            new PharmacyDetailRateLimiter(30, 0.5);
+            new PharmacyDetailRateLimiter(DETAIL_LOOKUP_BURST, DETAIL_LOOKUP_REFILL_PER_SECOND);
 
     @Autowired
     public PharmacyApiClient(
@@ -668,7 +672,11 @@ public class PharmacyApiClient {
      * negative result is cached too, which spares the 1,000/day quota a repeated lookup of an id that
      * upstream does not know.
      */
-    @Cacheable(value = "pharmacyBasisDetail", key = "#hpid")
+    @Cacheable(
+            // v2 adds PharmacyDetailBatch.retrievedAt. Reading a v1 JSON entry would leave that
+            // required provenance timestamp null, so do not deserialize the old record shape.
+            value = "pharmacyBasisDetail.v2",
+            key = "#hpid")
     public PharmacyDetailBatch basisDetail(String hpid) {
         if (dataMode.isFixtureOnly()) {
             return fixtureDetail(hpid);
