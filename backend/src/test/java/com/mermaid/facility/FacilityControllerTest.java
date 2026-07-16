@@ -51,6 +51,20 @@ class FacilityControllerTest {
     }
 
     @Test
+    void omittedOperationParametersMapToAny() {
+        controller.nearby(
+                37.5, 127.0, 1000, null, null, FacilityType.EMERGENCY_ROOM, 10);
+
+        verify(service).findNearby(
+                37.5,
+                127.0,
+                1000,
+                FacilityOperationPreference.ANY,
+                FacilityType.EMERGENCY_ROOM,
+                10);
+    }
+
+    @Test
     void conflictingLegacyAndNewParametersAreRejectedAsAClientError() {
         assertThatThrownBy(() -> controller.nearby(
                         37.5,
