@@ -22,8 +22,8 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -33,7 +33,6 @@ import org.springframework.stereotype.Service;
  * open-now flag. We still recompute distance from the caller and calculate status from schedules here.
  */
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class FacilityService {
 
@@ -98,6 +97,43 @@ public class FacilityService {
     private final EmergencyRoomApiClient emergencyRoomApiClient;
     private final HolidayCalendar holidayCalendar;
     private final Clock clock;
+    private final SeoulPharmacyOperatingApiClient seoulPharmacyOperatingApiClient;
+
+    @Autowired
+    public FacilityService(
+            PharmacyApiClient pharmacyApiClient,
+            HospitalApiClient hospitalApiClient,
+            HospitalDetailApiClient hospitalDetailApiClient,
+            EmergencyRoomApiClient emergencyRoomApiClient,
+            HolidayCalendar holidayCalendar,
+            Clock clock,
+            SeoulPharmacyOperatingApiClient seoulPharmacyOperatingApiClient) {
+        this.pharmacyApiClient = pharmacyApiClient;
+        this.hospitalApiClient = hospitalApiClient;
+        this.hospitalDetailApiClient = hospitalDetailApiClient;
+        this.emergencyRoomApiClient = emergencyRoomApiClient;
+        this.holidayCalendar = holidayCalendar;
+        this.clock = clock;
+        this.seoulPharmacyOperatingApiClient = seoulPharmacyOperatingApiClient;
+    }
+
+    /** Compatibility constructor for focused tests that do not exercise the Seoul supplement. */
+    public FacilityService(
+            PharmacyApiClient pharmacyApiClient,
+            HospitalApiClient hospitalApiClient,
+            HospitalDetailApiClient hospitalDetailApiClient,
+            EmergencyRoomApiClient emergencyRoomApiClient,
+            HolidayCalendar holidayCalendar,
+            Clock clock) {
+        this(
+                pharmacyApiClient,
+                hospitalApiClient,
+                hospitalDetailApiClient,
+                emergencyRoomApiClient,
+                holidayCalendar,
+                clock,
+                null);
+    }
 
     public List<Facility> findNearby(
             double lat, double lng, int radiusMeters, boolean openNow, FacilityType type) {
@@ -374,7 +410,9 @@ public class FacilityService {
                 raw.longitude(),
                 distanceMetres(raw, originLat, originLng),
                 evidence.operation(),
-                sourceOf(raw, provider, sourceRetrievedAt, evidence.origin()),
+                evidence.seoulScheduleUsed()
+                        ? seoulSource(raw.hpid(), evidence.scheduleRetrievedAt(), evidence.origin())
+                        : sourceOf(raw, provider, sourceRetrievedAt, evidence.origin()),
                 null, // pharmacy directories have no emergency-room flags
                 null);
     }
@@ -406,11 +444,44 @@ public class FacilityService {
                         ? SourceRef.DataMode.FIXTURE
                         : SourceRef.DataMode.LIVE;
 
-        FacilityOperation operation =
-                weeklyHoursLookupFailed
-                        ? FacilityOperation.unknown(retrievedAt)
-                        : operationOf(raw, weekly, now, holiday, retrievedAt);
-        return new PharmacyOperationEvidence(operation, origin);
+        if (weeklyHoursLookupFailed) {
+            return new PharmacyOperationEvidence(
+                    FacilityOperation.unknown(retrievedAt), origin, false, null);
+        }
+        if (!weekly.byDay().isEmpty()) {
+            return new PharmacyOperationEvidence(
+                    weeklyOperation(weekly, now, holiday, retrievedAt), origin, false, null);
+        }
+
+        try {
+            SeoulPharmacyOperatingApiClient.OperatingTable seoulTable =
+                    seoulPharmacyOperatingApiClient == null
+                            ? null
+                            : seoulPharmacyOperatingApiClient.operatingTable();
+            SeoulPharmacyOperatingApiClient.RawOperatingRow seoul =
+                    seoulTable == null ? null : seoulTable.forHpid(raw.hpid());
+            if (seoul == null || seoul.weeklyHours().byDay().isEmpty()) {
+                return new PharmacyOperationEvidence(
+                        FacilityOperation.unknown(retrievedAt), origin, false, null);
+            }
+            SourceRef.DataMode scheduleOrigin = seoul.weeklyHours().origin();
+            SourceRef.DataMode combinedOrigin =
+                    listOrigin == SourceRef.DataMode.FIXTURE || scheduleOrigin == SourceRef.DataMode.FIXTURE
+                            ? SourceRef.DataMode.FIXTURE
+                            : SourceRef.DataMode.LIVE;
+            return new PharmacyOperationEvidence(
+                    seoulWeeklyOperation(seoul, now, holiday, retrievedAt)
+                            .withScheduleUpdatedAt(seoul.scheduleUpdatedAt()),
+                    combinedOrigin,
+                    true,
+                    seoulTable.retrievedAt());
+        } catch (RuntimeException e) {
+            // The directory pin still helps. This boundary also covers a corrupt Redis entry before
+            // @Cacheable reaches the adapter; a schedule problem must not turn a map load into 500.
+            log.warn("seoul pharmacy operating-hours lookup failed for {}; retaining directory row", raw.hpid());
+            return new PharmacyOperationEvidence(
+                    FacilityOperation.unknown(retrievedAt), origin, false, null);
+        }
     }
 
     private PharmacyOperationEvidence hiraPharmacyEvidence(
@@ -437,7 +508,9 @@ public class FacilityService {
             return new PharmacyOperationEvidence(
                     hospitalOperation(
                             detail, now, holiday, detailBatch.retrievedAt()),
-                    origin);
+                    origin,
+                    false,
+                    null);
         } catch (PublicApiException e) {
             // HIRA's directory row is still verified and map-worthy. Detail is optional; a failure
             // makes hours unknown without discarding the pin, matching the NMC fallback behavior.
@@ -445,12 +518,15 @@ public class FacilityService {
                     "HIRA pharmacy detail lookup failed for {}; retaining directory row",
                     raw.hpid());
             return new PharmacyOperationEvidence(
-                    FacilityOperation.unknown(retrievedAt), listOrigin);
+                    FacilityOperation.unknown(retrievedAt), listOrigin, false, null);
         }
     }
 
     private record PharmacyOperationEvidence(
-            FacilityOperation operation, SourceRef.DataMode origin) {}
+            FacilityOperation operation,
+            SourceRef.DataMode origin,
+            boolean seoulScheduleUsed,
+            Instant scheduleRetrievedAt) {}
 
     /**
      * Always recompute from the current caller. HIRA batches are grid-cached, and issue #97 proved a
@@ -510,6 +586,24 @@ public class FacilityService {
                 : FacilityOperation.closed(retrievedAt);
     }
 
+    /** A malformed Seoul day is unavailable, not evidence that the pharmacy is closed. */
+    private FacilityOperation seoulWeeklyOperation(
+            SeoulPharmacyOperatingApiClient.RawOperatingRow schedule,
+            ZonedDateTime now,
+            boolean holiday,
+            Instant retrievedAt) {
+        int today = holiday ? 8 : now.getDayOfWeek().getValue();
+        if (schedule.unavailableDays().contains(today)) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        // A night shift can carry from yesterday. If that provider row is malformed, neither OPEN nor
+        // CLOSED is justified at any time today without inventing a closing boundary.
+        if (!holiday && schedule.unavailableDays().contains(now.getDayOfWeek().minus(1).getValue())) {
+            return FacilityOperation.unknown(retrievedAt);
+        }
+        return weeklyOperation(schedule.weeklyHours(), now, holiday, retrievedAt);
+    }
+
     private SourceRef sourceOf(
             PharmacyApiClient.RawPharmacy raw,
             PharmacyApiClient.PharmacyProvider provider,
@@ -522,6 +616,17 @@ public class FacilityService {
                 retrievedAt,
                 origin,
                 provider.sourceDescription());
+    }
+
+    private SourceRef seoulSource(
+            String hpid, Instant retrievedAt, SourceRef.DataMode origin) {
+        return new SourceRef(
+                "src:seoul-open-data:" + hpid,
+                "seoul-open-data",
+                hpid,
+                retrievedAt,
+                origin,
+                "Seoul Open Data Plaza");
     }
 
     private List<Facility> hospitals(

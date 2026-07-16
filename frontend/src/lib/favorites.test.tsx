@@ -9,7 +9,7 @@ function facility(id: string): Facility {
   return {
     id, type: 'pharmacy', nameKo: id, nameEn: null, addressKo: 'Seoul', addressEn: null, phone: null,
     latitude: 0, longitude: 0, distanceMeters: 0,
-    operation: { isOpenNow: true, status: 'open', statusConfidence: 'official_schedule', verifiedAt: '2026-07-14T00:00:00Z', notice: '' },
+    operation: { isOpenNow: true, status: 'open', statusConfidence: 'official_schedule', verifiedAt: '2026-07-14T00:00:00Z', scheduleUpdatedAt: null, notice: '' },
     source: { id: `source:${id}`, provider: 'nmc', recordId: id, retrievedAt: '2026-07-14T00:00:00Z', dataMode: 'live', title: 'National Medical Center' },
   }
 }

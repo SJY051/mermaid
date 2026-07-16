@@ -21,6 +21,7 @@ const facility = (over: Partial<Facility> = {}): Facility => ({
     status: 'open',
     statusConfidence: 'official_schedule',
     verifiedAt: '2026-07-10T12:00:00Z',
+    scheduleUpdatedAt: null,
     notice: '',
   },
   source: {
@@ -78,7 +79,7 @@ describe('DetailDrawer', () => {
   })
 
   it('uses a surface token for an operation notice', () => {
-    renderDrawer({ operation: { isOpenNow: true, status: 'open', statusConfidence: 'official_schedule', verifiedAt: '2026-07-10T12:00:00Z', notice: 'Call before visiting.' } })
+    renderDrawer({ operation: { isOpenNow: true, status: 'open', statusConfidence: 'official_schedule', verifiedAt: '2026-07-10T12:00:00Z', scheduleUpdatedAt: null, notice: 'Call before visiting.' } })
 
     expect(screen.getByText('Call before visiting.')).toHaveClass('bg-muted')
   })
@@ -106,6 +107,7 @@ describe('DetailDrawer', () => {
         status: 'unknown',
         statusConfidence: 'unknown',
         verifiedAt: null,
+        scheduleUpdatedAt: null,
         notice: '',
       },
     })
@@ -123,6 +125,7 @@ describe('DetailDrawer', () => {
         status: 'closed',
         statusConfidence: 'official_schedule',
         verifiedAt: '2026-07-10T12:00:00Z',
+        scheduleUpdatedAt: null,
         notice: '',
       },
     })

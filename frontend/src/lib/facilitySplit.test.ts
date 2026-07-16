@@ -19,6 +19,7 @@ function facility(id: string, isOpenNow: boolean | null): Facility {
       status: isOpenNow === true ? 'open' : isOpenNow === false ? 'closed' : 'unknown',
       statusConfidence: 'official_schedule',
       verifiedAt: null,
+      scheduleUpdatedAt: null,
       notice: '',
     },
     source: {

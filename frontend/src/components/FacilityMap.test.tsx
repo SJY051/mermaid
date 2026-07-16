@@ -112,6 +112,7 @@ const facility = (over: Partial<Facility> = {}): Facility => ({
     status: 'open',
     statusConfidence: 'official_schedule',
     verifiedAt: null,
+    scheduleUpdatedAt: null,
     notice: '',
   },
   source: {
@@ -239,7 +240,7 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
   it('labels isOpenNow: null as "Hours unknown"', async () => {
     installNaverStub()
     const unknown = facility({
-      operation: { isOpenNow: null, status: 'unknown', statusConfidence: 'unknown', verifiedAt: null, notice: '' },
+      operation: { isOpenNow: null, status: 'unknown', statusConfidence: 'unknown', verifiedAt: null, scheduleUpdatedAt: null, notice: '' },
     })
     render(<FacilityMap center={centre} facilities={[unknown]} />)
 
@@ -251,7 +252,7 @@ describe('unknown opening hours are never rendered as "Closed" (spec §2-13)', (
   it('still says "Closed" when the backend actually knows it is closed', async () => {
     installNaverStub()
     const closed = facility({
-      operation: { isOpenNow: false, status: 'closed', statusConfidence: 'official_schedule', verifiedAt: null, notice: '' },
+      operation: { isOpenNow: false, status: 'closed', statusConfidence: 'official_schedule', verifiedAt: null, scheduleUpdatedAt: null, notice: '' },
     })
     render(<FacilityMap center={centre} facilities={[closed]} />)
 
@@ -334,6 +335,7 @@ describe('facility details (UI-03, DEV-207)', () => {
         status: 'unknown',
         statusConfidence: 'unknown',
         verifiedAt: null,
+        scheduleUpdatedAt: null,
         notice: '',
       },
     })
@@ -511,6 +513,7 @@ describe('map pins use shape for kind and a non-colour glyph for status', () => 
         status: 'unknown',
         statusConfidence: 'unknown',
         verifiedAt: null,
+        scheduleUpdatedAt: null,
         notice: '',
       },
     })

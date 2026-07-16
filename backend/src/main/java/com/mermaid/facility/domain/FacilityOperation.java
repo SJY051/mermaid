@@ -16,6 +16,7 @@ import java.time.Instant;
  *
  * @param isOpenNow {@code null} means "could not determine"
  * @param verifiedAt when we fetched the underlying schedule
+ * @param scheduleUpdatedAt when the schedule provider last updated its record, if it publishes one
  * @param notice user-facing caveat, e.g. "Call before visiting"
  */
 public record FacilityOperation(
@@ -23,6 +24,7 @@ public record FacilityOperation(
         OperationStatus status,
         StatusConfidence statusConfidence,
         Instant verifiedAt,
+        Instant scheduleUpdatedAt,
         String notice) {
 
     private static final String CALL_AHEAD =
@@ -30,12 +32,22 @@ public record FacilityOperation(
 
     public static FacilityOperation open(Instant verifiedAt) {
         return new FacilityOperation(
-                true, OperationStatus.OPEN, StatusConfidence.OFFICIAL_SCHEDULE, verifiedAt, CALL_AHEAD);
+                true,
+                OperationStatus.OPEN,
+                StatusConfidence.OFFICIAL_SCHEDULE,
+                verifiedAt,
+                null,
+                CALL_AHEAD);
     }
 
     public static FacilityOperation closed(Instant verifiedAt) {
         return new FacilityOperation(
-                false, OperationStatus.CLOSED, StatusConfidence.OFFICIAL_SCHEDULE, verifiedAt, CALL_AHEAD);
+                false,
+                OperationStatus.CLOSED,
+                StatusConfidence.OFFICIAL_SCHEDULE,
+                verifiedAt,
+                null,
+                CALL_AHEAD);
     }
 
     /**
@@ -51,6 +63,7 @@ public record FacilityOperation(
                 open ? OperationStatus.OPEN : OperationStatus.CLOSED,
                 StatusConfidence.INFERRED,
                 verifiedAt,
+                null,
                 "Opening hours are approximate. Please call before visiting.");
     }
 
@@ -61,7 +74,14 @@ public record FacilityOperation(
                 OperationStatus.UNKNOWN,
                 StatusConfidence.UNKNOWN,
                 verifiedAt,
+                null,
                 "Opening hours are not published for this place. Call to check.");
+    }
+
+    /** Retains the actual fetch time while carrying a provider-published update timestamp separately. */
+    public FacilityOperation withScheduleUpdatedAt(Instant scheduleUpdatedAt) {
+        return new FacilityOperation(
+                isOpenNow, status, statusConfidence, verifiedAt, scheduleUpdatedAt, notice);
     }
 
     public enum OperationStatus {

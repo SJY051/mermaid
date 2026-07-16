@@ -67,6 +67,8 @@ class FacilityServiceTest {
                 new CountingPharmacyClient(
                         java.util.stream.Stream.concat(closed.stream(), java.util.stream.Stream.of(fartherOpen))
                                 .toList());
+        client.weeklyByHpid.put(
+                "open-51", new DutyTable(Map.of(5, List.of("0900", "1900")), SourceRef.DataMode.LIVE));
         var service = pharmacyService(client);
 
         var found = service.findNearby(37.5663, 126.9779, 1000, true, FacilityType.PHARMACY, 1);
@@ -246,7 +248,7 @@ class FacilityServiceTest {
 
         Facility failed = facility(found, ":failed");
         Facility failedWithDirectoryHours = facility(found, ":failed-with-directory-hours");
-        Facility inferred = facility(found, ":no-weekly-schedule");
+        Facility noSchedule = facility(found, ":no-weekly-schedule");
         Facility official = facility(found, ":official");
         assertThat(found).hasSize(4);
 
@@ -261,20 +263,161 @@ class FacilityServiceTest {
         assertThat(failedWithDirectoryHours.operation().status())
                 .isEqualTo(FacilityOperation.OperationStatus.UNKNOWN);
 
-        // An empty timetable returned successfully is different from a failed lookup: the directory
-        // hours remain usable, but are explicitly marked as inferred rather than official.
-        assertThat(inferred.operation().isOpenNow()).isTrue();
-        assertThat(inferred.operation().statusConfidence())
-                .isEqualTo(FacilityOperation.StatusConfidence.INFERRED);
+        // A directory's single start/end pair has no published weekly meaning. If neither NMC nor
+        // Seoul has an official table, it remains UNKNOWN rather than guessing from that pair.
+        assertThat(noSchedule.operation().isOpenNow()).isNull();
+        assertThat(noSchedule.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.UNKNOWN);
 
         // The pharmacy whose lookup succeeded was still fully processed off its weekly table.
         assertThat(official.operation().isOpenNow()).isTrue();
         assertThat(official.operation().statusConfidence())
                 .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
 
-        // Mutation check: remove weeklyHoursLookupFailed's UNKNOWN guard and this test fails because
-        // the row with directory hours is inferred open rather than reported as hours unknown.
-        // Replacing operationOf's normal empty-table inference with UNKNOWN also fails this test.
+        // Mutation check: restoring the old single-pair inference makes noSchedule read open here.
+    }
+
+    @Test
+    void exactSeoulHpidAugmentsAnEmptyNmcTableWithOfficialSchedule() {
+        var pharmacyClient = new CountingPharmacyClient(List.of(pharmacy("C1111111", 0.1)));
+        Instant providerUpdatedAt = Instant.parse("2026-06-20T08:40:03Z");
+        var seoulClient =
+                new SeoulPharmacyOperatingApiClient(null, null, null) {
+                    @Override
+                    public OperatingTable operatingTable() {
+                        return OperatingTable.index(
+                                List.of(
+                                        new RawOperatingRow(
+                                                "C1111111",
+                                                new DutyTable(
+                                                        Map.of(5, List.of("0830", "1900")),
+                                                        SourceRef.DataMode.LIVE),
+                                                java.util.Set.of(),
+                                                providerUpdatedAt)),
+                                Instant.parse("2026-07-10T05:00:00Z"));
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacyClient,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        new EmergencyRoomApiClient(null, null, null, null),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON,
+                        seoulClient);
+
+        Facility found =
+                service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY).getFirst();
+
+        assertThat(found.operation().isOpenNow()).isTrue();
+        assertThat(found.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.OFFICIAL_SCHEDULE);
+        assertThat(found.operation().scheduleUpdatedAt()).isEqualTo(providerUpdatedAt);
+        assertThat(found.source().provider()).isEqualTo("seoul-open-data");
+        assertThat(found.source().retrievedAt()).isEqualTo(Instant.parse("2026-07-10T05:00:00Z"));
+    }
+
+    @Test
+    void unmatchedSeoulHpidLeavesAnEmptyNmcTableUnknown() {
+        var pharmacyClient = new CountingPharmacyClient(List.of(pharmacy("C1111111", 0.1)));
+        var seoulClient =
+                new SeoulPharmacyOperatingApiClient(null, null, null) {
+                    @Override
+                    public OperatingTable operatingTable() {
+                        return OperatingTable.index(
+                                List.of(
+                                        new RawOperatingRow(
+                                                "C2222222",
+                                                new DutyTable(
+                                                        Map.of(5, List.of("0830", "1900")),
+                                                        SourceRef.DataMode.LIVE),
+                                                java.util.Set.of(),
+                                                null)),
+                                Instant.parse("2026-07-10T05:00:00Z"));
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacyClient,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        new EmergencyRoomApiClient(null, null, null, null),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON,
+                        seoulClient);
+
+        Facility found =
+                service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY).getFirst();
+
+        assertThat(found.operation().isOpenNow()).isNull();
+        assertThat(found.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.UNKNOWN);
+        assertThat(found.source().id()).startsWith("src:nmc:");
+    }
+
+    @Test
+    void malformedSeoulHoursLeaveTheAffectedDayUnknownRatherThanClosed() {
+        var pharmacyClient = new CountingPharmacyClient(List.of(pharmacy("C1111111", 0.1)));
+        var seoulClient =
+                new SeoulPharmacyOperatingApiClient(null, null, null) {
+                    @Override
+                    public OperatingTable operatingTable() {
+                        return OperatingTable.index(
+                                List.of(
+                                        new RawOperatingRow(
+                                                "C1111111",
+                                                new DutyTable(
+                                                        Map.of(1, List.of("0830", "1900")),
+                                                        SourceRef.DataMode.LIVE),
+                                                java.util.Set.of(5),
+                                                null)),
+                                Instant.parse("2026-07-10T05:00:00Z"));
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacyClient,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        new EmergencyRoomApiClient(null, null, null, null),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON,
+                        seoulClient);
+
+        Facility found =
+                service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY).getFirst();
+
+        assertThat(found.operation().isOpenNow()).isNull();
+        assertThat(found.operation().statusConfidence())
+                .isEqualTo(FacilityOperation.StatusConfidence.UNKNOWN);
+    }
+
+    @Test
+    void aSeoulRuntimeFailureKeepsTheDirectoryPinInsteadOfFailingTheMapLoad() {
+        var pharmacyClient = new CountingPharmacyClient(List.of(pharmacy("C1111111", 0.1)));
+        var seoulClient =
+                new SeoulPharmacyOperatingApiClient(null, null, null) {
+                    @Override
+                    public OperatingTable operatingTable() {
+                        throw new IllegalStateException("cache value cannot be read");
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacyClient,
+                        new HospitalApiClient(null, null, null, null),
+                        new HospitalDetailApiClient(null, null, null, null),
+                        new EmergencyRoomApiClient(null, null, null, null),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON,
+                        seoulClient);
+
+        Facility found =
+                service.findNearby(37.5663, 126.9779, 1000, false, FacilityType.PHARMACY).getFirst();
+
+        assertThat(found.operation().isOpenNow()).isNull();
+        assertThat(found.source().id()).startsWith("src:nmc:");
     }
 
     private static Facility facility(List<Facility> found, String idSuffix) {
@@ -359,6 +502,7 @@ class FacilityServiceTest {
 
         protected List<RawPharmacy> pharmacies;
         protected final AtomicInteger weeklyHoursRequests = new AtomicInteger();
+        protected final Map<String, DutyTable> weeklyByHpid = new java.util.HashMap<>();
         protected int requestedRadiusMeters;
 
         private CountingPharmacyClient(List<RawPharmacy> pharmacies) {
@@ -380,7 +524,7 @@ class FacilityServiceTest {
         @Override
         public DutyTable weeklyHours(String hpid) {
             weeklyHoursRequests.incrementAndGet();
-            return DutyTable.empty(SourceRef.DataMode.LIVE);
+            return weeklyByHpid.getOrDefault(hpid, DutyTable.empty(SourceRef.DataMode.LIVE));
         }
     }
 

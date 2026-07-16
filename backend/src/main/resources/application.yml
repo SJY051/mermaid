@@ -123,6 +123,10 @@ mermaid:
     # See PublicApiUriBuilder for why, and .env.example for the trap.
     service-key: ${DATA_GO_KR_SERVICE_KEY:}
 
+    # 서울 열린데이터광장 약국 운영시간. 서울 API는 인증키를 URL 경로에 넣으므로 이 값 자체가
+    # 비밀이다. 서비스 prefix까지만 두고, SeoulPharmacyOperatingApiClient가 /{start}/{end}를 붙인다.
+    seoul-pharmacy-operating-url: ${SEOUL_PHARMACY_OPERATING_API_URL:}
+
     # 건강보험심사평가원 약국정보서비스 — primary pharmacy directory. Unlike NMC's fallback
     # operation, getParmacyBasisList accepts xPos/yPos plus an explicit radius in metres.
     hira-pharmacy-base-url: https://apis.data.go.kr/B551182/pharmacyInfoService
