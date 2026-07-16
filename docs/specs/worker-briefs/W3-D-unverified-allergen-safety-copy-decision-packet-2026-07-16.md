@@ -107,3 +107,4 @@ remains auditable.
 - Approved English copy or PM/QA reviewer/date: **Branch semantics approved above; exact English
   strings PENDING PM/QA.** The implementation drafts the strings against the approved branch
   contract and flags them as reviewable draft copy for PM/QA rather than final.
+
