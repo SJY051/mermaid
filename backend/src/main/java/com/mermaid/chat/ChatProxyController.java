@@ -7,9 +7,12 @@ import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.AnswerValidator.ViolationCode;
 import com.mermaid.chat.dto.MermAidAnswer;
 import com.mermaid.chat.dto.UiAction;
+import com.mermaid.common.PublicApiException;
 import com.mermaid.common.SourceRef;
+import com.mermaid.config.RiskTierFeatureProperties;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
@@ -17,8 +20,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -40,7 +43,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/chat")
-@RequiredArgsConstructor
 public class ChatProxyController {
 
     private static final long STREAM_TIMEOUT_MS = 120_000L;
@@ -69,6 +71,57 @@ public class ChatProxyController {
     private final EmergencyTriage emergencyTriage;
     private final com.mermaid.drug.IngredientNormalizer ingredientNormalizer;
     private final ObjectMapper objectMapper;
+    private final ResponsePlanner responsePlanner;
+    private final ResponseAnswerComposer responseAnswerComposer;
+
+    @Autowired
+    ChatProxyController(
+            ChatProxyService chatProxyService,
+            DrugContextRetriever drugContextRetriever,
+            StructuredOutputFallback fallback,
+            AnswerValidator answerValidator,
+            ServerAuthoredAnswerBuilder serverAuthoredAnswerBuilder,
+            EmergencyTriage emergencyTriage,
+            com.mermaid.drug.IngredientNormalizer ingredientNormalizer,
+            ObjectMapper objectMapper,
+            ResponsePlanner responsePlanner,
+            ResponseAnswerComposer responseAnswerComposer) {
+        this.chatProxyService = Objects.requireNonNull(chatProxyService);
+        this.drugContextRetriever = Objects.requireNonNull(drugContextRetriever);
+        this.fallback = Objects.requireNonNull(fallback);
+        this.answerValidator = Objects.requireNonNull(answerValidator);
+        this.serverAuthoredAnswerBuilder = Objects.requireNonNull(serverAuthoredAnswerBuilder);
+        this.emergencyTriage = Objects.requireNonNull(emergencyTriage);
+        this.ingredientNormalizer = Objects.requireNonNull(ingredientNormalizer);
+        this.objectMapper = Objects.requireNonNull(objectMapper);
+        this.responsePlanner = Objects.requireNonNull(responsePlanner);
+        this.responseAnswerComposer = Objects.requireNonNull(responseAnswerComposer);
+    }
+
+    /** Existing focused tests use the launch-default gates while exercising deterministic routing. */
+    ChatProxyController(
+            ChatProxyService chatProxyService,
+            DrugContextRetriever drugContextRetriever,
+            StructuredOutputFallback fallback,
+            AnswerValidator answerValidator,
+            ServerAuthoredAnswerBuilder serverAuthoredAnswerBuilder,
+            EmergencyTriage emergencyTriage,
+            com.mermaid.drug.IngredientNormalizer ingredientNormalizer,
+            ObjectMapper objectMapper) {
+        this(
+                chatProxyService,
+                drugContextRetriever,
+                fallback,
+                answerValidator,
+                serverAuthoredAnswerBuilder,
+                emergencyTriage,
+                ingredientNormalizer,
+                objectMapper,
+                new ResponsePlanner(
+                        emergencyTriage,
+                        new RiskTierFeatureProperties(false, false, false)),
+                new ResponseAnswerComposer(serverAuthoredAnswerBuilder, emergencyTriage));
+    }
 
     /**
      * One path, two content types, chosen by the request body rather than by {@code Accept}.
@@ -160,10 +213,82 @@ public class ChatProxyController {
         MermaidRequestExtension.StructuredExclusions exclusions =
                 MermaidRequestExtension.excludedIngredients(request);
         return withUnverifiedAllergenCaveat(
-                answer(request, exclusions), exclusions.unverifiedTerms());
+                plannedAnswerOrLegacy(request, exclusions), exclusions.unverifiedTerms());
     }
 
-    private MermAidAnswer answer(
+    private MermAidAnswer plannedAnswerOrLegacy(
+            JsonNode request, MermaidRequestExtension.StructuredExclusions exclusions) {
+        String userText = ChatProxyService.lastUserMessage(request);
+        String allUserText = ChatProxyService.userMessagesForSafety(request);
+        ResponsePlan plan = responsePlanner.plan(
+                new ResponsePlanner.PlanningInput(
+                        userText,
+                        allUserText,
+                        ResponsePlanner.FacilityRuntime.allAvailable()),
+                ModelPlanAdvice::none);
+        log.info(
+                "response_plan mode={} capabilities={} confidence={} reasons={} planning_model_calls=0",
+                plan.mode(),
+                plan.capabilities(),
+                plan.confidence(),
+                plan.reasonCodes());
+
+        if (!usesPlannedComposition(plan)) {
+            return legacyMedicineAnswer(request, exclusions);
+        }
+        return composePlannedAnswer(request, exclusions, plan);
+    }
+
+    private static boolean usesPlannedComposition(ResponsePlan plan) {
+        return plan.facilityIntent() != null
+                || plan.mode() == ResponsePlan.ResponseMode.T3_REFUSE_CLINICAL_AUTHORITY
+                || plan.mode() == ResponsePlan.ResponseMode.T4_EMERGENCY
+                || plan.mode() == ResponsePlan.ResponseMode.T5_REFUSE_ILLEGAL_ASSISTANCE
+                || plan.capabilities().contains(ResponsePlan.Capability.OFFICIAL_SOURCE_NAVIGATION);
+    }
+
+    private MermAidAnswer composePlannedAnswer(
+            JsonNode request,
+            MermaidRequestExtension.StructuredExclusions exclusions,
+            ResponsePlan plan) {
+        EnumSet<ResponseAnswerComposer.CapabilityFailure> failures =
+                EnumSet.noneOf(ResponseAnswerComposer.CapabilityFailure.class);
+        DrugContext context = null;
+        if (plan.capabilities().contains(ResponsePlan.Capability.OFFICIAL_MEDICINE_LOOKUP)) {
+            try {
+                context = drugContextRetriever.retrieve(
+                        ChatProxyService.lastUserMessage(request),
+                        ChatProxyService.userMessagesForSafety(request),
+                        exclusions);
+            } catch (PublicApiException unavailable) {
+                // A failed optional medicine capability must not erase a deterministic map action.
+                // Do not log the exception message: upstream URLs may carry precise coordinates.
+                log.warn("capability_failed capability=OFFICIAL_MEDICINE_LOOKUP code=PUBLIC_DATA_UNAVAILABLE");
+                failures.add(ResponseAnswerComposer.CapabilityFailure.PUBLIC_DATA_UNAVAILABLE);
+            }
+        }
+
+        if (context != null && context.directAnswer().isPresent()) {
+            MermAidAnswer direct = context.directAnswer().orElseThrow();
+            if (ServerAuthoredSearchUnavailableAnswer.ANSWER_ID.equals(direct.answerId())) {
+                failures.add(ResponseAnswerComposer.CapabilityFailure.PASS_ONE_UNAVAILABLE);
+                context = null;
+            } else {
+                // Allergy clarification and SA-08 suppression are server-owned safety decisions.
+                // They remain terminal and cannot be softened by a facility or prose capability.
+                return direct;
+            }
+        }
+
+        return responseAnswerComposer.compose(
+                plan,
+                new ResponseAnswerComposer.CapabilityResults(
+                        null,
+                        context,
+                        Set.copyOf(failures)));
+    }
+
+    private MermAidAnswer legacyMedicineAnswer(
             JsonNode request, MermaidRequestExtension.StructuredExclusions exclusions) {
         String userText = ChatProxyService.lastUserMessage(request);
         DrugContext context =

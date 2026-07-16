@@ -51,7 +51,8 @@ public class AnswerValidator {
         INV6_PRODUCT_NOT_RETRIEVED,
         INV6_PRODUCT_SOURCE_MISMATCH,
         INV6_INGREDIENT_MISMATCH,
-        INV7_FORBIDDEN_MARKUP
+        INV7_FORBIDDEN_MARKUP,
+        INV8_SERVER_ONLY_ACTION
     }
 
     /**
@@ -148,6 +149,18 @@ public class AnswerValidator {
             if (text != null && FORBIDDEN_MARKUP.matcher(text).find()) {
                 violations.add(ViolationCode.INV7_FORBIDDEN_MARKUP);
             }
+        }
+
+        // 8. Fixed legal-source navigation is minted only after the deterministic server planner
+        //    selects the capability. It is intentionally absent from the provider schema and any
+        //    model-authored occurrence is rejected even when its tuple happens to match the allowlist.
+        if (java.util.stream.Stream.concat(
+                        nullSafe(answer.uiActions()).stream(),
+                        answer.urgency() == null
+                                ? java.util.stream.Stream.empty()
+                                : nullSafe(answer.urgency().actions()).stream())
+                .anyMatch(UiAction.OpenOfficialSource.class::isInstance)) {
+            violations.add(ViolationCode.INV8_SERVER_ONLY_ACTION);
         }
 
         return violations;

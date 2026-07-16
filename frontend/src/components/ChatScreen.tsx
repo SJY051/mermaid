@@ -12,7 +12,7 @@ import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { CircleAlert, Ellipsis, Send } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
-import type { FacilityMapPayload, MermAidAnswer } from '../lib/types'
+import type { FacilityMapPayload, MermAidAnswer, UiAction } from '../lib/types'
 import { AllergenPicker } from './AllergenPicker'
 import { DisclaimerStrip } from './DisclaimerStrip'
 import { DrugCard } from './DrugCard'
@@ -150,6 +150,10 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
   const answer = turn.answer
   if (!answer) return null
   const emergency = answer.urgency.level === 'emergency'
+  const officialSources = answer.uiActions.filter(
+    (action): action is Extract<UiAction, { type: 'OPEN_OFFICIAL_SOURCE' }> =>
+      action.type === 'OPEN_OFFICIAL_SOURCE',
+  )
 
   return (
     <section className="flex flex-col gap-3">
@@ -187,6 +191,27 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
           source={answer.sourceRefs.find((source) => source.id === drug.sourceRefId)}
         />
       ))}
+
+      {officialSources.length > 0 && (
+        // PM/QA-reviewable draft presentation for the 2026-07-16 launch allowlist.
+        <section aria-label="Official sources" className="flex flex-col gap-2">
+          <h3 className="text-sm font-semibold text-primary">Official sources</h3>
+          {officialSources.map((action) => (
+            <a
+              key={action.payload.sourceId}
+              href={action.payload.url}
+              target="_blank"
+              rel="noreferrer"
+              className="flex flex-col rounded border border-primary px-3 py-2 text-primary underline focus-visible:outline-2 focus-visible:outline-offset-2"
+            >
+              <span>{action.payload.label}</span>
+              <span className="text-xs text-secondary">
+                Verified on {action.payload.verifiedOn}
+              </span>
+            </a>
+          ))}
+        </section>
+      )}
 
       {/* The validated response asks for the map through `uiActions`; it never calls a tool. */}
       {answer.uiActions.map((action, index) =>
