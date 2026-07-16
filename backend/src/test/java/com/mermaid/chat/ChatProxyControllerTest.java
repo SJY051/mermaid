@@ -994,7 +994,7 @@ class ChatProxyControllerTest {
         @DisplayName("with nothing retrieved, model prose is replaced by the fixed empty answer")
         void emptyContextStillAnswers() throws Exception {
             ControllerHarness harness = harness(modelAnswer("[]", "[]"), emptyContext());
-            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
+            var response = harness.controller().completions(request("hello"));
 
             MermAidAnswer answer = answerOf(response);
             assertThat(harness.upstream().calls).hasValue(0);
@@ -1168,7 +1168,7 @@ class ChatProxyControllerTest {
             ControllerHarness harness = harness(
                     modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + threeMaps),
                     emptyContext());
-            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
+            var response = harness.controller().completions(request("hello"));
 
             assertThat(harness.upstream().calls).hasValue(0);
             assertThat(answerOf(response).uiActions()).isEmpty();
@@ -1184,7 +1184,7 @@ class ChatProxyControllerTest {
             ControllerHarness harness = harness(
                     modelAnswer("[]", "[]").replace("\"uiActions\":[]", "\"uiActions\":" + twoMaps),
                     emptyContext());
-            var response = harness.controller().completions(request("pharmacies near me"));
+            var response = harness.controller().completions(request("hello"));
 
             assertThat(harness.upstream().calls).hasValue(0);
             assertThat(answerOf(response).uiActions()).isEmpty();
@@ -1202,7 +1202,7 @@ class ChatProxyControllerTest {
                     modelAnswer("[]", "[]")
                             .replace("\"uiActions\":[]", "\"uiActions\":" + invalidMap),
                     emptyContext());
-            var response = harness.controller().completions(request("where is the nearest pharmacy?"));
+            var response = harness.controller().completions(request("hello"));
 
             MermAidAnswer answer = answerOf(response);
             assertThat(harness.upstream().calls).hasValue(0);
