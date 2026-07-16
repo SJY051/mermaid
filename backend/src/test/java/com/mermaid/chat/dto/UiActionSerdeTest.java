@@ -88,6 +88,36 @@ class UiActionSerdeTest {
     }
 
     @Test
+    @DisplayName("official source actions serialize their fixed URL and verification provenance")
+    void officialSourceKeepsAllowlistedTuple() throws Exception {
+        UiAction original = UiAction.OpenOfficialSource.koreanNarcoticsControlAct();
+
+        String json = mapper.writeValueAsString(original);
+        UiAction back = mapper.readValue(json, UiAction.class);
+
+        assertThat(json)
+                .contains("\"type\":\"OPEN_OFFICIAL_SOURCE\"")
+                .contains("\"sourceId\":\"korean-narcotics-control-act\"")
+                .contains("\"verifiedOn\":\"2026-07-16\"")
+                .contains("https://www.law.go.kr/");
+        assertThat(back).isEqualTo(original);
+    }
+
+    @Test
+    @DisplayName("official source actions reject arbitrary URLs even when the type is valid")
+    void arbitraryOfficialSourceUrlRejected() {
+        String json =
+                "{\"type\":\"OPEN_OFFICIAL_SOURCE\",\"payload\":{"
+                        + "\"sourceId\":\"korean-narcotics-control-act\","
+                        + "\"label\":\"National Law Information Center — Narcotics Control Act\","
+                        + "\"url\":\"https://evil.example\","
+                        + "\"verifiedOn\":\"2026-07-16\"}}";
+
+        assertThatThrownBy(() -> mapper.readValue(json, UiAction.class))
+                .isInstanceOf(JsonProcessingException.class);
+    }
+
+    @Test
     @DisplayName("round-trip preserves the concrete subtype")
     void roundTrip() throws Exception {
         UiAction original =

@@ -5,8 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mermaid.chat.DrugContextRetriever.DrugContext;
 import com.mermaid.chat.GeneralExplanationPipeline.RenderedGeneralExplanation;
 import com.mermaid.chat.GeneralExplanationSemanticVerifier.ConfidenceBucket;
@@ -174,19 +172,20 @@ class ResponseAnswerComposerTest {
                 .extracting(UiAction::type)
                 .containsExactly("OPEN_OFFICIAL_SOURCE", "OPEN_OFFICIAL_SOURCE");
 
-        JsonNode json = new ObjectMapper().valueToTree(answer);
-        assertThat(json.at("/uiActions/0/payload/sourceId").asText())
-                .isEqualTo("korean-narcotics-control-act");
-        assertThat(json.at("/uiActions/0/payload/url").asText())
+        UiAction.OpenOfficialSource law =
+                (UiAction.OpenOfficialSource) answer.uiActions().get(0);
+        assertThat(law.payload().sourceId()).isEqualTo("korean-narcotics-control-act");
+        assertThat(law.payload().url())
                 .isEqualTo("https://www.law.go.kr/LSW/lsSc.do?eventGubun=060101&menuId=1&query=%EB%A7%88%EC%95%BD%EB%A5%98+%EA%B4%80%EB%A6%AC%EC%97%90+%EA%B4%80%ED%95%9C+%EB%B2%95%EB%A5%A0&section=&subMenuId=15&tabMenuId=81");
-        assertThat(json.at("/uiActions/0/payload/verifiedOn").asText())
-                .isEqualTo("2026-07-16");
-        assertThat(json.at("/uiActions/1/payload/sourceId").asText())
+        assertThat(law.payload().verifiedOn()).isEqualTo("2026-07-16");
+
+        UiAction.OpenOfficialSource mfds =
+                (UiAction.OpenOfficialSource) answer.uiActions().get(1);
+        assertThat(mfds.payload().sourceId())
                 .isEqualTo("mfds-medical-narcotic-analgesic-standards");
-        assertThat(json.at("/uiActions/1/payload/url").asText())
+        assertThat(mfds.payload().url())
                 .isEqualTo("https://www.mfds.go.kr/brd/m_218/view.do?Data_stts_gubun=C9999&company_cd=&company_nm=&itm_seq_1=0&itm_seq_2=0&multi_itm_seq=0&page=19&seq=33698&srchFr=&srchTo=&srchTp=0&srchWord=%EC%9D%98%EC%95%BD%ED%92%88");
-        assertThat(json.at("/uiActions/1/payload/verifiedOn").asText())
-                .isEqualTo("2026-07-16");
+        assertThat(mfds.payload().verifiedOn()).isEqualTo("2026-07-16");
     }
 
     @Test
