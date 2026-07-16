@@ -164,7 +164,10 @@ describe('NearbyFacilities', () => {
 
     await waitFor(() => {
       expect(fetchFacilitiesMock).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'emergency_room', openNow: false }),
+        expect.objectContaining({
+          type: 'emergency_room',
+          operationPreference: 'open_or_unknown',
+        }),
         expect.any(AbortSignal),
       )
     })
@@ -196,7 +199,7 @@ describe('NearbyFacilities', () => {
       id: 'unknown',
       operation: { ...pharmacy.operation, isOpenNow: null, status: 'unknown' },
     } as Facility
-    fetchFacilitiesMock.mockResolvedValue([pharmacy, unknown])
+    fetchFacilitiesMock.mockResolvedValue([closed, unknown, pharmacy])
 
     render(
       <NearbyFacilities

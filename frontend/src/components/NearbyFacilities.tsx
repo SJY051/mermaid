@@ -10,27 +10,39 @@ import {
   SEOUL_CITY_HALL,
   type ResolvedLocation,
 } from '../lib/facilities'
+import { splitByOpenStatus } from '../lib/facilitySplit'
 import { locationWithoutPrompt, useLocationSession } from '../lib/locationSession'
 import { setManualLocation } from '../lib/storage'
-import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
+import type {
+  Facility,
+  FacilityOperationPreference,
+  FacilityType,
+  GeocodeResult,
+} from '../lib/types'
 
-export interface NearbyFacilitiesProps {
-  /** Straight from the assistant's `OPEN_FACILITY_MAP` payload. */
+interface NearbyFacilitiesBaseProps {
+  /** Straight from the validated `OPEN_FACILITY_MAP` response payload. */
   types: string[]
   radiusM: number
-  openNow: boolean
 }
 
+export type NearbyFacilitiesProps = NearbyFacilitiesBaseProps &
+  (
+    | { operationPreference: FacilityOperationPreference; openNow?: never }
+    | { operationPreference?: never; openNow: boolean }
+  )
+
 /**
- * Turns the assistant's `OPEN_FACILITY_MAP` request into a map with real pins (UI-02, DEV-206/207).
+ * Turns the response's `OPEN_FACILITY_MAP` request into a map with real pins (UI-02, DEV-206/207).
  *
- * The assistant asks for facilities as *data* — it never calls a tool — so everything here starts
- * from a payload it wrote and a coordinate the browser gives us. See spec §2-1.
+ * The response asks for facilities as *data* — it never calls a tool. New actions are server-owned;
+ * a legacy model boolean is promoted to the explicit contract at this boundary.
  *
  * Location is asked for, not assumed. A refusal is not an error; it is a smaller answer, and the
  * map says which one the reader is looking at.
  */
-export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesProps) {
+export function NearbyFacilities(props: NearbyFacilitiesProps) {
+  const { types, radiusM } = props
   const { location: sessionLocation, rememberLocation } = useLocationSession()
   const [location, setLocation] = useState<ResolvedLocation>(
     () => sessionLocation ?? locationWithoutPrompt(),
@@ -43,7 +55,17 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
   // `types` is a fresh array on every render; depending on it directly would refetch forever.
   const type = (types[0] ?? 'pharmacy') as FacilityType
   const emergencyRoomMode = type === 'emergency_room'
-  const effectiveOpenNow = emergencyRoomMode ? false : openNow
+  const requestedOperationPreference =
+    'operationPreference' in props && props.operationPreference
+      ? props.operationPreference
+      : props.openNow
+        ? 'confirmed_open_only'
+        : 'any'
+  // NMC ER records have no hours. A legacy open-only action must not erase every result.
+  const operationPreference =
+    emergencyRoomMode && requestedOperationPreference === 'confirmed_open_only'
+      ? 'open_or_unknown'
+      : requestedOperationPreference
 
   useEffect(() => {
     if (sessionLocation) setLocation(sessionLocation)
@@ -58,7 +80,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
     setFacilities([])
     setError(null)
     fetchFacilities(
-      { lat: location.lat, lng: location.lng, radiusM, openNow: effectiveOpenNow, type },
+      { lat: location.lat, lng: location.lng, radiusM, operationPreference, type },
       controller.signal,
     )
       .then((found) => {
@@ -75,15 +97,34 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       cancelled = true
       controller.abort()
     }
-  }, [location, type, radiusM, effectiveOpenNow])
+  }, [location, type, radiusM, operationPreference])
+
+  const split = splitByOpenStatus(facilities)
+  const visibleFacilities =
+    operationPreference === 'open_or_unknown'
+      ? [...split.open, ...split.unknown]
+      : operationPreference === 'confirmed_open_only'
+        ? split.open
+        : facilities
 
   const plural =
     type === 'pharmacy' ? 'pharmacies' : type === 'hospital' ? 'hospitals' : 'emergency rooms'
-  const caption = `${plural} within ${radiusM}m${effectiveOpenNow ? ', open now' : ''}`
+  const preferenceCaption = emergencyRoomMode
+    ? ''
+    : operationPreference === 'open_or_unknown'
+      ? ', open now or hours unknown'
+      : operationPreference === 'confirmed_open_only'
+        ? ', open now'
+        : ''
+  const caption = `${plural} within ${radiusM}m${preferenceCaption}`
   const emptyResultNotice = emergencyRoomMode
     ? EMPTY_FACILITY_RESULT_NOTICE
     : `No ${plural} found within ${radiusM}m${
-        effectiveOpenNow ? ' that we know to be open right now' : ''
+        operationPreference === 'confirmed_open_only'
+          ? ' that we know to be open right now'
+          : operationPreference === 'open_or_unknown'
+            ? ' that are open now or have unknown hours'
+            : ''
       }.`
 
   async function handleUseDeviceLocation() {
@@ -136,7 +177,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
 
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
-        facilities={facilities}
+        facilities={visibleFacilities}
         facilityType={type}
         caption={caption}
         notice={locationNotice(location)}
@@ -164,7 +205,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
           empty array would claim "No facilities found" throughout the cold request. */}
       {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}
 
-      {!loadingFacilities && !error && facilities.length === 0 && (
+      {!loadingFacilities && !error && visibleFacilities.length === 0 && (
         <p className="text-sm text-secondary">{emptyResultNotice}</p>
       )}
     </div>

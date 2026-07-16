@@ -12,6 +12,7 @@ import { ProgressBar } from '@astryxdesign/core/ProgressBar'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { CircleAlert, Ellipsis, Send } from 'lucide-react'
 import { useChatSession, type ChatTurn } from '../lib/chatSession'
+import { resolveFacilityOperationPreference } from '../lib/facilities'
 import type { MermAidAnswer } from '../lib/types'
 import { AllergenPicker } from './AllergenPicker'
 import { DisclaimerStrip } from './DisclaimerStrip'
@@ -182,14 +183,14 @@ function AnsweredTurn({ turn }: { turn: ChatTurn }) {
         />
       ))}
 
-      {/* The assistant asks for the map through `uiActions`; it never calls a tool (spec §2-1). */}
+      {/* The validated response asks for the map through `uiActions`; it never calls a tool. */}
       {answer.uiActions.map((action, index) =>
         action.type === 'OPEN_FACILITY_MAP' ? (
           <NearbyFacilities
             key={index}
             types={action.payload.types}
             radiusM={action.payload.radiusM}
-            openNow={action.payload.openNow}
+            operationPreference={resolveFacilityOperationPreference(action.payload)}
           />
         ) : null,
       )}

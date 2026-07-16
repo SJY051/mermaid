@@ -225,7 +225,7 @@ describe('MapScreen', () => {
     expect(openNow).toHaveAttribute('aria-checked', 'false')
     await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(4))
     expect(fetchFacilitiesMock.mock.calls[3][0]).toEqual(
-      expect.objectContaining({ type: 'emergency_room', openNow: false }),
+      expect.objectContaining({ type: 'emergency_room', operationPreference: 'any' }),
     )
     expect(await screen.findByTestId(`map-facility-${emergencyRoom.id}`)).toHaveTextContent(
       'Hours unknown',
@@ -386,9 +386,10 @@ describe('MapScreen', () => {
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open,unknown,closed'))
     expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3)
 
-    // Mutation guard: passing the switch value through as `openNow` must turn this assertion red.
+    // Mutation guard: passing the switch value through to the API must turn this assertion red.
     for (const [query] of fetchFacilitiesMock.mock.calls) {
-      expect(query).toEqual(expect.objectContaining({ openNow: false }))
+      expect(query).toEqual(expect.objectContaining({ operationPreference: 'any' }))
+      expect(query).not.toHaveProperty('openNow')
     }
 
     await user.click(screen.getByRole('switch', { name: 'Open now' }))
@@ -417,7 +418,8 @@ describe('MapScreen', () => {
     )
 
     for (const [query] of fetchFacilitiesMock.mock.calls) {
-      expect(query).toEqual(expect.objectContaining({ openNow: false }))
+      expect(query).toEqual(expect.objectContaining({ operationPreference: 'any' }))
+      expect(query).not.toHaveProperty('openNow')
     }
   })
 
