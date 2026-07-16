@@ -123,20 +123,28 @@ decision.
   before enabling this planner path; it MUST NOT silently map `OPEN_OR_UNKNOWN` to either boolean.
 - **FR-110:** The model MUST NOT author renderable T1/T2 prose. It may propose only typed semantic
   claims for a symptom possibility, an ordinary-term definition, or a general comparison, using an
-  allowlisted predicate and short concept fragments. A mention attributed to the user MUST bind to
-  an exact normalized phrase in the latest user turn.
+  allowlisted predicate plus server-owned subject and concept identifiers. Free-text subjects and
+  concept fragments are not valid model output. Each subject identifier owns a server-defined alias set;
+  at least one alias MUST bind to an exact normalized phrase in the latest user turn. Admission MUST
+  validate the complete subject/predicate/concept tuple against a server-owned rule; individually
+  valid identifiers cannot be recombined into a new medical claim.
 - **FR-111:** Deterministic shape admission MUST reject sentence punctuation, control or format
-  characters, bidi controls, zero-width characters, numbers, dose or duration terms, medicine or
-  treatment terms, and more than the bounded claim/fragment count. This is a sentence-smuggling
-  boundary, not a claim that the remaining medical meaning is true.
+  characters, bidi controls, zero-width characters, dose or duration terms, medicine or treatment
+  terms, predicate-like clauses, and more than the bounded claim/concept count. A reviewed subject
+  alias MAY contain an internal apostrophe, hyphen, or digit so identifiers for `Crohn's disease`,
+  `COVID-19`, `type 2 diabetes`, and `B12` are not silently removed. The launch subject vocabulary is
+  bounded and expands only through server changes followed by the PM/clinical activation review,
+  never through an arbitrary model string. This is a sentence-smuggling boundary, not a claim that
+  the configured medical meaning has already received human approval.
 - **FR-112:** A separate semantic review receives only the normalized claim AST and returns a strict
   allow/reject decision with violation codes; it cannot return replacement prose. Only
   `ALLOW + HIGH confidence + no violations` may reach the renderer. Timeout, malformed output,
   low confidence, or an unknown decision removes only the general-explanation capability.
 - **FR-113:** The server owns every complete sentence and the non-diagnostic limitation. Raw model
-  prose, a pre-rendered model string, and a normalized-but-unreviewed AST are not valid capability
-  results. The general-explanation flag remains off until the reviewed provider evaluation and
-  PM/clinical activation gate pass.
+  prose, a user/model string interpolated into prose, a pre-rendered model string, and a
+  normalized-but-unreviewed AST are not valid capability results. The renderer MAY use only the
+  server-owned label attached to an admitted subject identifier. The general-explanation flag remains
+  off until the reviewed provider evaluation and PM/clinical activation gate pass.
 
 ### T2 — useful answer with professional consultation
 
@@ -356,8 +364,10 @@ decision.
 - **SC-004:** A mixed mild-fever/medicine/pharmacy turn retains its facility action when Pass 1,
   public-data retrieval, or enrichment is forced to fail independently.
 - **SC-005:** T1 possibility claims render through server-owned templates, while a definite or
-  personalized diagnosis is blocked. Mutations that add a raw-prose path, bypass semantic review, or
-  admit “influenza. You have pneumonia” as one concept fragment turn the output-policy tests red.
+  personalized diagnosis is blocked. Mutations that add a raw-prose path, replace a server-owned
+  subject or concept identifier with a free string, recombine valid identifiers into an unreviewed
+  medical claim, bypass semantic review, or admit “influenza. You have pneumonia” as a subject turn
+  the output-policy tests red.
 - **SC-006:** Model attempts to author drug facts, doses, facility payloads, emergency copy, T3 copy,
   or T5 copy are discarded; server-owned fields remain unchanged.
 - **SC-007:** A deterministic emergency hit stays T4 even when the model fixture requests T1, and the
