@@ -18,6 +18,7 @@ import com.mermaid.facility.domain.DutyTable;
 import java.net.URI;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
@@ -412,8 +413,12 @@ class PharmacyApiClientTest {
                     .hasNoCause()
                     .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
             assertThat(appender.list)
-                    .extracting(ILoggingEvent::getFormattedMessage)
-                    .allSatisfy(message -> assertThat(message).doesNotContain(secret, "ServiceKey"));
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(secret, "ServiceKey");
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
             appender.list.clear();
 
             assertThatThrownBy(() -> client.findNearForOpenNow(37.5663, 126.9779, 1000))
@@ -422,10 +427,15 @@ class PharmacyApiClientTest {
                     .hasNoCause()
                     .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
             assertThat(appender.list)
-                    .extracting(ILoggingEvent::getFormattedMessage)
-                    .allSatisfy(message -> assertThat(message).doesNotContain(secret, "serviceKey"));
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(secret, "serviceKey");
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
         } finally {
             logger.detachAppender(appender);
+            appender.stop();
         }
     }
 
@@ -529,6 +539,71 @@ class PharmacyApiClientTest {
 
         assertThat(batch.detail()).isNull();
         assertThat(batch.origin()).isEqualTo(SourceRef.DataMode.FIXTURE);
+    }
+
+    @Test
+    @DisplayName("the public detail route spends quota before its upstream basis request (issue #95)")
+    void basisDetailDoesNotReachNmcAfterItsReservedBudgetIsSpent() {
+        var props =
+                new PublicApiProperties(
+                        "configured-key", "https://nmc.example", "https://x", "https://x", "https://x",
+                        "https://x", "https://x");
+        var loader = new FixtureLoader(new ObjectMapper());
+        var upstreamCalls = new AtomicInteger();
+        NmcCallQuota oneDetailCall = kind -> kind != NmcCallKind.DETAIL || upstreamCalls.get() == 0;
+        PharmacyApiClient client =
+                new PharmacyApiClient(
+                        null,
+                        props,
+                        new DataModeProperties(DataModeProperties.DataMode.LIVE),
+                        loader,
+                        oneDetailCall) {
+                    @Override
+                    protected JsonNode fetchBasis(String hpid) {
+                        upstreamCalls.incrementAndGet();
+                        return loader.load("pharmacy_basis.json");
+                    }
+                };
+
+        assertThat(client.basisDetail("C1110693").detail()).isNotNull();
+        assertThatThrownBy(() -> client.basisDetail("C2222222"))
+                .isInstanceOf(PublicApiException.class)
+                .hasMessage("Pharmacy detail lookup failed for C2222222");
+
+        // Removing acquireNmcCall(DETAIL, ...) makes the second request reach fetchBasis and turns
+        // this red. It protects the real public detail route, not a standalone limiter object.
+        assertThat(upstreamCalls).hasValue(1);
+    }
+
+    @Test
+    @DisplayName("every live NMC path asks the shared quota before its upstream request (issue #95)")
+    void directoryAndSchedulePathsReachTheSharedQuotaBoundary() {
+        var props =
+                new PublicApiProperties(
+                        "configured-key", "https://nmc.example", "https://x", "https://x", "https://x",
+                        "https://x", "https://x");
+        var kinds = new java.util.ArrayList<NmcCallKind>();
+        NmcCallQuota denyAll =
+                kind -> {
+                    kinds.add(kind);
+                    return false;
+                };
+        var client =
+                new PharmacyApiClient(
+                        null,
+                        props,
+                        new DataModeProperties(DataModeProperties.DataMode.LIVE),
+                        new FixtureLoader(new ObjectMapper()),
+                        denyAll);
+
+        assertThatThrownBy(() -> client.findNearForOpenNow(37.5663, 126.9779, 1000))
+                .isInstanceOf(PublicApiException.class);
+        assertThatThrownBy(() -> client.weeklyHours("C1110693"))
+                .isInstanceOf(PublicApiException.class);
+
+        // Deleting either acquireNmcCall call leaves its kind absent and turns this red before a
+        // WebClient request could spend the shared credential.
+        assertThat(kinds).containsExactly(NmcCallKind.DIRECTORY, NmcCallKind.SCHEDULE);
     }
 
     @Test

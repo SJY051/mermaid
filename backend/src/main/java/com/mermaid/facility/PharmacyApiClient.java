@@ -81,24 +81,14 @@ public class PharmacyApiClient {
     private static final String FIXTURE = "pharmacy.json";
     private static final String BASIS_FIXTURE = "pharmacy_basis.json";
     private static final ObjectMapper JSON = new ObjectMapper();
-    /** Keeps one instance below NMC's 1,000 daily detail-call quota: 30 + 864 = 894/day. */
-    static final int DETAIL_LOOKUP_BURST = 30;
-    static final double DETAIL_LOOKUP_REFILL_PER_SECOND = 0.01;
+    private static final NmcCallQuota UNMETERED_TEST_QUOTA = kind -> true;
 
     private final WebClient publicApiWebClient;
     private final PublicApiProperties properties;
     private final HiraPharmacyProperties hiraProperties;
     private final DataModeProperties dataMode;
     private final FixtureLoader fixtures;
-
-    /**
-     * Bounds live NMC detail lookups so enumerating well-formed HPIDs cannot drain the 1,000/day quota
-     * (issue #95). The 30-token burst plus 0.01/s sustained rate permits at most 894 calls in a
-     * 24-hour window on one instance, below NMC's 1,000/day budget. See {@link
-     * PharmacyDetailRateLimiter}.
-     */
-    private final PharmacyDetailRateLimiter detailLookupLimiter =
-            new PharmacyDetailRateLimiter(DETAIL_LOOKUP_BURST, DETAIL_LOOKUP_REFILL_PER_SECOND);
+    private final NmcCallQuota nmcCallQuota;
 
     @Autowired
     public PharmacyApiClient(
@@ -106,12 +96,24 @@ public class PharmacyApiClient {
             PublicApiProperties properties,
             HiraPharmacyProperties hiraProperties,
             DataModeProperties dataMode,
-            FixtureLoader fixtures) {
+            FixtureLoader fixtures,
+            NmcCallQuota nmcCallQuota) {
         this.publicApiWebClient = publicApiWebClient;
         this.properties = properties;
         this.hiraProperties = hiraProperties;
         this.dataMode = dataMode;
         this.fixtures = fixtures;
+        this.nmcCallQuota = nmcCallQuota;
+    }
+
+    /** Compatibility constructor for focused tests that provide a HIRA endpoint. */
+    public PharmacyApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            HiraPharmacyProperties hiraProperties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures) {
+        this(publicApiWebClient, properties, hiraProperties, dataMode, fixtures, UNMETERED_TEST_QUOTA);
     }
 
     /** Compatibility constructor for focused tests and existing direct callers. */
@@ -125,7 +127,24 @@ public class PharmacyApiClient {
                 properties,
                 new HiraPharmacyProperties(DEFAULT_HIRA_BASE_URL),
                 dataMode,
-                fixtures);
+                fixtures,
+                UNMETERED_TEST_QUOTA);
+    }
+
+    /** Package-visible constructor for a deterministic quota-boundary test. */
+    PharmacyApiClient(
+            WebClient publicApiWebClient,
+            PublicApiProperties properties,
+            DataModeProperties dataMode,
+            FixtureLoader fixtures,
+            NmcCallQuota nmcCallQuota) {
+        this(
+                publicApiWebClient,
+                properties,
+                new HiraPharmacyProperties(DEFAULT_HIRA_BASE_URL),
+                dataMode,
+                fixtures,
+                nmcCallQuota);
     }
 
     /**
@@ -234,6 +253,7 @@ public class PharmacyApiClient {
     }
 
     private PharmacyBatch nmcBatch(double lat, double lng, int radiusMeters) {
+        acquireNmcCall(NmcCallKind.DIRECTORY, "directory");
         JsonNode raw =
                 publicApiWebClient
                         .get()
@@ -623,6 +643,7 @@ public class PharmacyApiClient {
         }
 
         try {
+            acquireNmcCall(NmcCallKind.SCHEDULE, "weekly-hours");
             return parseWeeklyHours(fetchBasis(hpid), hpid, SourceRef.DataMode.LIVE);
         } catch (Exception ignored) {
             if (dataMode.allowsFallback()) {
@@ -685,14 +706,8 @@ public class PharmacyApiClient {
             log.warn("DATA_GO_KR_SERVICE_KEY is not set — falling back to fixture pharmacy detail");
             return fixtureDetail(hpid);
         }
-        if (!detailLookupLimiter.tryAcquire()) {
-            // Self-imposed throttle (see PharmacyDetailRateLimiter): refuse to spend an NMC call so a
-            // burst of distinct ids cannot drain the daily quota. Retryable (SOURCE_UNAVAILABLE), and
-            // never cached, so a legitimate id succeeds once the bucket refills.
-            throw new PublicApiException("Pharmacy detail lookup is rate-limited");
-        }
-
         try {
+            acquireNmcCall(NmcCallKind.DETAIL, "detail");
             return new PharmacyDetailBatch(
                     parseBasisDetail(fetchBasis(hpid), hpid, SourceRef.DataMode.LIVE),
                     SourceRef.DataMode.LIVE);
@@ -718,6 +733,14 @@ public class PharmacyApiClient {
         return new PharmacyDetailBatch(
                 parseBasisDetail(fixtures.load(BASIS_FIXTURE), hpid, SourceRef.DataMode.FIXTURE),
                 SourceRef.DataMode.FIXTURE);
+    }
+
+    private void acquireNmcCall(NmcCallKind kind, String operation) {
+        if (!nmcCallQuota.tryAcquire(kind)) {
+            // No upstream request follows this branch. Returning SOURCE_UNAVAILABLE is retryable and
+            // preserves the shared NMC daily reserve instead of letting one anonymous caller drain it.
+            throw new PublicApiException("NMC " + operation + " lookup is temporarily unavailable");
+        }
     }
 
     /**

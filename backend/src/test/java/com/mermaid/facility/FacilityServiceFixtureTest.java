@@ -282,6 +282,50 @@ class FacilityServiceFixtureTest {
     }
 
     @Test
+    @DisplayName("a cached pharmacy detail keeps its original provenance timestamp (issue #95)")
+    void pharmacyDetailUsesTheBatchRetrievedAtForSourceAndOperation() {
+        Instant fetchedAt = Instant.parse("2026-07-01T01:02:03Z");
+        var props =
+                new PublicApiProperties(
+                        "", "https://x", "https://x", "https://x", "https://x", "https://x", "https://x");
+        var dataMode = new DataModeProperties(DataModeProperties.DataMode.FIXTURE);
+        var loader = new FixtureLoader(new ObjectMapper());
+        var pharmacy =
+                new PharmacyApiClient(null, props, dataMode, loader) {
+                    @Override
+                    public PharmacyDetailBatch basisDetail(String hpid) {
+                        return new PharmacyDetailBatch(
+                                new PharmacyDetail(
+                                        hpid,
+                                        "캐시약국",
+                                        "서울 중구",
+                                        "02-000-0000",
+                                        LAT,
+                                        LNG,
+                                        new com.mermaid.facility.domain.DutyTable(
+                                                Map.of(5, List.of("0900", "1900")),
+                                                SourceRef.DataMode.LIVE)),
+                                SourceRef.DataMode.LIVE,
+                                fetchedAt);
+                    }
+                };
+        var service =
+                new FacilityService(
+                        pharmacy,
+                        new HospitalApiClient(null, props, dataMode, loader),
+                        new HospitalDetailApiClient(null, props, dataMode, loader),
+                        new EmergencyRoomApiClient(null, props, dataMode, loader),
+                        new HolidayCalendar(date -> false),
+                        FRIDAY_AFTERNOON);
+
+        Facility facility = service.detail("facility:nmc:C1110693");
+
+        // Restamping batch.retrievedAt() with the request clock makes both assertions red.
+        assertThat(facility.source().retrievedAt()).isEqualTo(fetchedAt);
+        assertThat(facility.operation().verifiedAt()).isEqualTo(fetchedAt);
+    }
+
+    @Test
     @DisplayName("a well-formed hpid upstream does not know is a NotFoundException, not a blank card")
     void pharmacyDetailUnknownHpidThrowsNotFound() {
         // Well-formed (letter + seven digits) but absent from the fixture: this reaches basisDetail and
