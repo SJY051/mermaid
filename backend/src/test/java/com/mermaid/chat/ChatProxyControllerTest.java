@@ -1293,6 +1293,7 @@ class ChatProxyControllerTest {
                     .isInstanceOf(UiAction.OpenFacilityMap.class);
             assertThat(answer.summary())
                     .doesNotContain(ServerAuthoredSearchUnavailableAnswer.SUMMARY)
+                    .containsIgnoringCase("no medicine card is shown")
                     .containsIgnoringCase("nearby care");
         }
 
@@ -1339,6 +1340,7 @@ class ChatProxyControllerTest {
             assertThat(retrievalCalls).hasValue(1);
             assertThat(upstream.calls).hasValue(0);
             assertThat(answer.drugs()).isEmpty();
+            assertThat(answer.summary()).containsIgnoringCase("no medicine card is shown");
             assertThat(answer.uiActions())
                     .singleElement()
                     .isInstanceOf(UiAction.OpenFacilityMap.class);

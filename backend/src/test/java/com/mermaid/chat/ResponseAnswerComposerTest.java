@@ -83,6 +83,7 @@ class ResponseAnswerComposerTest {
                 new CapabilityResults(explanation, null, Set.of(failure)));
 
         assertThat(answer.summary()).contains(explanation.summary());
+        assertThat(answer.summary()).containsIgnoringCase("no medicine card is shown");
         assertFacilityAction(answer, "pharmacy", FacilityOperationPreference.ANY);
         assertThat(answer.drugs()).isEmpty();
         assertThat(answer.sourceRefs()).isEmpty();
