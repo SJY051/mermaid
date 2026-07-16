@@ -226,13 +226,15 @@ public class FacilityService {
     private Facility pharmacyDetail(String hpid) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(KST);
         boolean holiday = holidayCalendar.isHoliday(now.toLocalDate());
-        Instant retrievedAt = now.toInstant();
 
         PharmacyApiClient.PharmacyDetailBatch batch = pharmacyApiClient.basisDetail(hpid);
         PharmacyApiClient.PharmacyDetail detail = batch.detail();
         if (detail == null) {
             throw new NotFoundException("no pharmacy found for hpid " + hpid);
         }
+        // When we actually fetched this — carried through the cache, so a hit is not restamped as "just
+        // now" (issue #95). Current time (`now`) still drives the open-now calculation below.
+        Instant retrievedAt = batch.retrievedAt();
 
         return new Facility(
                 Facility.idOf(NMC_PHARMACY_PROVIDER, hpid),

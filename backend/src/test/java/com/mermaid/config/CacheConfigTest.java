@@ -95,8 +95,10 @@ class CacheConfigTest {
     }
 
     @Test
-    @DisplayName("the pharmacy-detail cache value round-trips, timetable and coordinates included")
+    @DisplayName("the pharmacy-detail cache value round-trips, timetable, coordinates and retrievedAt included")
     void pharmacyDetailValueRoundTrips() {
+        // A fixed retrievedAt must survive Redis so a cache hit is not restamped as fresh (issue #95).
+        var retrievedAt = java.time.Instant.parse("2026-07-10T05:06:03.099082Z");
         var value =
                 new PharmacyApiClient.PharmacyDetailBatch(
                         new PharmacyApiClient.PharmacyDetail(
@@ -108,11 +110,13 @@ class CacheConfigTest {
                                 126.978921749794,
                                 new DutyTable(
                                         Map.of(1, List.of("0900", "1900")), SourceRef.DataMode.FIXTURE)),
-                        SourceRef.DataMode.FIXTURE);
+                        SourceRef.DataMode.FIXTURE,
+                        retrievedAt);
 
         Object back = pair().read(pair().write(value));
 
         assertThat(back).isEqualTo(value);
+        assertThat(((PharmacyApiClient.PharmacyDetailBatch) back).retrievedAt()).isEqualTo(retrievedAt);
     }
 
     @Test

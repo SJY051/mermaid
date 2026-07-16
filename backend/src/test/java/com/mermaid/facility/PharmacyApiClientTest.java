@@ -610,4 +610,88 @@ class PharmacyApiClientTest {
                 .hasMessage("Pharmacy detail lookup failed for C1110693")
                 .hasNoCause();
     }
+
+    // ----- issue #95 -----
+
+    private static final String SECRET_SENTINEL = "decoding-key-DO-NOT-LOG";
+
+    /** A client whose NMC basis fetch fails with an exception carrying the service key and URI. */
+    private PharmacyApiClient leakingBasisClient(DataModeProperties.DataMode mode) {
+        var props =
+                new PublicApiProperties(
+                        SECRET_SENTINEL, "https://pharmacy.example", "https://x", "https://x",
+                        "https://x", "https://x", "https://x");
+        return new PharmacyApiClient(
+                null, props, new DataModeProperties(mode), new FixtureLoader(new ObjectMapper())) {
+            @Override
+            protected JsonNode fetchBasis(String hpid) {
+                throw new IllegalStateException(
+                        "GET https://pharmacy.example/getParmacyBassInfoInqire?serviceKey="
+                                + SECRET_SENTINEL
+                                + "&HPID="
+                                + hpid);
+            }
+        };
+    }
+
+    @Test
+    @DisplayName("a row with a non-finite or out-of-range coordinate is rejected (issue #95)")
+    void basisDetailRejectsInvalidCoordinates() throws Exception {
+        for (String badCoords :
+                List.of(
+                        "\"wgs84Lat\":\"NaN\",\"wgs84Lon\":126.97",
+                        "\"wgs84Lat\":37.56,\"wgs84Lon\":\"Infinity\"",
+                        "\"wgs84Lat\":999,\"wgs84Lon\":126.97")) {
+            String envelope =
+                    ("{\"response\":{\"header\":{\"resultCode\":\"00\",\"resultMsg\":\"OK\"},"
+                                    + "\"body\":{\"items\":{\"item\":{\"hpid\":\"C1110693\","
+                                    + "\"dutyName\":\"청실약국\",\"dutyAddr\":\"서울 중구\",%s}}}}}")
+                            .formatted(badCoords);
+            assertThat(
+                            fixtureClient()
+                                    .parseBasisDetail(
+                                            new ObjectMapper().readTree(envelope),
+                                            "C1110693",
+                                            SourceRef.DataMode.LIVE))
+                    .as(badCoords)
+                    .isNull();
+        }
+    }
+
+    @Test
+    @DisplayName("NMC basis failure paths log no service key, URI, or exception text (§2-7, issue #95)")
+    void basisFailurePathsLogNoSecrets() {
+        Logger logger = (Logger) LoggerFactory.getLogger(PharmacyApiClient.class);
+        ListAppender<ILoggingEvent> logs = new ListAppender<>();
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            var hybrid = leakingBasisClient(DataModeProperties.DataMode.HYBRID);
+            // weeklyHours falls back to the fixture and logs; basisDetail for an absent id throws.
+            hybrid.weeklyHours("C9999999");
+            assertThatThrownBy(() -> hybrid.basisDetail("C9999999"))
+                    .isInstanceOf(PublicApiException.class);
+
+            assertThat(logs.list)
+                    .extracting(ILoggingEvent::getFormattedMessage)
+                    .noneMatch(m -> m.contains(SECRET_SENTINEL))
+                    .noneMatch(m -> m.contains("HPID="))
+                    .noneMatch(m -> m.contains("pharmacy.example"));
+        } finally {
+            logger.detachAppender(logs);
+            logs.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("a live weekly-hours failure throws without the URI-bearing cause (§2-7, issue #95)")
+    void weeklyHoursLiveFailureHasNoCause() {
+        assertThatThrownBy(
+                        () ->
+                                leakingBasisClient(DataModeProperties.DataMode.LIVE)
+                                        .weeklyHours("C1110693"))
+                .isInstanceOf(PublicApiException.class)
+                .hasMessage("Pharmacy weekly-hours lookup failed for C1110693")
+                .hasNoCause();
+    }
 }
