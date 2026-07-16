@@ -151,7 +151,7 @@ afterEach(() => {
 })
 
 describe('MapScreen', () => {
-  it('renders the wireframe facility segments in order, with ER visible but unavailable', async () => {
+  it('renders the wireframe facility segments in order, with Emergency rooms available', async () => {
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
     fetchFacilitiesMock.mockResolvedValue([])
 
@@ -165,25 +165,131 @@ describe('MapScreen', () => {
       'Hospitals',
       'ER',
     ])
-    expect(within(filters).getByRole('button', { name: 'ER' })).toBeDisabled()
+    expect(within(filters).getByRole('button', { name: 'Emergency rooms' })).toBeEnabled()
+    await waitFor(() => {
+      expect(fetchFacilitiesMock.mock.calls.map(([query]) => query.type)).toEqual([
+        'pharmacy',
+        'hospital',
+        'emergency_room',
+      ])
+    })
   })
 
-  it('never queries unsupported ER results or claims an ER search returned no matches', async () => {
-    const user = userEvent.setup()
+  it('keeps other All results visible when the emergency-room request fails', async () => {
+    const pharmacy = facility('pharmacy', '가나약국', true)
     resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
-    fetchFacilitiesMock.mockResolvedValue([])
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) => {
+      if (type === 'pharmacy') return Promise.resolve([pharmacy])
+      if (type === 'emergency_room') {
+        return Promise.reject(new Error('Emergency-room lookup failed.'))
+      }
+      return Promise.resolve([])
+    })
 
     render(<MapScreen active={true} />)
 
-    const erButton = await screen.findByRole('button', { name: 'ER' })
-    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByTestId(`map-facility-${pharmacy.id}`)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Emergency-room lookup failed.')
+    expect(screen.queryByText(/No facilities found/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('1 facilities · 1 Open now · 0 Hours unknown'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('loads emergency-room fixture results with open_now off and disables Open now', async () => {
+    const user = userEvent.setup()
+    const emergencyRoom = facility(
+      'facility:nmc-emergency:A1100006',
+      '강북삼성병원',
+      null,
+      '02-2001-2001',
+    )
+    emergencyRoom.type = 'emergency_room'
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      Promise.resolve(type === 'emergency_room' ? [emergencyRoom] : []),
+    )
+
+    render(<MapScreen active={true} />)
+
+    const openNow = await screen.findByRole('switch', { name: 'Open now' })
+    await user.click(openNow)
+    expect(openNow).toHaveAttribute('aria-checked', 'true')
+
+    const erButton = screen.getByRole('button', { name: 'Emergency rooms' })
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3))
     await user.click(erButton)
 
-    expect(erButton).toBeDisabled()
-    expect(fetchFacilitiesMock.mock.calls.map(([query]) => query.type)).toEqual([
-      'pharmacy',
-      'hospital',
-    ])
+    expect(erButton).toHaveAttribute('aria-pressed', 'true')
+    expect(openNow).toBeDisabled()
+    expect(openNow).toHaveAttribute('aria-checked', 'false')
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(4))
+    expect(fetchFacilitiesMock.mock.calls[3][0]).toEqual(
+      expect.objectContaining({ type: 'emergency_room', openNow: false }),
+    )
+    expect(await screen.findByTestId(`map-facility-${emergencyRoom.id}`)).toHaveTextContent(
+      'Hours unknown',
+    )
+    expect(screen.getByText('1 emergency room · 0 Open now · 1 Hours unknown')).toBeInTheDocument()
+    expect(screen.getByTestId('map-fixture-notice')).toHaveTextContent('Sample data')
+    expect(
+      screen.getByText(
+        'Opening hours are not available for these official emergency-room records. Call before you go.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('keeps emergency-room loading distinct and uses safety copy for an empty result', async () => {
+    const user = userEvent.setup()
+    let settleEmergencyRooms!: (facilities: Facility[]) => void
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    let emergencyRoomRequests = 0
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) => {
+      if (type !== 'emergency_room') return Promise.resolve([])
+      emergencyRoomRequests += 1
+      return emergencyRoomRequests === 1
+        ? Promise.resolve([])
+        : new Promise<Facility[]>((resolve) => {
+            settleEmergencyRooms = resolve
+          })
+    })
+
+    render(<MapScreen active={true} />)
+    await user.click(await screen.findByRole('button', { name: 'Emergency rooms' }))
+
+    expect(screen.getByText('Loading emergency rooms…')).toBeInTheDocument()
+    expect(
+      screen.queryByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).not.toBeInTheDocument()
+
+    settleEmergencyRooms([])
+    expect(
+      await screen.findByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No emergency rooms found within 1000m.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Loading emergency rooms…')).not.toBeInTheDocument()
+  })
+
+  it('renders an emergency-room fetch failure as an alert, not an empty result', async () => {
+    const user = userEvent.setup()
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    let emergencyRoomRequests = 0
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) => {
+      if (type !== 'emergency_room') return Promise.resolve([])
+      emergencyRoomRequests += 1
+      return emergencyRoomRequests === 1
+        ? Promise.resolve([])
+        : Promise.reject(new Error('Emergency-room lookup failed.'))
+    })
+
+    render(<MapScreen active={true} />)
+    await user.click(await screen.findByRole('button', { name: 'Emergency rooms' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Emergency-room lookup failed.')
     expect(screen.queryByText(/No emergency rooms found/i)).not.toBeInTheDocument()
   })
 
@@ -194,9 +300,28 @@ describe('MapScreen', () => {
     render(<MapScreen active={true} />)
 
     await screen.findByTestId('map-stub')
-    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3))
     expect(
       screen.queryByText('Nearby pharmacies and hospitals will appear here.'),
+    ).not.toBeInTheDocument()
+  })
+
+  it('uses safety copy when All is empty after hospital lookup is unavailable', async () => {
+    resolveLocationMock.mockResolvedValue({ lat: 37.5, lng: 127, source: 'device' })
+    fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
+      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([]),
+    )
+
+    render(<MapScreen active={true} />)
+
+    expect(
+      await screen.findByText(
+        'No facilities matching these filters were found. Try changing the filters or contacting a local health service.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('No facilities found within 1000m.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('0 facilities · 0 Open now · 0 Hours unknown'),
     ).not.toBeInTheDocument()
   })
 
@@ -205,7 +330,9 @@ describe('MapScreen', () => {
     const unknown = facility('unknown', '미상약국', null, '02-111-2222')
     resolveLocationMock.mockResolvedValue({ lat: 37.5663, lng: 126.9779, source: 'fallback' })
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
-      type === 'hospital' ? Promise.reject(notImplementedError()) : Promise.resolve([unknown]),
+      type === 'hospital'
+        ? Promise.reject(notImplementedError())
+        : Promise.resolve(type === 'pharmacy' ? [unknown] : []),
     )
 
     render(<MapScreen active={true} />)
@@ -214,7 +341,9 @@ describe('MapScreen', () => {
     expect(unknownPin).toHaveTextContent('Hours unknown')
     expect(unknownPin).not.toHaveTextContent('Closed')
     expect(screen.queryByText('Closed')).not.toBeInTheDocument()
-    expect(screen.getByText('1 pharmacies · 0 Open now · 1 Hours unknown')).toBeInTheDocument()
+    expect(
+      screen.queryByText('1 facilities · 0 Open now · 1 Hours unknown'),
+    ).not.toBeInTheDocument()
     expect(screen.getByTestId('map-notice')).toHaveTextContent(
       'Centred on Seoul City Hall — we could not read your location, so these are not near you.',
     )
@@ -229,8 +358,11 @@ describe('MapScreen', () => {
       )
       expect(hospitalCalls).toHaveLength(2)
     })
-    expect(await screen.findByText('We cannot look up hospitals yet — pharmacy search works today.'))
-      .toBeInTheDocument()
+    expect(
+      await screen.findByText(
+        'Hospital search is unavailable right now. Pharmacy and emergency-room search may still work.',
+      ),
+    ).toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
@@ -245,14 +377,14 @@ describe('MapScreen', () => {
     fetchFacilitiesMock.mockImplementation(({ type }: { type: string }) =>
       type === 'hospital'
         ? Promise.reject(notImplementedError())
-        : Promise.resolve([closed, unknown, open]),
+        : Promise.resolve(type === 'pharmacy' ? [closed, unknown, open] : []),
     )
 
     render(<MapScreen active={true} />)
 
     const map = await screen.findByTestId('map-stub')
     await waitFor(() => expect(map).toHaveAttribute('data-facility-ids', 'open,unknown,closed'))
-    expect(fetchFacilitiesMock).toHaveBeenCalledTimes(2)
+    expect(fetchFacilitiesMock).toHaveBeenCalledTimes(3)
 
     // Mutation guard: passing the switch value through as `openNow` must turn this assertion red.
     for (const [query] of fetchFacilitiesMock.mock.calls) {
@@ -320,7 +452,7 @@ describe('MapScreen', () => {
       const newCentreCalls = fetchFacilitiesMock.mock.calls.filter(
         ([query]) => query.lat === 35.1796 && query.lng === 129.0756,
       )
-      expect(newCentreCalls).toHaveLength(2)
+      expect(newCentreCalls).toHaveLength(3)
     })
     expect(loadPreferences().manualLocation).toEqual({
       lat: 35.1796,
@@ -354,7 +486,7 @@ describe('MapScreen', () => {
       const pickedCentreCalls = fetchFacilitiesMock.mock.calls.filter(
         ([query]) => query.lat === result.latitude && query.lng === result.longitude,
       )
-      expect(pickedCentreCalls).toHaveLength(2)
+      expect(pickedCentreCalls).toHaveLength(3)
     })
     expect(loadPreferences().manualLocation).toEqual({
       lat: result.latitude,
@@ -414,7 +546,7 @@ describe('MapScreen', () => {
       const fallbackCalls = fetchFacilitiesMock.mock.calls.filter(
         ([query]) => query.lat === 37.5663 && query.lng === 126.9779,
       )
-      expect(fallbackCalls).toHaveLength(2)
+      expect(fallbackCalls).toHaveLength(3)
     })
     expect(loadPreferences().manualLocation).toBeNull()
   })

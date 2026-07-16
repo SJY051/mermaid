@@ -2,10 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { splitByOpenStatus } from './facilitySplit'
 import type { Facility } from './types'
 
-function facility(id: string, isOpenNow: boolean | null): Facility {
+function facility(
+  id: string,
+  isOpenNow: boolean | null,
+  type: Facility['type'] = 'pharmacy',
+): Facility {
   return {
     id,
-    type: 'pharmacy',
+    type,
     nameKo: `${id} 약국`,
     nameEn: null,
     addressKo: null,
@@ -66,5 +70,15 @@ describe('splitByOpenStatus', () => {
 
     expect(split.unknown).toEqual([])
     expect(split.closed).toEqual([closed])
+  })
+
+  it('keeps emergency-room directory records unknown even if an upstream flag says open', () => {
+    const emergencyRoom = facility('emergency', true, 'emergency_room')
+
+    expect(splitByOpenStatus([emergencyRoom])).toEqual({
+      open: [],
+      unknown: [emergencyRoom],
+      closed: [],
+    })
   })
 })

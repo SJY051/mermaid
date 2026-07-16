@@ -133,6 +133,31 @@ describe('DetailDrawer', () => {
     expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('×')
   })
 
+  it('renders emergency-room records as hours unknown with the required call-ahead copy', () => {
+    renderDrawer({
+      id: 'facility:nmc-emergency:A1100006',
+      type: 'emergency_room',
+      nameKo: '강북삼성병원',
+      operation: {
+        isOpenNow: true,
+        status: 'open',
+        statusConfidence: 'official_realtime',
+        verifiedAt: '2026-07-10T12:00:00Z',
+        notice: 'Opening hours are not published for this place. Call to check.',
+      },
+    })
+
+    expect(screen.getByText('Emergency room')).toBeInTheDocument()
+    expect(screen.getByText('Hours unknown')).toBeInTheDocument()
+    expect(screen.queryByText('Open now')).not.toBeInTheDocument()
+    expect(screen.getByTestId('detail-operation-glyph')).toHaveTextContent('?')
+    expect(
+      screen.getByText(
+        'Opening hours are not available for these official emergency-room records. Call before you go.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('plays the sheet exit motion before closing through the accessible close button', async () => {
     const user = userEvent.setup()
     const onClose = vi.fn()

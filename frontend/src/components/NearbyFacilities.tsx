@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { FacilityMap } from './FacilityMap'
 import {
+  EMPTY_FACILITY_RESULT_NOTICE,
   fetchFacilities,
   fetchGeocode,
+  EMERGENCY_ROOM_HOURS_NOTICE,
   locationNotice,
   resolveLocation,
   SEOUL_CITY_HALL,
@@ -40,6 +42,8 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
 
   // `types` is a fresh array on every render; depending on it directly would refetch forever.
   const type = (types[0] ?? 'pharmacy') as FacilityType
+  const emergencyRoomMode = type === 'emergency_room'
+  const effectiveOpenNow = emergencyRoomMode ? false : openNow
 
   useEffect(() => {
     if (sessionLocation) setLocation(sessionLocation)
@@ -54,7 +58,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
     setFacilities([])
     setError(null)
     fetchFacilities(
-      { lat: location.lat, lng: location.lng, radiusM, openNow, type },
+      { lat: location.lat, lng: location.lng, radiusM, openNow: effectiveOpenNow, type },
       controller.signal,
     )
       .then((found) => {
@@ -71,10 +75,16 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       cancelled = true
       controller.abort()
     }
-  }, [location, type, radiusM, openNow])
+  }, [location, type, radiusM, effectiveOpenNow])
 
-  const plural = type === 'pharmacy' ? 'pharmacies' : 'hospitals'
-  const caption = `${plural} within ${radiusM}m${openNow ? ', open now' : ''}`
+  const plural =
+    type === 'pharmacy' ? 'pharmacies' : type === 'hospital' ? 'hospitals' : 'emergency rooms'
+  const caption = `${plural} within ${radiusM}m${effectiveOpenNow ? ', open now' : ''}`
+  const emptyResultNotice = emergencyRoomMode
+    ? EMPTY_FACILITY_RESULT_NOTICE
+    : `No ${plural} found within ${radiusM}m${
+        effectiveOpenNow ? ' that we know to be open right now' : ''
+      }.`
 
   async function handleUseDeviceLocation() {
     setLocating(true)
@@ -118,9 +128,16 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
         </button>
       )}
 
+      {emergencyRoomMode && (
+        <p className="rounded-lg border border-yellow-ring bg-yellow-subtle p-3 text-sm text-primary">
+          {EMERGENCY_ROOM_HOURS_NOTICE}
+        </p>
+      )}
+
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
         facilities={facilities}
+        facilityType={type}
         caption={caption}
         notice={locationNotice(location)}
         manualLocation={
@@ -148,10 +165,7 @@ export function NearbyFacilities({ types, radiusM, openNow }: NearbyFacilitiesPr
       {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}
 
       {!loadingFacilities && !error && facilities.length === 0 && (
-        <p className="text-sm text-secondary">
-          No {plural} found within {radiusM}m
-          {openNow ? ' that we know to be open right now' : ''}.
-        </p>
+        <p className="text-sm text-secondary">{emptyResultNotice}</p>
       )}
     </div>
   )

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Check, Phone, X } from 'lucide-react'
 import { useFavorites } from '../lib/favorites'
+import { EMERGENCY_ROOM_HOURS_NOTICE } from '../lib/facilities'
 import type { Facility } from '../lib/types'
 
 export interface DetailDrawerProps {
@@ -20,18 +21,23 @@ function facilityTypeLabel(facility: Facility): string {
 }
 
 function operationLabel(facility: Facility): string {
+  if (facility.type === 'emergency_room') return 'Hours unknown'
   if (facility.operation.isOpenNow === true) return 'Open now'
   if (facility.operation.isOpenNow === false) return 'Closed'
   return 'Hours unknown'
 }
 
 function operationGlyph(facility: Facility): string {
+  if (facility.type === 'emergency_room') return '?'
   if (facility.operation.isOpenNow === true) return '✓'
   if (facility.operation.isOpenNow === false) return '×'
   return '?'
 }
 
 function operationGlyphClass(facility: Facility): string {
+  if (facility.type === 'emergency_room') {
+    return 'border border-yellow-ring bg-yellow-subtle text-yellow-vivid'
+  }
   if (facility.operation.isOpenNow === true) {
     return 'border border-green-ring bg-green-subtle text-green-vivid'
   }
@@ -56,6 +62,10 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
   const [closing, setClosing] = useState(false)
   const saved = favorites.some((favorite) => favorite.facilityId === facility.id)
   const saving = savingFacilityId === facility.id
+  const operationNotice =
+    facility.type === 'emergency_room'
+      ? EMERGENCY_ROOM_HOURS_NOTICE
+      : facility.operation.notice
 
   const requestClose = useCallback(() => {
     if (closing) return
@@ -180,8 +190,8 @@ export function DetailDrawer({ facility, onClose }: DetailDrawerProps) {
           </button>
           {saveError && <p role="alert" className="text-sm text-secondary">{saveError}</p>}
 
-          {facility.operation.notice && (
-            <p className="rounded-lg bg-muted p-3 text-primary">{facility.operation.notice}</p>
+          {operationNotice && (
+            <p className="rounded-lg bg-muted p-3 text-primary">{operationNotice}</p>
           )}
 
           <div className="border-t border-primary pt-4">

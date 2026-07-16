@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Phone } from 'lucide-react'
 import {
+  EMPTY_FACILITY_RESULT_NOTICE,
   fetchFacilities,
   fetchGeocode,
+  EMERGENCY_ROOM_HOURS_NOTICE,
   locationNotice,
   resolveLocation,
   SEOUL_CITY_HALL,
@@ -15,13 +17,15 @@ import type { Facility, FacilityType, GeocodeResult } from '../lib/types'
 import { FacilityMap } from './FacilityMap'
 
 const RADIUS_M = 1000
-const HOSPITAL_UNAVAILABLE = 'We cannot look up hospitals yet — pharmacy search works today.'
-type TypeFilter = 'all' | 'pharmacy' | 'hospital'
+const HOSPITAL_UNAVAILABLE =
+  'Hospital search is unavailable right now. Pharmacy and emergency-room search may still work.'
+type TypeFilter = 'all' | FacilityType
 
-const TYPE_FILTERS: Array<{ id: TypeFilter; label: string }> = [
+const TYPE_FILTERS: Array<{ id: TypeFilter; label: string; accessibleLabel?: string }> = [
   { id: 'all', label: 'All' },
   { id: 'pharmacy', label: 'Pharmacies' },
   { id: 'hospital', label: 'Hospitals' },
+  { id: 'emergency_room', label: 'ER', accessibleLabel: 'Emergency rooms' },
 ]
 
 function errorDetails(error: unknown): {
@@ -129,15 +133,17 @@ export function MapScreen({ active }: MapScreenProps) {
 
     async function loadSelectedFacilities() {
       if (typeFilter === 'all') {
-        const [pharmacyResult, hospitalResult] = await Promise.allSettled([
+        const [pharmacyResult, hospitalResult, emergencyRoomResult] = await Promise.allSettled([
           load('pharmacy'),
           load('hospital'),
+          load('emergency_room'),
         ])
         if (cancelled) return
 
         const found = [
           ...(pharmacyResult.status === 'fulfilled' ? pharmacyResult.value : []),
           ...(hospitalResult.status === 'fulfilled' ? hospitalResult.value : []),
+          ...(emergencyRoomResult.status === 'fulfilled' ? emergencyRoomResult.value : []),
         ]
         let nextError: string | null = null
 
@@ -150,6 +156,9 @@ export function MapScreen({ active }: MapScreenProps) {
           } else {
             nextError ??= errorMessage(hospitalResult.reason)
           }
+        }
+        if (emergencyRoomResult.status === 'rejected') {
+          nextError ??= errorMessage(emergencyRoomResult.reason)
         }
 
         setFacilities(found)
@@ -204,6 +213,7 @@ export function MapScreen({ active }: MapScreenProps) {
     setFetchError(null)
     setHospitalUnavailable(false)
     setLoadingFacilities(true)
+    if (nextType === 'emergency_room') setOpenNowOnly(false)
     setTypeFilter(nextType)
   }
 
@@ -223,6 +233,7 @@ export function MapScreen({ active }: MapScreenProps) {
   }
 
   const split = splitByOpenStatus(facilities)
+  const emergencyRoomMode = typeFilter === 'emergency_room'
   const mapFacilities = openNowOnly
     ? split.open
     : [...split.open, ...split.unknown, ...split.closed]
@@ -231,15 +242,21 @@ export function MapScreen({ active }: MapScreenProps) {
   const hasFixtureDataOnScreen = facilities.some((facility) => facility.source.dataMode === 'fixture')
   const resultKind =
     typeFilter === 'all'
-      ? hospitalUnavailable
-        ? 'pharmacies'
-        : 'facilities'
+      ? 'facilities'
       : typeFilter === 'pharmacy'
         ? 'pharmacies'
-        : 'hospitals'
+        : typeFilter === 'hospital'
+          ? 'hospitals'
+          : 'emergency rooms'
+  const resultSummaryKind =
+    emergencyRoomMode && facilities.length === 1 ? 'emergency room' : resultKind
+  const emptyResultNotice = typeFilter === 'all' || emergencyRoomMode
+    ? EMPTY_FACILITY_RESULT_NOTICE
+    : `No ${resultKind} found within ${RADIUS_M}m.`
   const showResultSummary =
     !loadingFacilities &&
-    !(typeFilter === 'hospital' && hospitalUnavailable) &&
+    !hospitalUnavailable &&
+    !(typeFilter === 'all' && fetchError !== null) &&
     (!fetchError || facilities.length > 0)
   const showEmptyState =
     !loadingFacilities &&
@@ -284,8 +301,11 @@ export function MapScreen({ active }: MapScreenProps) {
           <button
             key={filter.id}
             type="button"
+            aria-label={filter.accessibleLabel}
             aria-pressed={typeFilter === filter.id}
-            className={`min-h-11 border-r border-primary px-2 text-xs font-medium ${
+            className={`min-h-11 px-2 text-xs font-medium ${
+              filter.id === 'emergency_room' ? '' : 'border-r border-primary'
+            } ${
               typeFilter === filter.id
                 ? 'bg-primary text-surface'
                 : 'bg-surface text-primary'
@@ -295,33 +315,34 @@ export function MapScreen({ active }: MapScreenProps) {
             {filter.label}
           </button>
         ))}
-        <button
-          type="button"
-          disabled
-          aria-describedby="er-results-unavailable"
-          className="min-h-11 bg-surface px-2 text-xs font-medium text-secondary disabled:cursor-not-allowed"
-        >
-          ER
-        </button>
-        <span id="er-results-unavailable" className="sr-only">
-          Emergency-room results are not available yet.
-        </span>
       </div>
 
       <button
         type="button"
         role="switch"
         aria-checked={openNowOnly}
-        className="flex min-h-11 items-center justify-between rounded-full border border-primary bg-surface px-3 text-xs font-medium text-primary"
+        aria-describedby={emergencyRoomMode ? 'emergency-room-hours-notice' : undefined}
+        disabled={emergencyRoomMode}
+        className="flex min-h-11 items-center justify-between rounded-full border border-primary bg-surface px-3 text-xs font-medium text-primary disabled:cursor-not-allowed disabled:opacity-50"
         onClick={() => setOpenNowOnly((current) => !current)}
       >
         <span>Open now</span>
         <span aria-hidden="true">{openNowOnly ? 'On' : 'Off'}</span>
       </button>
 
+      {emergencyRoomMode && (
+        <p
+          id="emergency-room-hours-notice"
+          className="rounded-lg border border-yellow-ring bg-yellow-subtle p-3 text-sm text-primary"
+        >
+          {EMERGENCY_ROOM_HOURS_NOTICE}
+        </p>
+      )}
+
       <FacilityMap
         center={{ lat: location.lat, lng: location.lng }}
         facilities={mapFacilities}
+        facilityType={typeFilter === 'all' ? undefined : typeFilter}
         additionalFixtureData={hasFixtureDataOnScreen}
         caption={`Nearby ${resultKind} within ${RADIUS_M}m`}
         notice={locationNotice(location)}
@@ -339,11 +360,16 @@ export function MapScreen({ active }: MapScreenProps) {
         }
       />
 
-      {loadingFacilities && <p className="text-sm text-secondary">Loading facilities…</p>}
+      {loadingFacilities && (
+        <p className="text-sm text-secondary">
+          {emergencyRoomMode ? 'Loading emergency rooms…' : 'Loading facilities…'}
+        </p>
+      )}
 
       {showResultSummary && (
         <p className="text-sm text-primary">
-          {facilities.length} {resultKind} · {split.open.length} Open now · {split.unknown.length}{' '}
+          {facilities.length} {resultSummaryKind} · {split.open.length} Open now ·{' '}
+          {split.unknown.length}{' '}
           Hours unknown
         </p>
       )}
@@ -357,9 +383,7 @@ export function MapScreen({ active }: MapScreenProps) {
       )}
 
       {showEmptyState && (
-        <p className="text-sm text-secondary">
-          No {resultKind} found within {RADIUS_M}m.
-        </p>
+        <p className="text-sm text-secondary">{emptyResultNotice}</p>
       )}
 
       {openNowOnly && split.unknown.length > 0 && (
