@@ -23,6 +23,24 @@ class GeneralExplanationPolicyTest {
     }
 
     @Test
+    void allowsPossibilityWithoutTurningItIntoAUserDiagnosis() {
+        GeneralExplanationPolicy.ValidationResult result = policy.validate(
+                "It could be a cold, but symptoms alone cannot confirm that.");
+
+        assertThat(result.violations()).isEmpty();
+        assertThat(result.explanation()).isPresent();
+    }
+
+    @Test
+    void allowsAPlainLanguageTermDefinition() {
+        GeneralExplanationPolicy.ValidationResult result = policy.validate(
+                "Inflammation is the body's general response to irritation or injury.");
+
+        assertThat(result.violations()).isEmpty();
+        assertThat(result.explanation()).isPresent();
+    }
+
+    @Test
     void blocksDefinitePersonalDiagnosis() {
         GeneralExplanationPolicy.ValidationResult result =
                 policy.validate("You have influenza.");
@@ -40,6 +58,34 @@ class GeneralExplanationPolicyTest {
         assertThat(result.explanation()).isEmpty();
         assertThat(result.violations())
                 .containsExactly(GeneralExplanationPolicy.ViolationCode.PERSONAL_DOSE);
+    }
+
+    @Test
+    void blocksProbabilisticLanguageWhenItStillDiagnosesTheUser() {
+        GeneralExplanationPolicy.ValidationResult result =
+                policy.validate("You probably have influenza.");
+
+        assertThat(result.explanation()).isEmpty();
+        assertThat(result.violations())
+                .containsExactly(GeneralExplanationPolicy.ViolationCode.DEFINITE_DIAGNOSIS);
+    }
+
+    @Test
+    void blankAndOversizedOutputFailClosed() {
+        assertThat(policy.validate("  ").violations())
+                .containsExactly(GeneralExplanationPolicy.ViolationCode.EMPTY_OUTPUT);
+        assertThat(policy.validate("a".repeat(1_201)).violations())
+                .containsExactly(GeneralExplanationPolicy.ViolationCode.TOO_LONG);
+    }
+
+    @Test
+    void normalizesWhitespaceBeforeIssuingTheOpaqueValue() {
+        String summary = policy.validate("A mild fever can happen\nwith many possible causes.")
+                .explanation()
+                .orElseThrow()
+                .summary();
+
+        assertThat(summary).isEqualTo("A mild fever can happen with many possible causes.");
     }
 
     @ParameterizedTest
