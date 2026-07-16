@@ -683,13 +683,19 @@ class PharmacyApiClientTest {
             // weeklyHours falls back to the fixture and logs; basisDetail for an absent id throws.
             hybrid.weeklyHours("C9999999");
             assertThatThrownBy(() -> hybrid.basisDetail("C9999999"))
-                    .isInstanceOf(PublicApiException.class);
+                    .isInstanceOf(PublicApiException.class)
+                    .hasNoCause()
+                    .satisfies(error -> assertThat(error.getSuppressed()).isEmpty());
 
             assertThat(logs.list)
-                    .extracting(ILoggingEvent::getFormattedMessage)
-                    .noneMatch(m -> m.contains(SECRET_SENTINEL))
-                    .noneMatch(m -> m.contains("HPID="))
-                    .noneMatch(m -> m.contains("pharmacy.example"));
+                    .allSatisfy(
+                            event -> {
+                                assertThat(event.getFormattedMessage())
+                                        .doesNotContain(SECRET_SENTINEL, "HPID=", "pharmacy.example");
+                                // A formatted message can be clean while Logback still stores and
+                                // later prints a URI-bearing throwable. Keep that graph empty too.
+                                assertThat(event.getThrowableProxy()).isNull();
+                            });
         } finally {
             logger.detachAppender(logs);
             logs.stop();
