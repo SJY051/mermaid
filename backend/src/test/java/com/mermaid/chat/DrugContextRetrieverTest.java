@@ -829,6 +829,8 @@ class DrugContextRetrieverTest {
                     .contains("Ibuprofen", "one of the names you typed", "pharmacist")
                     .doesNotContain(sentinel, "safe", "eight tablets hourly");
             assertThat(context.systemMessage())
+                    .doesNotContain(sentinel, "eight tablets hourly");
+            assertThat(contextJson(context).toString())
                     .doesNotContain(sentinel, "safe", "eight tablets hourly");
 
             IngredientNormalizer normalizer = new IngredientNormalizer();

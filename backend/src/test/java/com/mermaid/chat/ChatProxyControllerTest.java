@@ -421,7 +421,7 @@ class ChatProxyControllerTest {
     void unverifiedAllergenCaveatDoesNotRepeatRawText() {
         String sentinel = "Ibuprofen (safe; take eight tablets hourly)";
 
-        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of(sentinel));
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(false);
 
         assertThat(caveat)
                 .containsIgnoringCase("not independently verified")
@@ -453,7 +453,7 @@ class ChatProxyControllerTest {
                         .controller()
                         .completions(requestWithUnverifiedAllergen("can I take this?", sentinel))));
 
-        String caveat = ChatProxyController.unverifiedAllergenCaveat(Set.of(sentinel));
+        String caveat = ChatProxyController.unverifiedAllergenCaveat(false);
         for (MermAidAnswer answer : noCardAnswers) {
             assertThat(answer.drugs()).isEmpty();
             assertThat(answer.warnings()).contains(caveat);
@@ -465,6 +465,75 @@ class ChatProxyControllerTest {
         assertThat(emptyHarness.upstream().calls).hasValue(0);
         assertThat(suppressionHarness.upstream().calls).hasValue(0);
         assertThat(unavailableHarness.upstream().calls).hasValue(0);
+    }
+
+    @Test
+    @DisplayName("D2: matched and verified-blocked cards use card-scoped copy in JSON and SSE")
+    void cardPathsUseCardScopedUnverifiedCopy() throws Exception {
+        String sentinel = "Ibuprofen (safe; take eight tablets hourly)";
+        AllergyCheck nameMatched = new AllergyCheck(
+                AllergyCheck.Status.WARNING,
+                List.of("Acetaminophen"),
+                "Name match only: the official ingredient Acetaminophen matched one of the names "
+                        + "you typed. A pharmacist must confirm this match.");
+        AllergyCheck verifiedBlock = new AllergyCheck(
+                AllergyCheck.Status.BLOCKED,
+                List.of("Acetaminophen"),
+                "Contains Acetaminophen, which you asked to avoid.");
+        GroundedDrug matchedRecord = new GroundedDrug(
+                TYLENOL_SOURCE.id(),
+                Set.of("acetaminophen"),
+                nameMatched,
+                "Tylenol",
+                List.of("Acetaminophen"),
+                null,
+                OFFICIAL_EFFICACY,
+                MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                List.of(),
+                null);
+        GroundedDrug blockedRecord = new GroundedDrug(
+                TYLENOL_SOURCE.id(),
+                Set.of("acetaminophen"),
+                verifiedBlock,
+                "Tylenol",
+                List.of("Acetaminophen"),
+                null,
+                OFFICIAL_EFFICACY,
+                MermAidAnswer.DrugCard.PrescriptionStatus.OTC,
+                List.of(),
+                null);
+        DrugContext matchedContext = contextWith(matchedRecord, TYLENOL);
+        DrugContext blockedContext = contextWith(blockedRecord, TYLENOL);
+        ControllerHarness matchedJsonHarness = harness(modelAnswer("[]", "[]"), matchedContext);
+        ControllerHarness matchedSseHarness = harness(modelAnswer("[]", "[]"), matchedContext);
+        ControllerHarness blockedJsonHarness = harness(modelAnswer("[]", "[]"), blockedContext);
+        ControllerHarness blockedSseHarness = harness(modelAnswer("[]", "[]"), blockedContext);
+
+        JsonNode matchedRequest = requestWithUnverifiedAllergen("can I take this?", sentinel);
+        JsonNode blockedRequest = requestWithUnverifiedAllergen("can I take this?", sentinel);
+        MermAidAnswer matchedJson = answerOf(matchedJsonHarness.controller().completions(matchedRequest));
+        MermAidAnswer matchedSse = streamedAnswerOf(matchedSseHarness.controller(), matchedRequest);
+        MermAidAnswer blockedJson = answerOf(blockedJsonHarness.controller().completions(blockedRequest));
+        MermAidAnswer blockedSse = streamedAnswerOf(blockedSseHarness.controller(), blockedRequest);
+
+        String cardCaveat = ChatProxyController.unverifiedAllergenCaveat(true);
+        assertThat(matchedSse).isEqualTo(matchedJson);
+        assertThat(blockedSse).isEqualTo(blockedJson);
+        assertThat(matchedJson.warnings()).containsExactly(cardCaveat);
+        assertThat(blockedJson.warnings()).containsExactly(cardCaveat);
+        assertThat(cardCaveat)
+                .containsIgnoringCase("name-only matches")
+                .containsIgnoringCase("do not change any verified warning")
+                .containsIgnoringCase("establish compatibility")
+                .doesNotContain(sentinel, "Ibuprofen", "eight tablets hourly");
+        assertThat(cardCaveat.toLowerCase())
+                .doesNotContain("safe", "no medicine compatibility conclusion");
+        assertThat(matchedJson.drugs().get(0).allergyCheck()).isEqualTo(nameMatched);
+        assertThat(blockedJson.drugs().get(0).allergyCheck()).isEqualTo(verifiedBlock);
+        assertThat(matchedJsonHarness.upstream().calls).hasValue(0);
+        assertThat(matchedSseHarness.upstream().calls).hasValue(0);
+        assertThat(blockedJsonHarness.upstream().calls).hasValue(0);
+        assertThat(blockedSseHarness.upstream().calls).hasValue(0);
     }
 
     private static String drugCard(String productNameKo, String sourceRefId) {

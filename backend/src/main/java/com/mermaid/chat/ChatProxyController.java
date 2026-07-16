@@ -15,7 +15,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.RequiredArgsConstructor;
@@ -46,18 +45,20 @@ public class ChatProxyController {
 
     private static final long STREAM_TIMEOUT_MS = 120_000L;
     /**
-     * Names the allergens it is talking about, and only those.
+     * PM/QA-reviewable draft for the approved D1/D2 no-card semantics (SJY051, 2026-07-16).
      *
-     * <p>"The named allergens were checked by name only" reads, in a session that also carries
-     * picker selections, as though it covers those too — so a card the server stamped {@code
-     * blocked} for a reviewed ingredient sits next to a sentence saying that match was merely a
-     * name and needs confirming. The caveat belongs to the words the user typed, so it says them.
+     * <p>The original strings are user-owned editing data. Repeating them here would let arbitrary
+     * reassurance or dose-like prose borrow the authority of a server warning. A card that actually
+     * name-matched carries its separate, official-ingredient-only message from {@link
+     * DrugContextRetriever}.
      */
-    static String unverifiedAllergenCaveat(Set<String> typedAllergens) {
-        return "The allergens you typed ("
-                + String.join(", ", new TreeSet<>(typedAllergens))
-                + ") were checked against ingredient names only; a pharmacist must confirm them. "
-                + "This does not change any other warning on this page.";
+    static String unverifiedAllergenCaveat(boolean hasCards) {
+        return hasCards
+                ? "The names you typed were not independently verified. Name-only matches, if any, "
+                        + "are shown on individual cards and do not change any verified warning or "
+                        + "establish compatibility. A pharmacist must confirm the exact names."
+                : "The names you typed were not independently verified, so no medicine compatibility "
+                        + "conclusion was made from them. A pharmacist must confirm the exact names.";
     }
 
     private final ChatProxyService chatProxyService;
@@ -340,7 +341,7 @@ public class ChatProxyController {
         if (answer.warnings() != null) {
             warnings.addAll(answer.warnings());
         }
-        String caveat = unverifiedAllergenCaveat(unverifiedAllergens);
+        String caveat = unverifiedAllergenCaveat(answer.drugs() != null && !answer.drugs().isEmpty());
         if (!warnings.contains(caveat)) {
             warnings.add(caveat);
         }
