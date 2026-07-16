@@ -2,7 +2,7 @@
 
 Operating instructions for everyone working in this repository — humans and AI agents follow the same rules. Each rule states what to do first and why second; a rule whose reason is unknown gets neither followed nor generalised.
 
-> 한국어 요약과 빠른 시작은 [README.md](README.md)에 있습니다. 비개발자 팀원 안내는 [§12](#12-for-non-developer-teammates)를 보세요 — 번역기를 써도 좋고, 물어봐도 좋습니다.
+> 한국어 소개는 [README.md](README.md), 개발 빠른 시작은 [docs/개발.md](docs/개발.md)에 있습니다. 비개발자 팀원 안내는 [§12](#12-for-non-developer-teammates)를 보세요 — 번역기를 써도 좋고, 물어봐도 좋습니다.
 
 If you find something here that is wrong, fix it and open a PR. Documentation goes stale faster than code.
 
