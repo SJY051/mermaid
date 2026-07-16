@@ -317,6 +317,9 @@ describe('MapScreen', () => {
       ),
     ).toBeInTheDocument()
     expect(screen.queryByText('No facilities found within 1000m.')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('0 facilities · 0 Open now · 0 Hours unknown'),
+    ).not.toBeInTheDocument()
   })
 
   it('renders null opening hours as Hours unknown, never Closed', async () => {
@@ -335,7 +338,9 @@ describe('MapScreen', () => {
     expect(unknownPin).toHaveTextContent('Hours unknown')
     expect(unknownPin).not.toHaveTextContent('Closed')
     expect(screen.queryByText('Closed')).not.toBeInTheDocument()
-    expect(screen.getByText('1 facilities · 0 Open now · 1 Hours unknown')).toBeInTheDocument()
+    expect(
+      screen.queryByText('1 facilities · 0 Open now · 1 Hours unknown'),
+    ).not.toBeInTheDocument()
     expect(screen.getByTestId('map-notice')).toHaveTextContent(
       'Centred on Seoul City Hall — we could not read your location, so these are not near you.',
     )

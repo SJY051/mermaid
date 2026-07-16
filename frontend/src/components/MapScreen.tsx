@@ -255,7 +255,7 @@ export function MapScreen({ active }: MapScreenProps) {
     : `No ${resultKind} found within ${RADIUS_M}m.`
   const showResultSummary =
     !loadingFacilities &&
-    !(typeFilter === 'hospital' && hospitalUnavailable) &&
+    !hospitalUnavailable &&
     (!fetchError || facilities.length > 0)
   const showEmptyState =
     !loadingFacilities &&
